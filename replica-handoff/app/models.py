@@ -358,3 +358,51 @@ class CallProviderStatus(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     __table_args__ = (UniqueConstraint('provider', 'external_call_id', name='uq_call_provider_status'),)
+
+
+class TurnLatencyTrace(Base):
+    """Sprint 2: end-to-end pipeline timing for one final turn, produced by the
+    Twilio Media Streams pipeline (app/streaming/pipeline.py) via
+    app/streaming/timing.py's LatencyTrace. One row per final turn processed through
+    app/services/turn_pipeline.process_final_turn().
+
+    Wall-clock `_at` columns are for audit/cross-system correlation only. Every
+    `_ms` duration column is computed from monotonic clock readings taken in-process
+    (see docs/DECISIONS.md ADR-041) — monotonic values themselves are never
+    persisted, only the deltas, since a monotonic clock's epoch is arbitrary and
+    meaningless outside the process that read it.
+
+    `salesbrain_latency_ms` is the pre-existing internal Fast-Path engine latency
+    (ADR-021/022) now measured inside a real pipeline — it is NOT, and must never be
+    reported as, real RSL. `real_rsl_ms` is the actual product metric
+    (`t_ui_rendered - t_turn_end_detected`, per docs/ARCHITECTURE.md §8) and stays
+    NULL until a real UI render acknowledgement exists (Sprint 3+); it is never
+    backfilled with an approximation.
+    """
+    __tablename__ = 'turn_latency_traces'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey('companies.id'), index=True)
+    call_id: Mapped[int] = mapped_column(ForeignKey('calls.id'), index=True)
+    turn_id: Mapped[str] = mapped_column(String(200), index=True)
+    trace_id: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    speaker: Mapped[str] = mapped_column(String(20))
+
+    t_audio_received_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    t_asr_interim_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    t_asr_final_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    t_turn_end_detected_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    t_salesbrain_started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    t_salesbrain_finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    t_suggestion_persisted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    t_suggestion_pushed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    t_ui_rendered_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    audio_to_interim_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    audio_to_final_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    turn_detection_latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    salesbrain_latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    suggestion_persist_latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    suggestion_push_latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    real_rsl_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)

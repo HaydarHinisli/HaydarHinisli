@@ -95,6 +95,13 @@ idempotency (`app/webhooks/idempotency.py`) prevents a retried delivery from bei
 reprocessed, and out-of-order/stale status events are detected and not applied
 without being silently dropped (`app/webhooks/call_status.py` — see ADR-035).
 
+Media Streams WebSocket (Sprint 2, `app/streaming/media_stream_security.py`): the
+same `X-Twilio-Signature`/`RequestValidator` check, applied to the WebSocket
+handshake and verified BEFORE `accept()` — an unauthenticated caller is refused at
+the handshake, never accepted and then dropped. `REPLICA_ENV=production` additionally
+requires the connection to have arrived over `wss` (checked via `X-Forwarded-Proto`
+behind a reverse proxy, or the connection's own scheme). See ADR-037.
+
 ---
 
 ## 8. Jurisdiction enforcement

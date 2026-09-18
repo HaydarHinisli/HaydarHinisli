@@ -248,7 +248,35 @@ Deterministically assigns a call to a variant.
 ## Streaming
 
 ### `WS /ws/twilio-media`
-Accepts Twilio Media Stream JSON events. Authenticated via Twilio's own
-request/signature verification (see `docs/INTEGRATIONS.md`), not a REPLICA user bearer
-token. The current MVP counts/validates stream metadata only. The production version
-routes payloads into ASR/audio-feature workers.
+Twilio Media Streams ingestion (Sprint 2, `docs/DECISIONS.md` ADR-037..042). **No
+`Authorization` header** — authenticated solely by `X-Twilio-Signature` at the
+handshake (verified BEFORE accepting the connection), exactly like the call-status
+webhook, via the same official `RequestValidator`. Missing/invalid signature, or an
+unresolvable auth token → connection closed (code 1008), never accepted. Production
+connections must arrive over `wss` (`REPLICA_ENV=production` gates enforcement,
+since local/dev has no TLS-terminating proxy in front of it).
+
+Expects Twilio's standard `connected`/`start`/`media`/`stop` message sequence,
+`tracks="both_tracks"`. The `start` event's `customParameters.replica_call_id` (set
+via a `<Parameter>` on the `<Stream>` TwiML noun) is used to resolve the REPLICA
+`Call`; falling back to matching `callSid` against `Call.external_call_id` when not
+set. No resolvable call → connection closed immediately (no tenant/policy context to
+evaluate against).
+
+Per-message processing: `inbound` (prospect) and `outbound` (seller/agent) tracks are
+tracked completely separately (identity/sequence diagnostics, voice-activity
+detection, ASR) — see `docs/DATA_MODEL.md`'s `TurnLatencyTrace` and
+`docs/DECISIONS.md` ADR-038 for the diagnostics this surfaces (missing/duplicate/
+out-of-order chunks, audio gaps, reconnects, backpressure), logged as structured
+warnings, never merged into or misread as ASR/SalesBrain behavior. A detected final
+turn (a track's own voice-activity detector transitioning from speaking to silent)
+is the ONLY thing that reaches `app/services/turn_pipeline.process_final_turn()` —
+interim transcripts, however many fire per utterance, never create a `Turn`,
+`Suggestion`, or `ConversationStateEvent` row (ADR-042). Every final turn also
+persists a `TurnLatencyTrace` row (see `docs/DATA_MODEL.md`).
+
+This endpoint has no synchronous HTTP response; its effects are observable via
+`GET /api/calls/{call_id}/review`, `GET /api/calls/{call_id}/conversation-state`, and
+the `TurnLatencyTrace`/`ConversationStateEvent` tables (no dedicated read endpoint
+for those two yet — direct DB/audit tooling only, matching this sprint's scope of
+proving the pipeline shape rather than adding new product-facing read APIs).

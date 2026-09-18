@@ -128,6 +128,24 @@ discarding the fact that it arrived. See `docs/DECISIONS.md` ADR-035.
 - last_status / last_sequence_number
 - updated_at
 
+### TurnLatencyTrace (Sprint 2)
+End-to-end pipeline timing for one final turn processed through the Twilio Media
+Streams pipeline (`app/streaming/pipeline.py` → `app/services/turn_pipeline.
+process_final_turn()`). One row per final turn. Wall-clock `_at` columns are for
+audit/cross-system correlation only; every `_ms` duration is computed from
+monotonic clock readings taken in-process. See `docs/DECISIONS.md` ADR-041.
+
+- company_id / call_id / turn_id / trace_id / speaker
+- t_audio_received_at, t_asr_interim_at, t_asr_final_at, t_turn_end_detected_at,
+  t_salesbrain_started_at, t_salesbrain_finished_at, t_suggestion_persisted_at,
+  t_suggestion_pushed_at (Sprint 2: always null — no UI push exists yet),
+  t_ui_rendered_at (Sprint 3+)
+- audio_to_interim_ms, audio_to_final_ms (ASR latency), turn_detection_latency_ms,
+  salesbrain_latency_ms (internal Fast-Path engine latency — **not** RSL),
+  suggestion_persist_latency_ms, suggestion_push_latency_ms,
+  real_rsl_ms (`t_ui_rendered - t_turn_end_detected` — the actual product metric;
+  stays null until a real UI render exists, never approximated)
+
 ### Meeting
 - external provider ID
 - source

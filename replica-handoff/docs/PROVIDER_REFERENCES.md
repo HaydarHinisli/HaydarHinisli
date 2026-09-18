@@ -10,6 +10,16 @@ Important current facts:
 - Media Streams send JSON WebSocket messages such as `connected`, `start`, `media`, `stop`.
 - Audio payload arrives base64-encoded inside media events.
 - Region support should be chosen deliberately for an EU pilot.
+- `media.chunk`/`media.timestamp`/`sequenceNumber` are documented as arriving as
+  JSON strings, not numbers — parsed defensively (`app/streaming/media_stream_session.py`).
+
+**Unverified assumption, flagged for pilot go-live** (Sprint 2, `docs/DECISIONS.md`
+ADR-037): this environment has no live Twilio account to confirm current wire
+behavior against, so the following is implemented per the best available
+documentation but MUST be confirmed against a real Media Streams connection before
+going live: the WebSocket handshake request is signed with `X-Twilio-Signature` the
+same way as an HTTP webhook, validated against the request URL and its query-string
+parameters (empty dict, since there is no POST body).
 
 ## OpenAI Realtime / Voice WebSockets
 - https://developers.openai.com/api/docs/guides/realtime

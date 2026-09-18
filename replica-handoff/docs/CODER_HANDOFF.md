@@ -39,6 +39,16 @@ Turn this MVP into a pilot that one real seller can use during live outbound cal
 ### Done when
 A real consented phone conversation produces timestamped speaker turns in REPLICA.
 
+**Status**: the full pipeline shape is implemented and proven against a faithful
+protocol-level simulation (real WebSocket, real signature verification, real
+mu-law-encoded audio, real signal-energy VAD, real turn detection, the real central
+processing path, real measured latencies) — see `docs/DECISIONS.md` ADR-037..042 and
+`tests/test_streaming_pipeline_e2e.py`. What remains, honestly, before this "Done
+when" is met by an ACTUAL phone call: a live Twilio account/phone number wired to
+this endpoint, and a real ASR vendor implementing the `ASRProvider` seam
+(`app/streaming/asr.py`) in place of `SimulatedASRProvider`. Neither is reachable
+from this development environment.
+
 ## Sprint 3 — Low-latency copilot
 
 Implement:

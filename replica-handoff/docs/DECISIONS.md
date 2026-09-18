@@ -768,3 +768,207 @@ configured `REPLICA_PUBLIC_BASE_URL` fails closed (403) rather than falling back
 reconstructing the URL from `request.url`, which would defeat the entire reverse-proxy
 protection ADR-029 established — see `tests/test_signature_hardening.py`'s
 `test_endpoint_rejects_when_configured_public_base_url_is_wrong`.
+
+## ADR-037 — Twilio Media Streams WebSocket: the same fail-closed posture as the HTTP webhook, applied to a handshake instead of a request
+Status: accepted
+
+Sprint 2's real-time audio ingestion (`/ws/twilio-media`) opens a second inbound
+channel from Twilio that the Provider-Ready Gate's webhook hardening (ADR-029/036)
+never covered — a real gap the user flagged explicitly before Sprint 2 began. The
+same two principles apply, adapted to a WebSocket handshake instead of a POST request:
+
+1. **Signature verification before `accept()`.** Twilio signs the Media Streams
+   connection request the same way it signs webhooks
+   (`app/streaming/media_stream_security.verify_media_stream_signature()`, reusing
+   the exact same official `RequestValidator` seam as ADR-036 — no second
+   cryptographic implementation). The check runs, and can reject the connection,
+   *before* `websocket.accept()` is ever called, so an unauthenticated caller is
+   refused at the handshake, never accepted and then dropped. **Documented
+   assumption, not independently verifiable from this environment**: Twilio's
+   Media Streams connection has no POST body, so the parameters signed are the
+   request's query-string parameters (empty if none) — this must be confirmed
+   against a real Twilio Media Streams connection before pilot go-live; it is not
+   silently assumed correct forever, just today, in an environment with no live
+   Twilio account to test against.
+2. **wss-only in production.** `is_secure_transport()` checks `X-Forwarded-Proto`
+   first (a TLS-terminating reverse proxy reports its own, often plain, connection
+   to REPLICA on `websocket.url.scheme` — the identical caveat as ADR-029/036's HTTP
+   URL reconstruction), falling back to the scheme itself. Enforcement is gated on
+   `REPLICA_ENV=production` — local/dev/test runs have no TLS-terminating proxy in
+   front of them at all and must keep working over plain `ws://`; production must
+   never be flexible about this.
+
+A third fail-closed gate exists only for this streaming path: **call resolution**.
+Twilio's `start` event is matched to a REPLICA `Call` via
+`customParameters.replica_call_id` (set via a `<Parameter>` on the `<Stream>` TwiML
+noun — unambiguous) or, failing that, `Call.external_call_id == callSid` (the same
+correlation the status-callback webhook already uses). No match means REPLICA has no
+tenant/jurisdiction/consent context to evaluate policy against — the connection is
+closed immediately rather than processed under an unknown or default context,
+consistent with every other fail-closed gate in this codebase since Sprint 0.
+
+## ADR-038 — Media stream track separation and identity/sequence diagnostics are real signal processing, not simulated
+Status: accepted
+
+Two things needed to be true simultaneously for Sprint 2's pipeline to be honest
+rather than merely working: inbound (prospect) and outbound (seller/agent) audio
+must never be merged before any processing that depends on knowing who is speaking,
+and the diagnostics that detect transport problems must be REAL, not asserted.
+
+`app/streaming/media_stream_session.py`'s `MediaStreamSession` keeps a completely
+separate `TrackDiagnostics` per track (`inbound`/`outbound`) from the first `media`
+event onward — there is no code path where the two tracks' bytes are combined.
+Sequence/identity bookkeeping is real arithmetic against Twilio's own per-track
+`media.chunk` counter and per-connection `sequenceNumber`, not a placeholder:
+`observe_chunk()` distinguishes a genuine gap (`missing_before`) from an exact
+repeat (`duplicate`) from a never-seen-but-lower number (`out_of_order`), each with
+its own counter — verified in `tests/test_streaming_media_session.py` against
+constructed sequences engineered to hit exactly one of those three cases each.
+`observe_timestamp()` flags a real audio gap from Twilio's own in-stream
+`media.timestamp` jumping further than a couple of nominal frame durations — a
+distinct signal from a sequence-number anomaly, since a reordering is not
+necessarily lost audio time. `observe_processing_lag()` computes backpressure as the
+growing distance between wall-clock processing time and the nominal in-stream audio
+timestamp — a consumer that cannot keep up with real-time delivery shows this
+growing, not constant (verified with an explicit test asserting monotonically
+increasing lag under simulated slow processing). A new `start` event for an
+already-known call with a *different* `streamSid` is treated as a reconnect: counted,
+and per-track sequence state is reset (a fresh stream restarts its own chunk
+numbering), so a reconnect does not manufacture spurious "missing chunk" noise
+against the old stream's numbering.
+
+Voice-activity detection (`app/streaming/vad.py`) is genuine signal energy, not a
+heuristic on metadata: `app/streaming/mulaw.py` implements the standard ITU-T G.711
+mu-law decode algorithm from scratch (verified byte-for-byte identical to the stdlib
+`audioop.ulaw2lin` reference for all 256 possible byte values — see
+`tests/test_streaming_dsp.py`), specifically to avoid depending on `audioop`, which
+is deprecated and scheduled for removal (Python 3.13, PEP 594) — a stdlib dependency
+this codebase would otherwise have to rip out again soon. `VoiceActivityDetector`
+computes RMS over the actually-decoded samples and applies a fixed threshold plus a
+hangover window (absorbing a natural mid-utterance pause without ending the turn).
+What IS a deliberate simplification, flagged as tech debt: a fixed energy threshold
+rather than an adaptive noise floor — acceptable to prove the pipeline shape, not
+acceptable as-is for real telephony line noise variance in a pilot.
+
+## ADR-039 — Turn detection: prospect/seller/overlap/speaker-change/turn-end as distinct signals; overlap is flagged, not adjudicated
+Status: accepted
+
+`app/streaming/turn_detector.py`'s `TurnDetector` is the component the Sprint 2
+requirements named explicitly: REPLICA must be able to tell "prospect is speaking"
+from "seller is speaking" from "both are speaking (overlap)" from "the active
+speaker just changed" from "a turn just ended" as separately observable facts, not
+one blended signal derived after the fact. `on_vad_update()` returns all of these as
+independent booleans per call, and `on_turn_ended()` resolves a track's own
+finalized utterance into exactly one `TurnEvent`.
+
+Deliberate scope limit: who "held the floor" during genuine overlap (talking over
+each other) is not algorithmically adjudicated in this sprint. Each track's
+utterance still finalizes independently once THAT track's own VAD detects silence;
+overlap is only flagged (`had_overlap=True` on both resulting `TurnEvent`s from an
+overlapping exchange — see `tests/test_streaming_turn_detector.py`'s
+`test_each_track_finalizes_independently_even_when_overlapping`), never resolved
+into a single winning turn. Building a real barge-in/floor-holding model is
+substantial, separate work (arguably a research problem on its own) and was
+explicitly out of scope for proving Sprint 2's target pipeline shape
+(Twilio call -> separated channels -> ASR -> turn detection -> one final turn ->
+ConversationState -> SalesBrain -> Suggestion) — flagged here rather than silently
+deferred.
+
+## ADR-040 — process_final_turn(): the one central path Sprint 2 was asked to build toward
+Status: accepted
+
+The Provider-Ready Gate's ADR-032 predicted this explicitly: "once Sprint 2 has one
+real 'final turn' event, it should call `apply_turn()` exactly once through a single
+processing path." `app/services/turn_pipeline.process_final_turn()` is that path —
+the *only* function `app/streaming/pipeline.py`'s `MediaStreamPipeline` calls to turn
+a detected final utterance into persisted state, and the only call site of
+`apply_turn()`/`suggest_with_state()` anywhere in the streaming stack.
+
+It deliberately does NOT touch or replace the existing HTTP endpoints. `add_turn()`
+and `copilot()` in `app/main.py` keep their existing two-independently-claimed-action
+behavior (`'transcribe'` / `'live_assist'`) byte for byte — verified by the full,
+unmodified existing test suite passing unchanged. Changing that HTTP wire contract
+was out of scope for this sprint; `process_final_turn()` is a new, additional path
+for the new ingestion route, claiming a distinct action value (`'final_turn'`) so its
+`ProcessedTurnEvent` dedup ledger entries can never collide with the HTTP paths'.
+Within that one path, transcription and live-assist remain two independently
+policy-gated actions (unchanged from ADR-031/032's reasoning) — a prospect turn
+whose `'transcribe'` is allowed but `'live_assist'` is not still gets its transcript
+persisted, just no phase advance or `Suggestion` — collapsed into one function call
+rather than one blanket permission.
+
+To make this extraction possible without duplicating the state-loading logic
+`add_turn()`/`copilot()` already had, the DB-aware `ConversationState`
+load/apply/history-record helpers moved from `app/main.py` into
+`app/services/conversation_state_store.py` (pure relocation, zero behavior change —
+same test suite, unchanged, confirms it) so both the HTTP layer and the new
+streaming layer share one implementation instead of two copies drifting apart.
+
+Atomicity: `process_final_turn()` follows the exact same single-Session,
+single-commit discipline as the HTTP endpoints (ADR-034) — policy check, the
+`ProcessedTurnEvent` claim, the `Turn` row, the ConversationState update +
+`ConversationStateEvent`, and (for a prospect turn) the `Suggestion` row all share
+one transaction. A crash before that commit rolls everything back together, exactly
+as documented in ADR-034 for the HTTP paths.
+
+## ADR-041 — End-to-end latency instrumentation: monotonic for math, wall-clock for audit, real Fast-Path latency never called RSL
+Status: accepted
+
+`app/services/latency_trace.LatencyTrace` marks each of the nine named pipeline
+stages (`audio_received`, `asr_interim`, `asr_final`, `turn_end_detected`,
+`salesbrain_started`, `salesbrain_finished`, `suggestion_persisted`,
+`suggestion_pushed`, `ui_rendered` — matching docs/ARCHITECTURE.md §8 and the Sprint
+2 requirements exactly) with BOTH a `time.monotonic()` reading and a
+`datetime.utcnow()` reading, per the explicit instruction to keep both. Every
+duration/latency number persisted (`TurnLatencyTrace`'s `*_ms` columns) is computed
+exclusively from the monotonic readings — immune to NTP adjustments or system clock
+changes, which would otherwise silently corrupt a latency measurement mid-call. The
+wall-clock `*_at` columns exist purely for audit/tracing correlation across systems
+and logs; they are never used in latency arithmetic. Monotonic values themselves are
+never persisted (a monotonic clock's epoch is arbitrary per-process and meaningless
+after the process exits or on a different machine) — only the deltas, which is what
+is actually meaningful.
+
+`salesbrain_latency_ms` (`salesbrain_started` -> `salesbrain_finished`, bracketing
+precisely the `suggest_with_state()`/`apply_turn()` call inside
+`process_final_turn()`, not the surrounding DB work) is the same internal Fast-Path
+engine latency measured since Sprint 1 (ADR-021/022) — now measured inside a real
+pipeline instead of a synthetic benchmark, but still explicitly NOT real RSL, and
+never reported as such anywhere in code, tests, or this report. `real_rsl_ms`
+(`turn_end_detected` -> `ui_rendered`) is the actual product metric and stays `NULL`
+until a real UI render acknowledgement exists — Sprint 2 has no UI push mechanism at
+all (that is explicitly Sprint 3's deliverable per `docs/CODER_HANDOFF.md`), so
+`suggestion_pushed`/`ui_rendered`/`real_rsl_ms` are left unmarked rather than
+approximated. Marking them with a fabricated timestamp would manufacture a fake RSL
+number, exactly what "never call internal latency real RSL" forbids — see
+`tests/test_streaming_pipeline_e2e.py`'s
+`test_latency_trace_stages_are_recorded_in_correct_monotonic_order`, which asserts
+`real_rsl_ms is None` as a hard requirement, not an oversight.
+
+## ADR-042 — Streaming ASR seam: interim transcripts are structurally incapable of triggering final-turn side effects
+Status: accepted
+
+`app/streaming/asr.py` introduces `ASRProvider`/`ASRStreamHandle` (the same seam
+pattern as `SecretsProvider`, ADR-028) with exactly one implementation,
+`SimulatedASRProvider` — not real speech recognition, and honestly labelled as such:
+an utterance the caller didn't pre-register via `script` comes back as an
+unmistakably fake placeholder string (`PLACEHOLDER_TEXT`), never something that
+could pass for a plausible-but-wrong transcript. No live ASR vendor is reachable
+from this environment; the seam exists so a real one (Deepgram, Google STT, Twilio
+Voice Intelligence, OpenAI Realtime transcription, ...) drops in later without
+touching turn detection or the central processing path.
+
+The requirement this ADR is really about: an interim transcript must never itself
+produce a final ConversationState transition, a Cold Call Genome event, or a
+duplicate Suggestion. This is enforced structurally, not by convention —
+`MediaStreamPipeline._on_interim()` (`app/streaming/pipeline.py`) is the ENTIRE
+interim-transcript code path, and it has no DB session, no reference to
+`process_final_turn`, and no reference to `apply_turn` anywhere in its call stack; it
+can only ever update an in-memory preview value. There is exactly one call site of
+`process_final_turn()` in the whole pipeline module, reached only from
+`_handle_silence()`, itself only reachable when a track's OWN `VoiceActivityDetector`
+transitions from speaking to silent. `tests/test_streaming_pipeline_e2e.py`'s
+`test_interim_transcripts_create_no_side_effects_before_turn_end` proves this at the
+full-stack level: a full second of continuous simulated speech (dozens of interim
+events) produces zero `Turn`/`Suggestion`/`ConversationStateEvent` rows until the
+track actually falls silent, at which point exactly one of each appears.

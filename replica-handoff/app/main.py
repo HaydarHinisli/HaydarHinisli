@@ -8,17 +8,15 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, 
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .config import get_settings
-from .db import get_db
+from .db import SessionLocal, get_db
 from .migrate import run_migrations
 from .models import (
-    AuditEvent, Call, Company, ComplianceReviewSignoff, ConsentEvent, ConversationStateEvent, Experiment,
+    AuditEvent, Call, Company, ComplianceReviewSignoff, ConsentEvent, Experiment,
     ExperimentAssignment, Meeting, Seller, Suggestion, TenantFeatureFlag, Turn, User,
 )
-from .models import ConversationState as ConversationStateRow
 from .schemas import (
     CompleteCallRequest, ComplianceReviewSignoffRequest, ConsentEventRequest, ConsentRequest, CreateCallRequest,
     CreateExperimentRequest, CreateUserRequest, FeatureFlagRequest, LoginRequest, NetworkLearningOptRequest,
@@ -26,7 +24,11 @@ from .schemas import (
 )
 from .secrets import get_secrets_provider
 from .seed import seed_demo
-from .services.conversation_state import ConversationState, apply_turn
+from .services.conversation_state import apply_turn
+from .services.conversation_state_store import (
+    apply_state_to_row, conversation_state_dict, load_or_create_conversation_state_row,
+    record_state_event, state_from_row,
+)
 from .services.copilot import suggest, suggest_with_state
 from .services.experiments import assign_variant
 from .services.language_sync import analyze_language
@@ -35,7 +37,10 @@ from .services.review import build_call_review, manager_analysis
 from .services.turn_identity import claim_turn, record_result, synthesize_turn_id
 from .integrations import google_calendar, hubspot, salesforce
 from .integrations.openai_realtime import status as openai_status, session_blueprint
-from .integrations.twilio_stream import TwilioStreamState
+from .streaming.asr import ASRProvider, get_asr_provider
+from .streaming.media_stream_security import is_secure_transport, verify_media_stream_signature
+from .streaming.media_stream_session import MediaStreamSession
+from .streaming.pipeline import MediaStreamPipeline
 from .compliance.admin import record_review_signoff, set_feature_flag, set_network_learning_opt_in
 from .compliance.audit import log_audit
 from .compliance.jurisdiction_policy import resolve_country_policy
@@ -88,87 +93,6 @@ def _get_call_or_404(db: Session, call_id: int, tenant_id: int) -> Call:
     if not call or call.company_id != tenant_id:
         raise HTTPException(404, 'Call not found')
     return call
-
-
-def _load_or_create_conversation_state_row(db: Session, call: Call) -> ConversationStateRow:
-    """Race-safe get-or-create (ADR-034): two concurrent first turns for the same
-    call can both see no existing row and both attempt to create one — the loser
-    hits `ConversationState.call_id`'s unique index. That is handled inside a
-    SAVEPOINT (`db.begin_nested()`), the same pattern as claim_turn()/
-    claim_webhook_delivery(), so only this insert attempt is undone rather than the
-    request's whole pending transaction."""
-    row = db.scalar(select(ConversationStateRow).where(ConversationStateRow.call_id == call.id))
-    if row is not None:
-        return row
-    row = ConversationStateRow(call_id=call.id)
-    try:
-        with db.begin_nested():
-            db.add(row)
-            db.flush()
-        return row
-    except IntegrityError:
-        return db.scalar(select(ConversationStateRow).where(ConversationStateRow.call_id == call.id))
-
-
-def _state_from_row(row: ConversationStateRow) -> ConversationState:
-    return ConversationState(
-        call_id=row.call_id, current_phase=row.current_phase, previous_phase=row.previous_phase,
-        turn_index=row.turn_index, smalltalk_turns=row.smalltalk_turns,
-        business_transition_started=row.business_transition_started, opening_completed=row.opening_completed,
-        discovery_started=row.discovery_started, pitch_delivered=row.pitch_delivered,
-        price_discussed=row.price_discussed, active_objection=row.active_objection,
-        resolved_objections=list(row.resolved_objections or []),
-        last_seller_action=row.last_seller_action, last_prospect_event=row.last_prospect_event,
-    )
-
-
-def _apply_state_to_row(row: ConversationStateRow, state: ConversationState) -> None:
-    row.current_phase = state.current_phase
-    row.previous_phase = state.previous_phase
-    row.turn_index = state.turn_index
-    row.smalltalk_turns = state.smalltalk_turns
-    row.business_transition_started = state.business_transition_started
-    row.opening_completed = state.opening_completed
-    row.discovery_started = state.discovery_started
-    row.pitch_delivered = state.pitch_delivered
-    row.price_discussed = state.price_discussed
-    row.active_objection = state.active_objection
-    row.resolved_objections = state.resolved_objections
-    row.last_seller_action = state.last_seller_action
-    row.last_prospect_event = state.last_prospect_event
-
-
-def _record_state_event(db: Session, call: Call, speaker: str, transition: dict, turn_index: int) -> None:
-    """Provider-Ready Gate (ADR-030): append-only history row alongside the fast
-    ConversationState snapshot. A single INSERT next to the state-row UPDATE already
-    happening in the same request/transaction — this does not add a query or slow
-    the pure state machine in app/services/conversation_state.py."""
-    db.add(ConversationStateEvent(
-        company_id=call.company_id, call_id=call.id, turn_index=turn_index, speaker=speaker,
-        from_phase=transition.get('from_phase'), to_phase=transition.get('to_phase'),
-        event_type=transition.get('event_type', 'unknown'), objection_type=transition.get('objection_type'),
-        sales_action=transition.get('sales_action'), trigger=transition.get('trigger'),
-    ))
-
-
-def _conversation_state_dict(row: ConversationStateRow) -> dict:
-    return {
-        'call_id': row.call_id,
-        'current_phase': row.current_phase,
-        'previous_phase': row.previous_phase,
-        'turn_index': row.turn_index,
-        'smalltalk_turns': row.smalltalk_turns,
-        'business_transition_started': row.business_transition_started,
-        'opening_completed': row.opening_completed,
-        'discovery_started': row.discovery_started,
-        'pitch_delivered': row.pitch_delivered,
-        'price_discussed': row.price_discussed,
-        'active_objection': row.active_objection,
-        'resolved_objections': row.resolved_objections,
-        'last_seller_action': row.last_seller_action,
-        'last_prospect_event': row.last_prospect_event,
-        'updated_at': row.updated_at.isoformat(),
-    }
 
 
 # ---------------------------------------------------------------------------
@@ -391,10 +315,10 @@ def add_turn(call_id: int, req: TurnRequest, current_user: AuthContext = Depends
         # POST /api/copilot/suggest (see docs/DECISIONS.md ADR-027). Sprint 2
         # forward-compat (ADR-032): this is an MVP simplification, not permanent —
         # see apply_seller_turn()'s docstring.
-        state_row = _load_or_create_conversation_state_row(db, call)
-        new_state, transition, _ = apply_turn(_state_from_row(state_row), 'seller', req.text)
-        _apply_state_to_row(state_row, new_state)
-        _record_state_event(db, call, 'seller', transition, turn_index=new_state.turn_index)
+        state_row = load_or_create_conversation_state_row(db, call)
+        new_state, transition, _ = apply_turn(state_from_row(state_row), 'seller', req.text)
+        apply_state_to_row(state_row, new_state)
+        record_state_event(db, call, 'seller', transition, turn_index=new_state.turn_index)
     result_ref = {'id': turn.id, 'style_snapshot': style}
     record_result(claim_row, result_ref)
     db.commit()
@@ -425,8 +349,8 @@ def copilot(req: SuggestRequest, request: Request, current_user: AuthContext = D
         # Sprint 1.5 (ADR-026): call-scoped suggestions advance the call's persisted
         # ConversationState instead of reclassifying the utterance in isolation, so
         # SalesBrain understands phase transitions across the whole running call.
-        state_row = _load_or_create_conversation_state_row(db, call)
-        pre_state = _state_from_row(state_row)
+        state_row = load_or_create_conversation_state_row(db, call)
+        pre_state = state_from_row(state_row)
 
         # Provider-Ready Gate (ADR-031): the same real utterance must trigger exactly
         # one Copilot processing run, even across provider retries/reconnects.
@@ -440,8 +364,8 @@ def copilot(req: SuggestRequest, request: Request, current_user: AuthContext = D
             return {**claim_row.result_ref, 'duplicate': True, 'policy_decision': decision.as_dict()}
 
         new_state, result, transition = suggest_with_state(pre_state, req.utterance, req.reaction_snapshot)
-        _apply_state_to_row(state_row, new_state)
-        _record_state_event(db, call, 'prospect', transition, turn_index=new_state.turn_index)
+        apply_state_to_row(state_row, new_state)
+        record_state_event(db, call, 'prospect', transition, turn_index=new_state.turn_index)
     else:
         # req.call_id is None: sandbox/practice mode. No real prospect is on the line,
         # so there is nothing to obtain consent for and no call to persist state
@@ -473,16 +397,16 @@ def copilot(req: SuggestRequest, request: Request, current_user: AuthContext = D
     if decision is not None:
         out['policy_decision'] = decision.as_dict()
     if state_row is not None:
-        out['conversation_state'] = _conversation_state_dict(state_row)
+        out['conversation_state'] = conversation_state_dict(state_row)
     return out
 
 
 @app.get('/api/calls/{call_id}/conversation-state')
 def call_conversation_state(call_id: int, current_user: AuthContext = Depends(require_role('seller', 'manager', 'tenant_admin', 'compliance_admin')), db: Session = Depends(get_db)):
     call = _get_call_or_404(db, call_id, current_user.company_id)
-    state_row = _load_or_create_conversation_state_row(db, call)
+    state_row = load_or_create_conversation_state_row(db, call)
     db.commit()
-    return _conversation_state_dict(state_row)
+    return conversation_state_dict(state_row)
 
 
 @app.post('/api/suggestions/{suggestion_id}/feedback')
@@ -793,20 +717,88 @@ def audit_export(limit: int = 100, company_id: int | None = Query(None), current
 # Streaming / demo helpers
 # ---------------------------------------------------------------------------
 
+def _resolve_call_for_media_stream(db: Session, session: MediaStreamSession) -> Call | None:
+    """Prefer a `customParameters.replica_call_id` set via a `<Parameter>` on the
+    `<Stream>` TwiML noun (unambiguous); fall back to matching Twilio's own
+    `callSid` against `Call.external_call_id` (the same correlation the call-status
+    webhook already uses, ADR-029). No match -> the stream cannot be attributed to a
+    tenant/policy context and must be rejected, not processed under an unknown
+    context (see docs/DECISIONS.md ADR-037)."""
+    raw_call_id = session.custom_parameters.get('replica_call_id')
+    if raw_call_id:
+        try:
+            call = db.get(Call, int(raw_call_id))
+        except (TypeError, ValueError):
+            call = None
+        if call is not None:
+            return call
+    if session.call_sid:
+        return db.scalar(select(Call).where(Call.external_call_id == session.call_sid))
+    return None
+
+
 @app.websocket('/ws/twilio-media')
-async def twilio_media(ws: WebSocket):
-    # Twilio Media Streams authenticate via request/signature verification (see
-    # docs/INTEGRATIONS.md), not a REPLICA user bearer token — no user JWT applies here.
-    await ws.accept()
-    state = TwilioStreamState()
+async def twilio_media(websocket: WebSocket, asr_provider: ASRProvider = Depends(get_asr_provider)):
+    """Twilio Media Streams WebSocket ingestion (Sprint 2, docs/DECISIONS.md
+    ADR-037..041). Twilio cannot present a REPLICA bearer token here either, so this
+    is authenticated the same way as the HTTP call-status webhook: X-Twilio-Signature,
+    verified via the official RequestValidator (ADR-036), checked BEFORE
+    `websocket.accept()` — an unauthenticated connection is refused at the handshake,
+    never accepted and then dropped (ADR-037). Production connections must arrive
+    over wss (`REPLICA_ENV=production` gates enforcement — see
+    app/streaming/media_stream_security.py for why local/dev `ws://` remains allowed).
+    """
+    if settings.replica_env == 'production' and not is_secure_transport(websocket):
+        logger.warning('rejecting insecure (non-wss) media stream connection in production')
+        await websocket.close(code=1008)
+        return
+    try:
+        auth_token = get_secrets_provider().get('TWILIO_AUTH_TOKEN', settings.twilio_auth_token)
+    except NotImplementedError as exc:
+        logger.error('secrets backend error while resolving Twilio auth token for media stream', extra={'fields': {'error': str(exc)}})
+        await websocket.close(code=1008)
+        return
+    if not verify_media_stream_signature(websocket, auth_token=auth_token, public_base_url=settings.replica_public_base_url):
+        logger.warning('twilio media stream signature verification failed')
+        await websocket.close(code=1008)
+        return
+
+    await websocket.accept()
+    correlation_session = MediaStreamSession()
+    pipeline: MediaStreamPipeline | None = None
     try:
         while True:
-            message = json.loads(await ws.receive_text())
-            state.consume(message)
-            if message.get('event') == 'stop':
+            message = json.loads(await websocket.receive_text())
+            event = message.get('event')
+            if event == 'connected':
+                continue
+            if event == 'start':
+                correlation_session.consume_start(message)
+                db = SessionLocal()
+                try:
+                    call = _resolve_call_for_media_stream(db, correlation_session)
+                finally:
+                    db.close()
+                if call is None:
+                    logger.warning('media stream: could not resolve a Call for this stream — closing', extra={'fields': {'call_sid': correlation_session.call_sid}})
+                    await websocket.close(code=1008)
+                    return
+                pipeline = MediaStreamPipeline(call_id=call.id, company_id=call.company_id, asr_provider=asr_provider)
+                pipeline.consume_start(message)
+            elif event == 'media':
+                if pipeline is None:
+                    continue  # media before a resolved start is a protocol violation — ignore, don't crash
+                pipeline.consume_media(message)
+            elif event == 'stop':
+                if pipeline is not None:
+                    pipeline.consume_stop(message)
                 break
     except WebSocketDisconnect:
-        pass
+        if pipeline is not None:
+            pipeline.consume_stop({'event': 'stop', 'sequenceNumber': None})
+    finally:
+        if pipeline is not None:
+            logger.info('media stream diagnostics', extra={'fields': pipeline.diagnostics_summary()})
 
 
 @app.get('/api/demo/review-call')

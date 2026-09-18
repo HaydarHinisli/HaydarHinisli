@@ -121,16 +121,26 @@ Scale-up:
 
 ## 8. Latency instrumentation
 
-Record at minimum:
-- `t_audio_received`
-- `t_interim_transcript`
-- `t_turn_end_detected`
-- `t_fast_path_ready`
-- `t_suggestion_sent`
-- `t_ui_rendered`
+Implemented in Sprint 2 (`app/services/latency_trace.py`, `TurnLatencyTrace` — see
+`docs/DECISIONS.md` ADR-041). The originally-sketched stage names above are refined
+to the more granular set actually implemented:
 
-Primary metric:
+- `t_audio_received`
+- `t_asr_interim` (refines `t_interim_transcript`)
+- `t_asr_final` (new — separates ASR's own final-transcript signal from turn detection)
+- `t_turn_end_detected`
+- `t_salesbrain_started` / `t_salesbrain_finished` (together refine `t_fast_path_ready`)
+- `t_suggestion_persisted` (refines `t_suggestion_sent`)
+- `t_suggestion_pushed` (new — not yet reached in Sprint 2; no UI push mechanism exists yet)
+- `t_ui_rendered` (Sprint 3+)
+
+Primary metric (unchanged):
 
 `RSL = t_ui_rendered - t_turn_end_detected`
 
-Also record ASR delay separately so bottlenecks are visible.
+`real_rsl_ms` stays `NULL` until `t_ui_rendered` exists — never approximated.
+`t_salesbrain_started`→`t_salesbrain_finished` (the pre-existing internal Fast-Path
+engine latency, Sprint 1 ADR-021/022) is recorded separately and must never be
+reported as RSL. ASR delay (`t_audio_received`→`t_asr_final`) and turn-detection
+delay (`t_asr_final`→`t_turn_end_detected`) are likewise recorded as their own
+columns so bottlenecks are visible individually, per the original intent here.
