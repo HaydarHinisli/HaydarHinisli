@@ -641,6 +641,15 @@ async def twilio_call_status(request: Request, db: Session = Depends(get_db)):
       as `.stale`, never silently dropped and never allowed to regress the call's
       materialized status.
 
+    ADR-054: for a `<Number>`-level statusCallback (a PSTN child/dialed-out leg,
+    as used for the outbound-sales-flow topology), Twilio's `CallSid` here is the
+    CHILD leg's own SID, not the Parent/Media-Stream call's SID — `ParentCallSid`
+    is the one that matches `Call.external_call_id`. Falling back to `CallSid`
+    keeps this correct for a status callback that fires directly on the parent
+    call (no `ParentCallSid` present, e.g. a plain `<Dial>`-level callback).
+    `CallProviderStatus` ordering, however, still tracks the CHILD leg's own SID
+    (`call_sid`) — its status progression is independent of the parent call's.
+
     Tech debt (documented, see final report): this endpoint must be `async def` to
     read the form body via Starlette, but the SQLAlchemy calls inside it are
     synchronous and briefly block the event loop — acceptable for Twilio's
@@ -688,7 +697,9 @@ async def twilio_call_status(request: Request, db: Session = Depends(get_db)):
         db.commit()
         return {'ok': True, 'duplicate': True}
 
-    call = db.scalar(select(Call).where(Call.external_call_id == call_sid))
+    parent_call_sid = params.get('ParentCallSid') or None
+    correlating_sid = parent_call_sid or call_sid
+    call = db.scalar(select(Call).where(Call.external_call_id == correlating_sid))
     provider_status = get_or_create_provider_status(db, provider='twilio', external_call_id=call_sid, call_id=call.id if call else None)
     applied = is_newer_event(
         incoming_status=call_status, incoming_sequence=sequence_number,

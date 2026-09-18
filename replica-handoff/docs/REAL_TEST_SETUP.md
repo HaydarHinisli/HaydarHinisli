@@ -57,7 +57,7 @@ listed here.
 | Purpose | URL | Where it's configured |
 |---|---|---|
 | Media Stream WebSocket | `wss://<PUBLIC_HOST>/ws/twilio-media` (**no query parameters**) | Embedded literally inside the TwiML you configure (§4) — not a separate Twilio dashboard field. |
-| Status Callback | `https://<PUBLIC_HOST>/webhooks/twilio/call-status` (HTTP POST) | Embedded directly in the TwiML Bin (§4), as `<Dial statusCallback="...">` — kept inside the Bin so the whole Bin is the single place to fill in, per the explicit "only 4 fields" simplification. |
+| Status Callback | `https://<PUBLIC_HOST>/webhooks/twilio/call-status` (HTTP POST) | Embedded directly in the TwiML Bin (§4), as `<Number statusCallback="...">` — kept inside the Bin so the whole Bin is the single place to fill in, per the explicit "only 4 fields" simplification. |
 | Call/Voice webhook ("A call comes in") | **No REPLICA URL** — see finding below | Phone Number → Voice Configuration → "A call comes in" → a **TwiML Bin**, not a webhook URL. |
 
 **Finding, stated plainly:** REPLICA's backend does not currently serve any
@@ -91,6 +91,21 @@ therefore arrive, be signature-verified, deduplicated, and recorded in
 way (the Media Stream correlates independently via the `Parameter` above), it
 just means you won't see status events tied to a specific call in
 `GET /api/audit/export`. Not a feature to add before this test.
+
+**Child-leg correlation, corrected (ADR-054):** the TwiML below attaches
+`statusCallback`/`statusCallbackMethod`/`statusCallbackEvent` to `<Number>`,
+not `<Dial>` — this is Twilio's documented pattern for a PSTN child call. That
+means the webhook fires for the DIALED-OUT (Prospect) leg specifically, with
+`CallSid` = that child leg's own SID and `ParentCallSid` = the original Parent
+call's SID (the Seller's call, i.e. the one the Media Stream runs on). The
+call-status webhook (`app/main.py`'s `twilio_call_status()`) has been
+corrected to correlate against `ParentCallSid` when present, falling back to
+`CallSid` only when it is not — so once `Call.external_call_id` is eventually
+populated with the Parent call's SID (still not done in this codebase — the
+limitation above), this event will correlate correctly. `CallProviderStatus`
+itself still tracks ordering by the child leg's own `CallSid`, since that
+leg's status progression (`initiated`/`ringing`/`answered`/`completed`) is
+independent of the parent call's own status.
 
 No other provider callback is required for this test: no recording callback
 (the pipeline is listen-only, ADR-047), no fallback URL needed for one manual
@@ -147,23 +162,39 @@ Simplest robust shape meeting EU/HTTPS/WSS/Postgres/single-instance:
    ```xml
    <?xml version="1.0" encoding="UTF-8"?>
    <Response>
-     <Start>
-       <Stream url="wss://<PUBLIC_HOST>/ws/twilio-media" track="both_tracks">
-         <Parameter name="replica_call_id" value="<REPLICA_CALL_ID>" />
-       </Stream>
-     </Start>
-     <Dial statusCallback="https://<PUBLIC_HOST>/webhooks/twilio/call-status"
-           statusCallbackMethod="POST"
-           statusCallbackEvent="initiated ringing answered completed">
-       <Number><PROSPECT_TEST_PERSON_NUMBER></Number>
-     </Dial>
+       <Start>
+           <Stream
+               url="wss://<PUBLIC_HOST>/ws/twilio-media"
+               track="both_tracks">
+               <Parameter
+                   name="replica_call_id"
+                   value="<REPLICA_CALL_ID>" />
+           </Stream>
+       </Start>
+
+       <Dial>
+           <Number
+               statusCallback="https://<PUBLIC_HOST>/webhooks/twilio/call-status"
+               statusCallbackMethod="POST"
+               statusCallbackEvent="initiated ringing answered completed">
+               <PROSPECT_TEST_PERSON_NUMBER>
+           </Number>
+       </Dial>
    </Response>
    ```
-   → Speichern. Diese Reihenfolge (`<Start><Stream>` zuerst, dann `<Dial>`)
-   entspricht exakt der bestätigten Testtopologie: der Seller ruft diese
-   Nummer an (Parent Call, wird zum `inbound`-Track), REPLICA startet den
-   Media Stream, und erst danach verbindet Twilio zur Prospect-Testperson
-   (`<Dial>`, wird zum `outbound`-Track) — siehe ADR-053.
+   → Speichern. **Korrektur gegenüber einer früheren Version dieses Dokuments:**
+   `statusCallback`/`statusCallbackMethod`/`statusCallbackEvent` gehören laut
+   aktueller offizieller Twilio-Dokumentation für einen PSTN-Child-Call an
+   `<Number>`, nicht an `<Dial>` — daher oben so korrigiert. Diese Reihenfolge
+   (`<Start><Stream>` zuerst, dann `<Dial>`) entspricht weiterhin exakt der
+   bestätigten Testtopologie: der Seller ruft diese Nummer an (Parent Call,
+   wird zum `inbound`-Track), REPLICA startet den Media Stream, und erst
+   danach verbindet Twilio zur Prospect-Testperson (`<Dial><Number>`, wird zum
+   `outbound`-Track) — siehe ADR-053. Der Status-Callback beschreibt dabei den
+   Child-Call (die angerufene Prospect-Nummer) mit einer eigenen `CallSid` und
+   einer `ParentCallSid`, die auf den Parent/Seller-Call zurückverweist — siehe
+   ADR-054 zur entsprechend korrigierten Korrelation im
+   `/webhooks/twilio/call-status`-Endpoint.
 6. **Nummer mit der Bin verknüpfen**: Phone Numbers → Manage → Active Numbers
    → deine Nummer anklicken → Abschnitt "Voice Configuration" → Feld
    "A call comes in" → Dropdown auf "TwiML Bin" stellen → die eben erstellte

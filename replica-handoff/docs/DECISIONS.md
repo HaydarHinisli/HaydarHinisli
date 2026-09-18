@@ -1462,3 +1462,75 @@ verification step, per `docs/REAL_TEST_SETUP.md`'s preflight checklist: check
 which `Turn.speaker` values match who actually said what once real audio has
 gone through the pipeline, precisely the kind of field verification ADR-043
 itself called for rather than trusting either direction on paper alone.
+
+## ADR-054 — Preflight correction: statusCallback belongs on `<Number>`, not `<Dial>`; call-status webhook now correlates via `ParentCallSid` for a child PSTN leg
+Status: accepted
+
+A further pre-deployment review of the finalized TwiML (`docs/REAL_TEST_SETUP.md`
+§4) against current official Twilio documentation found the TwiML itself
+correct in every respect settled by ADR-053 (`<Start><Stream track="both_tracks">`
+topology, `inbound = seller`/`outbound = prospect`, `replica_call_id` via
+`<Stream><Parameter>`), but one attribute placement was wrong.
+
+**What was wrong.** The TwiML in `docs/REAL_TEST_SETUP.md` (as of the previous
+revision) attached `statusCallback`/`statusCallbackMethod`/`statusCallbackEvent`
+to `<Dial>`. For a PSTN call placed via `<Dial><Number>`, Twilio's documented
+attribute set for these three attributes belongs on `<Number>` itself, not on
+the enclosing `<Dial>` verb — `<Dial>`-level status callbacks describe a
+different, more limited event set than a `<Number>`-level one. The TwiML in
+§4 has been corrected to:
+```xml
+<Dial>
+  <Number statusCallback="..." statusCallbackMethod="POST"
+          statusCallbackEvent="initiated ringing answered completed">
+    <PROSPECT_TEST_PERSON_NUMBER>
+  </Number>
+</Dial>
+```
+
+**Why this matters for correlation, and what else it broke.** A
+`<Number>`-level statusCallback fires for the DIALED-OUT (Prospect) child call
+leg specifically — Twilio delivers `CallSid` as that CHILD leg's own SID, and
+additionally sends `ParentCallSid`, pointing back at the original Parent call
+(the Seller's call, the one the Media Stream runs on). The existing
+`POST /webhooks/twilio/call-status` handler (`app/main.py`) had, until now,
+unconditionally correlated the incoming event to a REPLICA `Call` row via
+`Call.external_call_id == CallSid` — correct only when the webhook describes
+the Parent call itself (e.g. attached directly to a bare `<Dial>` with no
+child-level callback), and silently wrong for a `<Number>`-level child-leg
+event, where `CallSid` never matches `Call.external_call_id` (which is meant
+to hold the Parent call's SID) at all.
+
+**What changed in code.** `twilio_call_status()` now reads `ParentCallSid`
+from the incoming form params and correlates via
+`ParentCallSid or CallSid` — using `ParentCallSid` when Twilio sends one (the
+child-leg case), falling back to the pre-existing direct `CallSid` match when
+it does not (the parent-level case, unchanged from before). `CallProviderStatus`
+ordering/dedup, by contrast, is intentionally left keyed by the event's own
+`CallSid` (unchanged) — a child leg's own status progression
+(`initiated`/`ringing`/`answered`/`completed`) is independent of the parent
+call's, so tracking it under the child's own SID is correct, not a bug to fix.
+
+**Interaction with the pre-existing correlation gap.** `Call.external_call_id`
+is still never written anywhere in this codebase (documented previously in
+`docs/REAL_TEST_SETUP.md` and unchanged by this ADR) — so for the very first
+test, `call` will still resolve to `None` regardless of this fix, and this
+correction has no observable effect until that gap is separately closed. This
+fix is nonetheless the correct one to make now: once `external_call_id` is
+populated with the Parent call's SID (by whatever future mechanism), this
+correlation will work correctly on the first try instead of silently failing
+in the same way ADR-053's original speaker-mapping assumption did.
+
+**Tests added** (`tests/test_call_status_ordering.py`):
+`test_child_leg_status_callback_correlates_via_parent_call_sid` (a `Call` row
+with `external_call_id='CAparent1'`, a status event with
+`CallSid='CAchild1', ParentCallSid='CAparent1'`, asserts the event correlates
+to that `Call` and `CallProviderStatus` is keyed by `'CAchild1'`) and
+`test_parent_level_status_callback_without_parent_call_sid_still_correlates_directly`
+(no `ParentCallSid` present — the pre-existing direct-match behavior is
+unchanged). Full regression: 272/272 (SQLite and PostgreSQL 16).
+
+**Scope discipline.** This is a one-line correlation-key fix behind an
+already-existing endpoint and a doc/TwiML correction — no new endpoint, no new
+model, no new webhook event type, per the explicit instruction not to
+introduce further features or architecture changes during preflight.

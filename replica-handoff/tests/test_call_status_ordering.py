@@ -160,6 +160,64 @@ def test_ordering_fallback_without_sequence_numbers_still_protects_terminal_stat
     assert status.last_status == 'completed'
 
 
+def test_child_leg_status_callback_correlates_via_parent_call_sid(client, monkeypatch, db_session):
+    """ADR-054: a <Number>-level statusCallback fires with CallSid = the dialed-out
+    CHILD leg's own SID and ParentCallSid = the original Parent/Media-Stream call's
+    SID. Call.external_call_id stores the PARENT call's SID, so correlation must use
+    ParentCallSid here, not CallSid directly — otherwise this event never resolves
+    to a Call at all (call stays None) even though the parent call is well known."""
+    monkeypatch.setattr('app.main.settings.twilio_auth_token', TOKEN)
+    from app.models import Call, Company, Seller
+    from datetime import datetime
+
+    company = Company(name='Child Leg Test Co', country_code='DE', network_learning_opt_in=False)
+    db_session.add(company)
+    db_session.flush()
+    seller = Seller(company_id=company.id, name='Child Leg Tester', hired_at=datetime.utcnow(), product_started_at=datetime.utcnow())
+    db_session.add(seller)
+    db_session.flush()
+    call = Call(company_id=company.id, seller_id=seller.id, jurisdiction_country='DE', external_call_id='CAparent1')
+    db_session.add(call)
+    db_session.commit()
+
+    response = _post(client, CallSid='CAchild1', ParentCallSid='CAparent1', CallStatus='answered', SequenceNumber='0')
+    assert response.json() == {'ok': True, 'applied': True}
+
+    # CallProviderStatus ordering is still keyed by the CHILD leg's own SID (its
+    # status progression is independent of the parent call's), but IS correlated
+    # to the parent Call row.
+    status = db_session.query(CallProviderStatus).filter_by(provider='twilio', external_call_id='CAchild1').one()
+    assert status.call_id == call.id
+
+    audit = db_session.query(AuditEvent).filter_by(entity_type='call', entity_id=str(call.id), action='call.status.answered').all()
+    assert len(audit) == 1
+
+
+def test_parent_level_status_callback_without_parent_call_sid_still_correlates_directly(client, monkeypatch, db_session):
+    """A statusCallback with no ParentCallSid (e.g. attached directly to the parent
+    call) must still correlate via CallSid as before — the ParentCallSid fallback
+    must not break the pre-existing direct-match case."""
+    monkeypatch.setattr('app.main.settings.twilio_auth_token', TOKEN)
+    from app.models import Call, Company, Seller
+    from datetime import datetime
+
+    company = Company(name='Direct Match Test Co', country_code='DE', network_learning_opt_in=False)
+    db_session.add(company)
+    db_session.flush()
+    seller = Seller(company_id=company.id, name='Direct Match Tester', hired_at=datetime.utcnow(), product_started_at=datetime.utcnow())
+    db_session.add(seller)
+    db_session.flush()
+    call = Call(company_id=company.id, seller_id=seller.id, jurisdiction_country='DE', external_call_id='CAparent2')
+    db_session.add(call)
+    db_session.commit()
+
+    response = _post(client, CallSid='CAparent2', CallStatus='completed', SequenceNumber='0')
+    assert response.json() == {'ok': True, 'applied': True}
+
+    audit = db_session.query(AuditEvent).filter_by(entity_type='call', entity_id=str(call.id), action='call.status.completed').all()
+    assert len(audit) == 1
+
+
 def test_parallel_identical_delivery_results_in_exactly_one_applied_event(client, monkeypatch):
     monkeypatch.setattr('app.main.settings.twilio_auth_token', TOKEN)
     params = dict(CallSid='CAorder7', CallStatus='completed', SequenceNumber='1')
