@@ -2,7 +2,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from sqlalchemy import select
 from .db import SessionLocal
-from .models import Company, Seller, Call, Turn, Meeting, Deal, Experiment
+from .models import Company, ComplianceReviewSignoff, Seller, Call, Turn, Meeting, Deal, Experiment
 
 
 def seed_demo() -> None:
@@ -10,9 +10,27 @@ def seed_demo() -> None:
     try:
         if db.scalar(select(Company).limit(1)):
             return
-        company = Company(name='REPLICA Pilot GmbH', network_learning_opt_in=False)
+        company = Company(name='REPLICA Pilot GmbH', country_code='DE', network_learning_opt_in=False)
         db.add(company)
         db.flush()
+        # Sprint 0: DE employee_analytics tier is "high_risk_controls" (requires a
+        # recorded compliance review signoff, see app/compliance/policy_engine.py).
+        # The demo pilot tenant acknowledges this once here so /api/manager/overview
+        # keeps working out of the box; a real tenant must record this via
+        # POST /api/admin/compliance-signoffs after an actual review.
+        db.add(ComplianceReviewSignoff(
+            company_id=company.id,
+            action='employee_analytics',
+            jurisdiction='DE',
+            acknowledged_by='demo-admin@replica-pilot.example',
+            reason=(
+                'Pilot tenant acknowledges GLOBAL_PRODUCT_COMPLIANCE_SPEC.md §6 high-risk '
+                'employee-analytics controls: documented human oversight, access logging, '
+                'retention configuration and manager acknowledgement that outputs are decision '
+                'support only, never an automated employment decision.'
+            ),
+            reference='seed-demo-signoff-employee-analytics-de',
+        ))
         now = datetime.utcnow()
         sellers = [
             Seller(company_id=company.id, name='Haydar', hired_at=now-timedelta(days=55), product_started_at=now-timedelta(days=42), role='SDR'),
@@ -42,6 +60,8 @@ def seed_demo() -> None:
                     segment='B2B SaaS',
                     offer_key='replica_pilot',
                     campaign_key='demo',
+                    campaign_type='cold_b2b',
+                    jurisdiction_country='DE',
                     started_at=now-timedelta(days=18-i),
                     ended_at=now-timedelta(days=18-i)+timedelta(minutes=5),
                     consent_state='granted',

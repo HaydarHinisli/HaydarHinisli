@@ -10,8 +10,12 @@ from sqlalchemy.orm import Session
 
 from .config import get_settings
 from .db import Base, engine, get_db
-from .models import AuditEvent, Call, Company, Experiment, ExperimentAssignment, Meeting, Seller, Suggestion, Turn
-from .schemas import CompleteCallRequest, ConsentRequest, CreateCallRequest, CreateExperimentRequest, SuggestRequest, SuggestionFeedbackRequest, TurnRequest
+from .models import AuditEvent, Call, Company, ComplianceReviewSignoff, ConsentEvent, Experiment, ExperimentAssignment, Meeting, Seller, Suggestion, TenantFeatureFlag, Turn
+from .schemas import (
+    CompleteCallRequest, ComplianceReviewSignoffRequest, ConsentEventRequest, ConsentRequest, CreateCallRequest,
+    CreateExperimentRequest, FeatureFlagRequest, NetworkLearningOptRequest, PolicyResolveRequest, SuggestRequest,
+    SuggestionFeedbackRequest, TurnRequest,
+)
 from .seed import seed_demo
 from .services.copilot import suggest
 from .services.experiments import assign_variant
@@ -21,6 +25,10 @@ from .services.review import build_call_review, manager_analysis
 from .integrations import google_calendar, hubspot, salesforce
 from .integrations.openai_realtime import status as openai_status, session_blueprint
 from .integrations.twilio_stream import TwilioStreamState
+from .compliance.admin import record_review_signoff, set_feature_flag, set_network_learning_opt_in
+from .compliance.audit import log_audit
+from .compliance.jurisdiction_policy import resolve_country_policy
+from .compliance.policy_engine import Decision, can_process
 
 BASE_DIR = Path(__file__).resolve().parent
 settings = get_settings()
@@ -99,9 +107,63 @@ def set_consent(call_id: int, req: ConsentRequest, db: Session = Depends(get_db)
         raise HTTPException(404, 'Call not found')
     call.consent_state = req.state
     call.consented_at = datetime.utcnow() if req.state == 'granted' else None
+    # Purpose-bound ledger entry alongside the legacy single-field gate above, so the
+    # new compliance layer has a real audit trail from day one (see docs/DECISIONS.md ADR-007).
+    event_status = {'granted': 'granted', 'declined': 'denied', 'withdrawn': 'withdrawn'}[req.state]
+    db.add(ConsentEvent(
+        company_id=call.company_id, call_id=call.id, consent_type='live_copilot_processing',
+        purpose='Live-Copilot-Verarbeitung während des Calls', status=event_status, collection_method='api',
+        withdrawn_at=datetime.utcnow() if event_status == 'withdrawn' else None,
+    ))
     db.add(AuditEvent(company_id=call.company_id, actor='seller', action=f'consent.{req.state}', entity_type='call', entity_id=str(call.id)))
     db.commit()
     return {'ok': True, 'consent_state': call.consent_state}
+
+
+@app.post('/api/calls/{call_id}/consents')
+def create_consent_event(call_id: int, req: ConsentEventRequest, db: Session = Depends(get_db)):
+    call = db.get(Call, call_id)
+    if not call:
+        raise HTTPException(404, 'Call not found')
+    row = ConsentEvent(
+        company_id=call.company_id, call_id=call_id, prospect_reference=req.prospect_reference,
+        consent_type=req.consent_type, purpose=req.purpose or req.consent_type, jurisdiction=req.jurisdiction,
+        consent_text_version=req.consent_text_version, status=req.status, collection_method=req.collection_method,
+        evidence_ref=req.evidence_ref, withdrawn_at=datetime.utcnow() if req.status == 'withdrawn' else None,
+    )
+    db.add(row)
+    log_audit(db, call.company_id, actor='seller', action=f'consent.{req.status}', entity_type='consent_event', entity_id=req.consent_type, payload={'call_id': call_id, 'consent_type': req.consent_type, 'status': req.status})
+    db.commit(); db.refresh(row)
+    return {'id': row.id, 'consent_type': row.consent_type, 'status': row.status, 'captured_at': row.captured_at.isoformat()}
+
+
+@app.post('/api/calls/{call_id}/consents/{purpose}/withdraw')
+def withdraw_consent_event(call_id: int, purpose: str, db: Session = Depends(get_db)):
+    call = db.get(Call, call_id)
+    if not call:
+        raise HTTPException(404, 'Call not found')
+    row = ConsentEvent(company_id=call.company_id, call_id=call_id, consent_type=purpose, purpose=purpose, status='withdrawn', collection_method='api', withdrawn_at=datetime.utcnow())
+    db.add(row)
+    log_audit(db, call.company_id, actor='seller', action='consent.withdrawn', entity_type='consent_event', entity_id=purpose, payload={'call_id': call_id, 'consent_type': purpose})
+    db.commit(); db.refresh(row)
+    return {'id': row.id, 'consent_type': row.consent_type, 'status': row.status}
+
+
+@app.get('/api/calls/{call_id}/processing-permissions')
+def call_processing_permissions(call_id: int, db: Session = Depends(get_db)):
+    call = db.get(Call, call_id)
+    if not call:
+        raise HTTPException(404, 'Call not found')
+    actions = ['record_audio', 'transcribe', 'live_assist']
+    decisions = [
+        can_process(
+            db, action, tenant_id=call.company_id, call_id=call_id, country_code=call.jurisdiction_country,
+            prospect_type=call.prospect_type, campaign_type=call.campaign_type, speaker_mode=call.speaker_mode,
+        ).as_dict()
+        for action in actions
+    ]
+    db.commit()
+    return {'call_id': call_id, 'permissions': decisions}
 
 
 @app.post('/api/calls/{call_id}/turns')
@@ -193,9 +255,19 @@ def recent_calls(limit: int = 12, db: Session = Depends(get_db)):
 @app.get('/api/manager/overview')
 def manager_overview(db: Session = Depends(get_db)):
     company_id = _demo_company_id(db)
+    company = db.get(Company, company_id)
+    decision = can_process(db, 'employee_analytics', tenant_id=company_id, country_code=company.country_code)
+    log_audit(db, company_id, actor='manager', action='employee_analytics.accessed', entity_type='company', entity_id=str(company_id), payload=decision.as_dict())
+    db.commit()
+    if decision.result != Decision.ALLOWED:
+        raise HTTPException(403, {'message': 'Employee analytics is not currently permitted for this tenant/jurisdiction.', **decision.as_dict()})
     sellers = db.scalars(select(Seller).where(Seller.company_id == company_id)).all()
     all_calls = db.scalars(select(Call).where(Call.company_id == company_id)).all()
-    return {'demo_data': settings.replica_demo_mode, 'sellers': [manager_analysis(s, [c for c in all_calls if c.seller_id == s.id], all_calls) for s in sellers]}
+    return {
+        'demo_data': settings.replica_demo_mode,
+        'policy_decision': decision.as_dict(),
+        'sellers': [manager_analysis(s, [c for c in all_calls if c.seller_id == s.id], all_calls) for s in sellers],
+    }
 
 
 @app.get('/api/integrations')
@@ -241,6 +313,92 @@ def assign_experiment(experiment_id: int, call_id: int, db: Session = Depends(ge
     row = ExperimentAssignment(experiment_id=experiment.id, call_id=call.id, variant_key=variant)
     db.add(row); db.commit(); db.refresh(row)
     return {'assignment_id': row.id, 'variant': variant}
+
+
+@app.post('/api/policy/resolve')
+def policy_resolve(req: PolicyResolveRequest, db: Session = Depends(get_db)):
+    tenant_id = req.tenant_id if req.tenant_id is not None else _demo_company_id(db)
+    decision = can_process(
+        db, req.action, tenant_id=tenant_id, call_id=req.call_id, country_code=req.country_code,
+        prospect_type=req.prospect_type, campaign_type=req.campaign_type, speaker_mode=req.speaker_mode,
+    )
+    db.commit()
+    return decision.as_dict()
+
+
+@app.get('/api/policy/jurisdictions/{country}')
+def policy_jurisdiction(country: str):
+    policy = resolve_country_policy(country)
+    return {
+        'country_code': policy.country_code,
+        'is_default_fallback': policy.is_default_fallback,
+        'human_copilot': policy.human_copilot,
+        'recording': policy.recording,
+        'autonomous_marketing_call': policy.autonomous_marketing_call,
+        'ai_identity_disclosure': policy.ai_identity_disclosure,
+        'employee_analytics': policy.employee_analytics,
+        'emotion_inference_workplace': policy.emotion_inference_workplace,
+        'network_intelligence': policy.network_intelligence,
+    }
+
+
+@app.post('/api/network-learning/opt-in')
+def network_learning_opt_in(req: NetworkLearningOptRequest, db: Session = Depends(get_db)):
+    company_id = _demo_company_id(db)
+    company = set_network_learning_opt_in(db, company_id=company_id, opt_in=True, reason=req.reason, evidence_ref=req.evidence_ref)
+    return {'company_id': company.id, 'network_learning_opt_in': company.network_learning_opt_in}
+
+
+@app.post('/api/network-learning/withdraw')
+def network_learning_withdraw(req: NetworkLearningOptRequest, db: Session = Depends(get_db)):
+    company_id = _demo_company_id(db)
+    company = set_network_learning_opt_in(db, company_id=company_id, opt_in=False, reason=req.reason, evidence_ref=req.evidence_ref)
+    return {'company_id': company.id, 'network_learning_opt_in': company.network_learning_opt_in}
+
+
+@app.get('/api/admin/feature-flags')
+def list_feature_flags(db: Session = Depends(get_db)):
+    company_id = _demo_company_id(db)
+    rows = db.scalars(select(TenantFeatureFlag).where(TenantFeatureFlag.company_id == company_id)).all()
+    return [
+        {
+            'id': r.id, 'feature_key': r.feature_key, 'jurisdiction': r.jurisdiction, 'campaign_type': r.campaign_type,
+            'enabled': r.enabled, 'updated_by': r.updated_by, 'reason': r.reason, 'updated_at': r.updated_at.isoformat(),
+        }
+        for r in rows
+    ]
+
+
+@app.post('/api/admin/feature-flags')
+def upsert_feature_flag(req: FeatureFlagRequest, db: Session = Depends(get_db)):
+    company_id = _demo_company_id(db)
+    row = set_feature_flag(
+        db, company_id=company_id, feature_key=req.feature_key, enabled=req.enabled,
+        jurisdiction=req.jurisdiction, campaign_type=req.campaign_type, actor=req.actor, reason=req.reason,
+    )
+    return {'id': row.id, 'feature_key': row.feature_key, 'enabled': row.enabled, 'jurisdiction': row.jurisdiction, 'campaign_type': row.campaign_type}
+
+
+@app.post('/api/admin/compliance-signoffs')
+def upsert_compliance_signoff(req: ComplianceReviewSignoffRequest, db: Session = Depends(get_db)):
+    company_id = _demo_company_id(db)
+    row = record_review_signoff(
+        db, company_id=company_id, action=req.action, jurisdiction=req.jurisdiction,
+        acknowledged_by=req.acknowledged_by, reason=req.reason, reference=req.reference,
+    )
+    return {'id': row.id, 'action': row.action, 'jurisdiction': row.jurisdiction, 'acknowledged_by': row.acknowledged_by}
+
+
+@app.get('/api/audit/export')
+def audit_export(limit: int = 100, db: Session = Depends(get_db)):
+    company_id = _demo_company_id(db)
+    rows = db.scalars(
+        select(AuditEvent).where(AuditEvent.company_id == company_id).order_by(AuditEvent.created_at.desc()).limit(min(limit, 500))
+    ).all()
+    return [
+        {'id': r.id, 'actor': r.actor, 'action': r.action, 'entity_type': r.entity_type, 'entity_id': r.entity_id, 'payload': r.payload, 'created_at': r.created_at.isoformat()}
+        for r in rows
+    ]
 
 
 @app.websocket('/ws/twilio-media')

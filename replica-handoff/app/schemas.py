@@ -57,3 +57,49 @@ class CreateExperimentRequest(BaseModel):
     hypothesis: str = Field(min_length=5, max_length=2000)
     primary_metric: str = 'held_meeting_rate'
     variants: dict[str, dict]
+
+
+class PolicyResolveRequest(BaseModel):
+    action: str
+    tenant_id: int | None = None
+    call_id: int | None = None
+    country_code: str | None = None
+    prospect_type: Literal['b2b', 'b2c', 'unknown'] = 'unknown'
+    campaign_type: str = 'cold_b2b'
+    speaker_mode: Literal['human_seller', 'human_with_replica_assist', 'ai_agent', 'hybrid'] = 'human_with_replica_assist'
+
+
+class ConsentEventRequest(BaseModel):
+    consent_type: Literal[
+        'call_recording', 'transcription', 'live_copilot_processing',
+        'customer_private_learning', 'cross_customer_network_learning',
+    ]
+    status: Literal['granted', 'denied', 'withdrawn']
+    purpose: str = ''
+    jurisdiction: str = ''
+    consent_text_version: str = 'v1'
+    collection_method: str = 'api'
+    evidence_ref: str = ''
+    prospect_reference: str = ''
+
+
+class NetworkLearningOptRequest(BaseModel):
+    reason: str = ''
+    evidence_ref: str = ''
+
+
+class FeatureFlagRequest(BaseModel):
+    feature_key: str
+    enabled: bool
+    jurisdiction: str | None = None
+    campaign_type: str | None = None
+    actor: str = 'admin'
+    reason: str = ''
+
+
+class ComplianceReviewSignoffRequest(BaseModel):
+    action: str
+    jurisdiction: str
+    acknowledged_by: str
+    reason: str = ''
+    reference: str = ''

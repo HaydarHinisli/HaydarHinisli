@@ -9,6 +9,7 @@ class Company(Base):
     __tablename__ = 'companies'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(180), unique=True, index=True)
+    country_code: Mapped[str | None] = mapped_column(String(10), nullable=True)
     network_learning_opt_in: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
@@ -34,6 +35,10 @@ class Call(Base):
     segment: Mapped[str] = mapped_column(String(140), default='')
     offer_key: Mapped[str] = mapped_column(String(120), default='default')
     campaign_key: Mapped[str] = mapped_column(String(120), default='pilot')
+    campaign_type: Mapped[str] = mapped_column(String(60), default='cold_b2b')
+    prospect_type: Mapped[str] = mapped_column(String(20), default='unknown')
+    speaker_mode: Mapped[str] = mapped_column(String(40), default='human_with_replica_assist')
+    jurisdiction_country: Mapped[str | None] = mapped_column(String(10), nullable=True)
     started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     consent_state: Mapped[str] = mapped_column(String(40), default='not_requested')
@@ -143,3 +148,62 @@ class AuditEvent(Base):
     entity_id: Mapped[str] = mapped_column(String(100), default='')
     payload: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
+class ConsentEvent(Base):
+    """Purpose-bound consent ledger entry.
+
+    One row per consent action (grant/deny/withdraw) for one purpose. The current
+    status for a purpose is always the most recent row for that (call_id, consent_type)
+    pair, so history is preserved rather than overwritten.
+    """
+    __tablename__ = 'consent_events'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey('companies.id'), index=True)
+    call_id: Mapped[int | None] = mapped_column(ForeignKey('calls.id'), nullable=True, index=True)
+    prospect_reference: Mapped[str] = mapped_column(String(220), default='')
+    consent_type: Mapped[str] = mapped_column(String(60), index=True)
+    purpose: Mapped[str] = mapped_column(Text, default='')
+    jurisdiction: Mapped[str] = mapped_column(String(10), default='')
+    consent_text_version: Mapped[str] = mapped_column(String(40), default='')
+    status: Mapped[str] = mapped_column(String(20), index=True)
+    collection_method: Mapped[str] = mapped_column(String(60), default='api')
+    evidence_ref: Mapped[str] = mapped_column(String(220), default='')
+    captured_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    withdrawn_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class TenantFeatureFlag(Base):
+    """Tenant x jurisdiction x campaign_type kill-switch.
+
+    Can only ever make a policy-allowed action MORE restrictive; the policy engine
+    never lets an enabled flag override a policy-denied action (see policy_engine.evaluate).
+    NULL jurisdiction/campaign_type means "applies to all" for that dimension.
+    """
+    __tablename__ = 'tenant_feature_flags'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey('companies.id'), index=True)
+    feature_key: Mapped[str] = mapped_column(String(80), index=True)
+    jurisdiction: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    campaign_type: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    updated_by: Mapped[str] = mapped_column(String(180), default='system')
+    reason: Mapped[str] = mapped_column(Text, default='')
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class ComplianceReviewSignoff(Base):
+    """Records that a tenant/action/jurisdiction combination requiring legal or
+    compliance review has been reviewed and acknowledged. This is the only way a
+    policy_engine 'requires_legal_review' tier can resolve toward allowed; it never
+    clears a hard 'denied' tier (see policy_engine.evaluate).
+    """
+    __tablename__ = 'compliance_review_signoffs'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey('companies.id'), index=True)
+    action: Mapped[str] = mapped_column(String(80), index=True)
+    jurisdiction: Mapped[str] = mapped_column(String(10), index=True)
+    acknowledged_by: Mapped[str] = mapped_column(String(180))
+    reason: Mapped[str] = mapped_column(Text, default='')
+    reference: Mapped[str] = mapped_column(String(220), default='')
+    acknowledged_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

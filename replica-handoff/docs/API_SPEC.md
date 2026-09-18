@@ -57,6 +57,53 @@ Output includes:
 
 ### `GET /api/manager/overview`
 Returns seller context with tenure/product tenure and trend. This endpoint must stay decision-support only.
+Since Sprint 0 it is gated by `can_process(db, 'employee_analytics', ...)`: returns `403`
+with the policy decision (`result`, `reason`, `policy_reference`) if the tenant's
+jurisdiction requires a compliance review signoff that has not been recorded yet
+(`POST /api/admin/compliance-signoffs`). The seeded demo tenant already has one.
+
+## Compliance (Sprint 0)
+
+See `docs/GLOBAL_PRODUCT_COMPLIANCE_SPEC.md` and `docs/DECISIONS.md` (Sprint 0 ADRs) for
+the policy model behind these endpoints.
+
+### `POST /api/policy/resolve`
+Body: `{"action": "live_assist", "tenant_id": null, "call_id": null, "country_code": "DE", "prospect_type": "unknown", "campaign_type": "cold_b2b", "speaker_mode": "human_with_replica_assist"}`
+Known actions: `record_audio`, `transcribe`, `live_assist`, `employee_analytics`, `autonomous_call`, `network_learning`, `emotion_inference` (always denied).
+Returns `{"action", "result", "reason", "policy_reference"}` where `result` is one of
+`allowed`, `denied`, `requires_consent`, `requires_legal_review`. Every call is audited.
+
+### `GET /api/policy/jurisdictions/{country}`
+Returns the resolved jurisdiction policy record (falls back to the `default` block for
+unknown countries, with `is_default_fallback: true`).
+
+### `GET /api/calls/{call_id}/processing-permissions`
+Returns the `record_audio`/`transcribe`/`live_assist` decisions for that call's stored
+jurisdiction/campaign/speaker-mode context.
+
+### `POST /api/calls/{call_id}/consents`
+Purpose-bound consent ledger entry. Body: `{"consent_type": "transcription", "status": "granted", "purpose": "...", "jurisdiction": "DE", "consent_text_version": "v1", "collection_method": "api", "evidence_ref": ""}`.
+`consent_type` is one of `call_recording`, `transcription`, `live_copilot_processing`, `customer_private_learning`, `cross_customer_network_learning`.
+
+### `POST /api/calls/{call_id}/consents/{purpose}/withdraw`
+Records a withdrawal event for that purpose.
+
+### `POST /api/network-learning/opt-in` / `POST /api/network-learning/withdraw`
+Tenant-level Network Intelligence opt-in/withdraw. Body: `{"reason": "...", "evidence_ref": ""}`.
+
+### `GET /api/admin/feature-flags` / `POST /api/admin/feature-flags`
+List/upsert a `TenantFeatureFlag` (`feature_key`, `enabled`, optional `jurisdiction`,
+`campaign_type`, `reason`). Can only make a policy-allowed action more restrictive; it
+never overrides a policy-denied action (see ADR-009).
+
+### `POST /api/admin/compliance-signoffs`
+Records a `ComplianceReviewSignoff` (`action`, `jurisdiction`, `acknowledged_by`,
+`reason`, `reference`). Logs a `policy.override` audit event with the previous and new
+decision.
+
+### `GET /api/audit/export`
+Returns the most recent audit events for the tenant (consent changes, policy decisions,
+overrides, feature-flag changes, employee-analytics access, network-learning opt-in/out).
 
 ## Integrations
 
