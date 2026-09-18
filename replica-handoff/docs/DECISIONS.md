@@ -1404,3 +1404,61 @@ latency value — verified structurally, not just documented, and covered by
 
 Neither change touches SalesBrain, ConversationState, or the ASR/turn-detection
 pipeline.
+
+## ADR-053 — Speaker-role mapping corrected for the confirmed first-real-test topology: inbound = seller, outbound = prospect
+Status: accepted
+
+ADR-043 introduced `OutboundSalesFlowResolver` to make the inbound/outbound-to-
+prospect/seller mapping explicit and injectable instead of a hardcoded constant
+— exactly so a topology correction like this one could be a one-place fix
+instead of a silent, undetectable mislabelling. That correction has now
+happened, ahead of the first real test call, before any real data existed to
+be affected by it.
+
+**What changed and why.** ADR-043's own prose assumed a call flow where Twilio
+originates the call TO the prospect (e.g. via REST API) with the seller bridged
+in separately, giving `inbound = prospect`, `outbound = seller`. The actual,
+concrete first-test topology is different and now confirmed: the **seller**
+calls REPLICA's Twilio number directly (becoming the PARENT call), TwiML then
+executes `<Start><Stream track="both_tracks">` followed by `<Dial>` to the
+consenting prospect test person's number (creating the DIALED-OUT child leg).
+On that parent call's Media Stream, per Twilio's documented track semantics for
+a `<Dial>`-bridged call: `inbound` = audio Twilio receives from whoever
+originated/is connected on the parent call = the **seller** (the one who
+called in); `outbound` = audio Twilio sends onward on that same call, which
+once the `<Dial>` leg connects carries the far end's voice = the **prospect**.
+This is the exact reverse of ADR-043's original assumption.
+
+**What changed in code**: `OutboundSalesFlowResolver.resolve()`
+(`app/streaming/speaker_mapping.py`) now returns `'seller'` for `INBOUND` and
+`'prospect'` for `OUTBOUND` — a straight swap of the two return values, nothing
+else. `TOPOLOGY_NAME` was bumped from `'outbound_sales_flow_v1'` to
+`'outbound_sales_flow_v2'` so any future data can be unambiguously traced to
+which mapping direction produced it — moot for existing data since no real
+test call has happened yet under either version, but the right discipline
+going forward regardless.
+
+**Tests updated to match** (`tests/test_streaming_speaker_mapping.py`,
+`tests/test_streaming_turn_detector.py`, `tests/test_streaming_pipeline_e2e.py`):
+every test that previously used the `inbound` track to stand in for "the
+prospect" (in order to trigger `process_final_turn()`'s prospect-only
+Suggestion/live-push path) now uses `outbound` for that role instead, and vice
+versa where a test specifically exercised seller-turn bookkeeping. This is a
+mechanical consequence of the resolver swap, not a change in what each test
+verifies.
+
+**What did NOT change**: the resolver's scope restriction itself (still exactly
+one supported topology, still explicitly out of scope for any other call shape
+— see ADR-043), the `SpeakerRoleResolver` injection mechanism, `TurnDetector`,
+`process_final_turn()`, SalesBrain, or ConversationState. This is a corrected
+constant behind an already-existing seam, not a new mechanism.
+
+**Still unverified, stated plainly**: this mapping direction is based on
+Twilio's documented Media Streams track semantics for a `<Dial>`-bridged
+parent call, reviewed ahead of the first real test — it has never been
+confirmed against a live call. The first real test call's own persisted `Turn`
+rows (`GET /api/calls/{id}/review`, no new code needed) are the actual
+verification step, per `docs/REAL_TEST_SETUP.md`'s preflight checklist: check
+which `Turn.speaker` values match who actually said what once real audio has
+gone through the pipeline, precisely the kind of field verification ADR-043
+itself called for rather than trusting either direction on paper alone.

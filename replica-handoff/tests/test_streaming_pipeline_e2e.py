@@ -181,14 +181,16 @@ def test_golden_path_produces_exactly_one_turn_and_one_suggestion(client, media_
 
     headers = auth_headers(client, 'haydar@replica-pilot.example')
     call_id = _create_call(client, headers)
-    _use_script(client.app, {'inbound': ['Wir haben bereits einen Anbieter.']})
+    # ADR-053: outbound is the prospect track for the confirmed test topology
+    # (seller calls in on inbound; TwiML <Dial>s the prospect out to outbound).
+    _use_script(client.app, {'outbound': ['Wir haben bereits einen Anbieter.']})
     try:
         with _connect(media_stream_client) as ws:
             sim = StreamSimulator(ws, call_id=call_id)
             sim.start()
-            sim.silence('inbound', 0.1)
-            sim.speak('inbound', 0.4)
-            sim.silence('inbound', 0.4)  # > 300ms hangover -> triggers finalize/turn-end
+            sim.silence('outbound', 0.1)
+            sim.speak('outbound', 0.4)
+            sim.silence('outbound', 0.4)  # > 300ms hangover -> triggers finalize/turn-end
             sim.stop()
     finally:
         _clear_script(client.app)
@@ -249,18 +251,19 @@ def test_both_tracks_produce_independent_turns_for_the_correct_speaker(client, m
 
     headers = auth_headers(client, 'haydar@replica-pilot.example')
     call_id = _create_call(client, headers)
+    # ADR-053: inbound = seller (caller-in), outbound = prospect (<Dial>-ed out).
     _use_script(client.app, {
-        'outbound': ['Guten Tag hier ist Anna von Replica.'],
-        'inbound': ['Wir haben bereits einen Anbieter.'],
+        'inbound': ['Guten Tag hier ist Anna von Replica.'],
+        'outbound': ['Wir haben bereits einen Anbieter.'],
     })
     try:
         with _connect(media_stream_client) as ws:
             sim = StreamSimulator(ws, call_id=call_id)
             sim.start()
-            sim.speak('outbound', 0.4)   # seller greets first
-            sim.silence('outbound', 0.4)
-            sim.speak('inbound', 0.4)    # then prospect responds
+            sim.speak('inbound', 0.4)    # seller greets first
             sim.silence('inbound', 0.4)
+            sim.speak('outbound', 0.4)   # then prospect responds
+            sim.silence('outbound', 0.4)
             sim.stop()
     finally:
         _clear_script(client.app)
@@ -278,19 +281,21 @@ def test_interim_transcripts_create_no_side_effects_before_turn_end(client, medi
 
     headers = auth_headers(client, 'haydar@replica-pilot.example')
     call_id = _create_call(client, headers)
-    _use_script(client.app, {'inbound': ['Wir haben bereits einen Anbieter und sind zufrieden']})
+    # ADR-053: outbound is the prospect track — a Suggestion only ever comes
+    # from a prospect turn, and this test needs one to appear after turn-end.
+    _use_script(client.app, {'outbound': ['Wir haben bereits einen Anbieter und sind zufrieden']})
     try:
         with _connect(media_stream_client) as ws:
             sim = StreamSimulator(ws, call_id=call_id)
             sim.start()
             # Speak long enough to generate MANY interim events (one per 20ms chunk)
             # but never let the track fall silent — no turn-end should occur yet.
-            sim.speak('inbound', 1.0)
+            sim.speak('outbound', 1.0)
             assert db_session.query(Turn).filter_by(call_id=call_id).count() == 0
             assert db_session.query(Suggestion).filter_by(call_id=call_id).count() == 0
             assert db_session.query(ConversationStateEvent).filter_by(call_id=call_id).count() == 0
             # NOW let it fall silent -> exactly one final turn should appear.
-            sim.silence('inbound', 0.4)
+            sim.silence('outbound', 0.4)
             sim.stop()
     finally:
         _clear_script(client.app)
@@ -362,13 +367,15 @@ def test_latency_trace_stages_are_recorded_in_correct_monotonic_order(client, me
 
     headers = auth_headers(client, 'haydar@replica-pilot.example')
     call_id = _create_call(client, headers)
-    _use_script(client.app, {'inbound': ['Wir haben bereits einen Anbieter.']})
+    # ADR-053: outbound is the prospect track — push_enqueued/ws_send_completed
+    # are only marked for a prospect turn that produces a Suggestion.
+    _use_script(client.app, {'outbound': ['Wir haben bereits einen Anbieter.']})
     try:
         with _connect(media_stream_client) as ws:
             sim = StreamSimulator(ws, call_id=call_id)
             sim.start()
-            sim.speak('inbound', 0.3)
-            sim.silence('inbound', 0.4)
+            sim.speak('outbound', 0.3)
+            sim.silence('outbound', 0.4)
             sim.stop()
     finally:
         _clear_script(client.app)
@@ -470,16 +477,18 @@ def test_sprint_3a_full_synthetic_path_through_live_push_and_render_ack(client, 
     call_id = _create_call(client, headers)
     live_token = login(client, 'haydar@replica-pilot.example')
 
-    _use_script(client.app, {'inbound': ['Wir haben bereits einen Anbieter.']})
+    # ADR-053: outbound is the prospect track for the confirmed test topology —
+    # only a prospect turn produces a Suggestion/live push at all.
+    _use_script(client.app, {'outbound': ['Wir haben bereits einen Anbieter.']})
     try:
         with client.websocket_connect(f'/ws/live/{call_id}') as live_ws:
             live_ws.send_text(json.dumps({'type': 'auth', 'token': live_token}))
             with _connect(media_stream_client) as ws:
                 sim = StreamSimulator(ws, call_id=call_id)
                 sim.start()
-                sim.silence('inbound', 0.1)
-                sim.speak('inbound', 0.4)
-                sim.silence('inbound', 0.4)  # > 300ms hangover -> finalize/turn-end
+                sim.silence('outbound', 0.1)
+                sim.speak('outbound', 0.4)
+                sim.silence('outbound', 0.4)  # > 300ms hangover -> finalize/turn-end
                 sim.stop()
             pushed = live_ws.receive_json()
     finally:

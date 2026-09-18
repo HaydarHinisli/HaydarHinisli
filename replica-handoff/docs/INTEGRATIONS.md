@@ -32,9 +32,10 @@ Implemented in Sprint 2/2B (`app/streaming/`, `POST /ws/twilio-media` in
    not the deprecated stdlib `audioop`; byte-exact verified against it in tests).
 5. **split/label channels** — done, `app/streaming/media_stream_session.py` keeps
    `inbound`/`outbound` completely separate end to end; which track is `prospect` vs.
-   `seller` is resolved via `app/streaming/speaker_mapping.py` (Sprint 2B, ADR-043),
-   NOT a hardcoded assumption — see that ADR for the explicit outbound-sales-flow
-   topology restriction this resolver is scoped to.
+   `seller` is resolved via `app/streaming/speaker_mapping.py` (Sprint 2B, ADR-043;
+   mapping direction corrected by ADR-053 for the confirmed first-real-test
+   topology), NOT a hardcoded assumption — see those ADRs for the explicit
+   outbound-sales-flow topology restriction this resolver is scoped to.
 6. **forward stream to ASR and audio feature extractor** — done for the seam, the
    audio-feature (VAD) side (`app/streaming/vad.py`), and now a real vendor adapter:
    `app/streaming/deepgram_provider.py`'s `DeepgramASRProvider` (Sprint 2B, ADR-045),

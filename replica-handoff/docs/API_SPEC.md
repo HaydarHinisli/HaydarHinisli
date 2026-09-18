@@ -306,8 +306,8 @@ via a `<Parameter>` on the `<Stream>` TwiML noun) is used to resolve the REPLICA
 set. No resolvable call → connection closed immediately (no tenant/policy context to
 evaluate against). Which track (`inbound`/`outbound`) is `prospect`/`seller` is
 resolved via `app/streaming/speaker_mapping.py`, scoped to REPLICA's one supported
-call topology today (ADR-043) — see that ADR before using this endpoint with any
-other telephony setup.
+call topology today (ADR-043; mapping direction corrected by ADR-053) — see those
+ADRs before using this endpoint with any other telephony setup.
 
 Streaming ASR provider is selected server-side via `REPLICA_ASR_PROVIDER`
 (`simulated`, the default, or `deepgram` + `DEEPGRAM_API_KEY` — ADR-045); not a

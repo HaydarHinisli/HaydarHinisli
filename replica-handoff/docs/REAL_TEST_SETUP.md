@@ -56,8 +56,8 @@ listed here.
 
 | Purpose | URL | Where it's configured |
 |---|---|---|
-| Media Stream WebSocket | `wss://<PUBLIC_HOST>/ws/twilio-media` | Embedded literally inside the TwiML you configure (§4) — not a separate Twilio dashboard field. |
-| Status Callback | `https://<PUBLIC_HOST>/webhooks/twilio/call-status` (HTTP POST) | Phone Number → Voice Configuration → "Call status changes". |
+| Media Stream WebSocket | `wss://<PUBLIC_HOST>/ws/twilio-media` (**no query parameters**) | Embedded literally inside the TwiML you configure (§4) — not a separate Twilio dashboard field. |
+| Status Callback | `https://<PUBLIC_HOST>/webhooks/twilio/call-status` (HTTP POST) | Embedded directly in the TwiML Bin (§4), as `<Dial statusCallback="...">` — kept inside the Bin so the whole Bin is the single place to fill in, per the explicit "only 4 fields" simplification. |
 | Call/Voice webhook ("A call comes in") | **No REPLICA URL** — see finding below | Phone Number → Voice Configuration → "A call comes in" → a **TwiML Bin**, not a webhook URL. |
 
 **Finding, stated plainly:** REPLICA's backend does not currently serve any
@@ -67,6 +67,30 @@ right now per the explicit instruction not to add architecture/product work.
 For this first test, use a static Twilio **TwiML Bin** instead (Twilio hosts
 the TwiML content itself — REPLICA's server is never contacted for it) — exact
 content given in §4.
+
+**Confirmed (code-verified, not a guess): `call_id` travels exclusively via
+`<Stream><Parameter name="replica_call_id" value="..."/></Stream>`, delivered
+to REPLICA inside the WebSocket `start` event's `customParameters`
+(`app/main.py`'s `_resolve_call_for_media_stream()`), never via a query string
+on the `<Stream url="...">` itself.** `app/streaming/media_stream_security.
+verify_media_stream_signature()` builds the URL it validates the Twilio
+signature against from `websocket.url.path` plus `websocket.url.query` — with
+no query string in the configured `<Stream url="...">`, that query component
+is empty, exactly matching what Twilio itself signs for a query-param-free
+URL. Adding a query string to the `<Stream>` URL would still technically work
+(the signature check would validate against it), but is unnecessary and not
+what the TwiML template below does.
+
+**Status-callback correlation limitation, found while preparing this:**
+`Call.external_call_id` (the field the call-status webhook and `<Stream>`'s
+`callSid` fallback correlate against) is never written anywhere in the current
+codebase — only read. For this first test, status-callback events will
+therefore arrive, be signature-verified, deduplicated, and recorded in
+`CallProviderStatus`, but with `call_id=None` (uncorrelated to your specific
+`Call` row) — this does not block or affect the actual pipeline test in any
+way (the Media Stream correlates independently via the `Parameter` above), it
+just means you won't see status events tied to a specific call in
+`GET /api/audit/export`. Not a feature to add before this test.
 
 No other provider callback is required for this test: no recording callback
 (the pipeline is listen-only, ADR-047), no fallback URL needed for one manual
@@ -102,17 +126,24 @@ Simplest robust shape meeting EU/HTTPS/WSS/Postgres/single-instance:
 ### Twilio (https://console.twilio.com)
 
 1. Öffne https://console.twilio.com und melde dich an.
-2. **Account SID / Auth Token**: Öffne die Console-Startseite (oder
+2. **Trial → Pay-as-you-go upgraden (zwingend vor dem echten Test)**: im Free
+   Trial sind sowohl `<Stream>` als auch `<Dial><Number>` blockiert — ohne
+   Upgrade läuft der Test gar nicht erst an. Console-Startseite oder
+   Account-Menü → "Upgrade" bzw. "Add funds"/"Billing" → Zahlungsmethode
+   hinterlegen → Account wird dadurch auf Pay-as-you-go umgestellt.
+3. **Account SID / Auth Token**: Öffne die Console-Startseite (oder
    Account → API keys & tokens) → dort stehen "Account SID" und "Auth Token"
    (Auth Token ggf. über "View"/Augen-Symbol sichtbar machen) → in deinen
    Passwort-Manager kopieren, niemals in eine Datei in diesem Repo.
-3. **Telefonnummer**: Phone Numbers → Manage → Buy a number (falls noch keine
+4. **Telefonnummer**: Phone Numbers → Manage → Buy a number (falls noch keine
    vorhanden) → eine Nummer mit aktivierter Voice-Funktion wählen.
-4. **TwiML Bin erstellen**: Develop → TwiML Bins → "Create new TwiML Bin" →
-   Name z. B. `replica-first-test` → folgenden Inhalt einfügen und die drei
-   Platzhalter ersetzen (`<PUBLIC_HOST>`, `<REPLICA_CALL_ID>` aus Schritt 1
-   der Preflight-Checkliste unten, `<TEST_PERSON_B_NUMBER>` im Format
-   `+49...`):
+5. **TwiML Bin erstellen**: Develop → TwiML Bins → "Create new TwiML Bin" →
+   Name z. B. `replica-first-test` → folgenden Inhalt einfügen. **Nur diese
+   vier Stellen müssen noch ausgefüllt werden**: die öffentliche REPLICA-WSS-URL
+   (`<PUBLIC_HOST>`, zweimal — WebSocket und Status-Callback teilen sich denselben
+   Host), die aktuelle REPLICA `call_id` (`<REPLICA_CALL_ID>`, aus Schritt 2 der
+   Preflight-Checkliste unten), und die Telefonnummer der einwilligenden
+   Prospect-Testperson (`<PROSPECT_TEST_PERSON_NUMBER>`, Format `+49...`):
    ```xml
    <?xml version="1.0" encoding="UTF-8"?>
    <Response>
@@ -121,18 +152,24 @@ Simplest robust shape meeting EU/HTTPS/WSS/Postgres/single-instance:
          <Parameter name="replica_call_id" value="<REPLICA_CALL_ID>" />
        </Stream>
      </Start>
-     <Dial><TEST_PERSON_B_NUMBER></Dial>
+     <Dial statusCallback="https://<PUBLIC_HOST>/webhooks/twilio/call-status"
+           statusCallbackMethod="POST"
+           statusCallbackEvent="initiated ringing answered completed">
+       <Number><PROSPECT_TEST_PERSON_NUMBER></Number>
+     </Dial>
    </Response>
    ```
-   → Speichern.
-5. **Nummer mit der Bin verknüpfen**: Phone Numbers → Manage → Active Numbers
+   → Speichern. Diese Reihenfolge (`<Start><Stream>` zuerst, dann `<Dial>`)
+   entspricht exakt der bestätigten Testtopologie: der Seller ruft diese
+   Nummer an (Parent Call, wird zum `inbound`-Track), REPLICA startet den
+   Media Stream, und erst danach verbindet Twilio zur Prospect-Testperson
+   (`<Dial>`, wird zum `outbound`-Track) — siehe ADR-053.
+6. **Nummer mit der Bin verknüpfen**: Phone Numbers → Manage → Active Numbers
    → deine Nummer anklicken → Abschnitt "Voice Configuration" → Feld
    "A call comes in" → Dropdown auf "TwiML Bin" stellen → die eben erstellte
-   Bin auswählen.
-6. **Status Callback**: gleiche Seite, Feld "Call status changes" → eintragen:
-   `https://<PUBLIC_HOST>/webhooks/twilio/call-status` → Methode: `HTTP POST`.
-7. Speichern.
-8. **EU-Region (IE1)** — Hinweis zur Ehrlichkeit: dieser Schritt konnte hier
+   Bin auswählen → Speichern. (Kein separates "Call status changes"-Feld nötig
+   — der Status-Callback ist bereits Teil der Bin selbst, siehe oben.)
+7. **EU-Region (IE1)** — Hinweis zur Ehrlichkeit: dieser Schritt konnte hier
    nicht an einem echten Twilio-Dashboard verifiziert werden. Ob und wo eine
    explizite "IE1"/EU-Data-Residency-Auswahl im Twilio Console für einen
    Standard-Account sichtbar ist, hängt vom Account-Typ ab (bei manchen
@@ -176,17 +213,24 @@ Once infra + credentials are in place, before dialing:
 5. **Open the live UI**: `https://<PUBLIC_HOST>/live/{id}` in the seller's
    browser, paste a fresh bearer token, click "Verbinden" — do this BEFORE
    placing the call, so the push connection is already live.
-6. **Place the call**: Test Person A dials the Twilio number.
+6. **Place the call**: the Seller (Haydar) dials the Twilio number — **not**
+   the other way around. This is the confirmed topology for this test; do not
+   have the Prospect test person call in.
 
-**Speaker-role honesty note** (see ADR-043's own stated scope restriction):
-with the TwiML above, the person who **calls the number** becomes the
-`inbound` track (mapped to `prospect` by `OutboundSalesFlowResolver`), and the
-person **`<Dial>`-ed out to** becomes `outbound` (mapped to `seller`). This
-exact mapping has never been verified against a live Twilio account. After
-the test call, check `GET /api/calls/{id}/review` (existing endpoint, no new
-code) to confirm which `Turn.speaker` values actually match who said what — if
-inverted, that is real field data for a future topology adjustment, not
-something to guess-fix in advance.
+**Speaker-role honesty note** (corrected by ADR-053, superseding ADR-043's
+original assumption): with the TwiML above, the person who **calls the
+number** — the Seller — becomes the `inbound` track (mapped to `seller` by
+`OutboundSalesFlowResolver`, `outbound_sales_flow_v2`), and the person
+**`<Dial>`-ed out to** — the consenting Prospect test person — becomes
+`outbound` (mapped to `prospect`). This mapping matches the concrete topology
+confirmed for this test (Seller calls in, TwiML `<Dial>`s the Prospect out),
+but has still never been verified against a live Twilio account — only
+against documented Twilio semantics and the unit tests in
+`tests/test_streaming_speaker_mapping.py`. After the test call, check
+`GET /api/calls/{id}/review` (existing endpoint, no new code) to confirm which
+`Turn.speaker` values actually match who said what — if inverted, that is real
+field data for a further topology correction, not something to guess-fix in
+advance.
 
 ## 6. What this test proves
 
