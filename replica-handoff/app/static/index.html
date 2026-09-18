@@ -92,8 +92,20 @@
 </div>
 <script>
 const $=s=>document.querySelector(s), $$=s=>document.querySelectorAll(s); let currentSuggestion=null;
+// Sprint 1: every API call now requires auth. This demo logs in once with the
+// seeded tenant_admin demo account (covers every role-gated action this page uses)
+// rather than bypassing auth for the static frontend — see docs/DECISIONS.md ADR-021.
+// The demo password is intentionally public; it only ever works against
+// REPLICA_DEMO_MODE and is never a real tenant's credential.
+let authToken = null;
+async function login(){
+  const r = await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:'admin@replica-pilot.example',password:'replica-demo-2026'})});
+  if(!r.ok) throw new Error('Demo login failed (HTTP '+r.status+'). Is REPLICA_DEMO_MODE enabled?');
+  const body = await r.json();
+  authToken = body.access_token;
+}
 $$('.nav button').forEach(b=>b.addEventListener('click',()=>{$$('.nav button').forEach(x=>x.classList.remove('active'));b.classList.add('active');$$('.view').forEach(v=>v.classList.remove('active'));$('#'+b.dataset.view).classList.add('active')}));
-async function j(url,opt){const r=await fetch(url,opt);let body;try{body=await r.json()}catch{body={}}if(!r.ok)throw new Error(body.detail||body.message||r.statusText);return body}
+async function j(url,opt={}){const headers={...(opt.headers||{}),...(authToken?{Authorization:'Bearer '+authToken}:{})};const r=await fetch(url,{...opt,headers});let body;try{body=await r.json()}catch{body={}}if(!r.ok)throw new Error(body.detail?.message||body.detail||body.message||r.statusText);return body}
 async function loadDashboard(){const d=await j('/api/dashboard');$('#kCalls').textContent=d.kpis.calls;$('#kMeeting').textContent=d.kpis.meeting_rate+'%';$('#kHeld').textContent=d.kpis.held_rate+'%';$('#kOpp').textContent=d.kpis.opportunity_rate+'%';$('#meetings').innerHTML=d.upcoming_meetings.length?d.upcoming_meetings.map(m=>`<div class="item"><strong>${m.title}</strong><div class="mini">${new Date(m.starts_at).toLocaleString('de-DE')} · ${m.source}</div></div>`).join(''):'<div class="muted">Keine kommenden Meetings.</div>'}
 async function analyze(){const btn=$('#analyzeBtn');btn.disabled=true;btn.textContent='Analysiere…';try{const d=await j('/api/copilot/suggest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({utterance:$('#utterance').value})});currentSuggestion=d.suggestion_id;$('#suggestion').textContent='„'+d.suggestion+'“';$('#strategy').textContent=d.strategy;$('#reason').textContent=d.reason;$('#doNot').textContent=d.do_not;$('#styleTags').innerHTML=`<span class="tag">Sprache: ${d.language_policy.complexity}</span><span class="tag">Direktheit: ${d.language_policy.directness}</span><span class="tag">Ziel: ≤ ${d.language_policy.target_response_words} Wörter</span><span class="tag">Fast Path: ${d.latency_ms} ms</span>`;$('#feedback').style.display='flex'}catch(e){alert(e.message)}finally{btn.disabled=false;btn.textContent='Jetzt analysieren'}}
 $('#analyzeBtn').addEventListener('click',analyze);$$('.example').forEach(b=>b.addEventListener('click',()=>{$('#utterance').value=b.dataset.text;analyze()}));$$('#feedback button').forEach(b=>b.addEventListener('click',async()=>{if(!currentSuggestion)return;const label=b.textContent;await j('/api/suggestions/'+currentSuggestion+'/feedback',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rating:b.dataset.rate,used:b.dataset.rate!=='bad'})});b.textContent='Gespeichert ✓';setTimeout(()=>b.textContent=label,900)}));
@@ -102,7 +114,7 @@ $('#loadReview').addEventListener('click',loadReview);
 async function loadManager(){const d=await j('/api/manager/overview');$('#managerRows').innerHTML=d.sellers.map(s=>`<tr><td><strong>${s.seller}</strong></td><td>${s.calls}</td><td>${s.meeting_rate}%</td><td>${s.team_meeting_rate}%</td><td>${s.product_tenure_days} Tage</td><td class="${s.trend==='improving'?'trend-up':s.trend==='declining'?'trend-down':'trend-flat'}">${s.trend}</td><td>${s.context.join(' ')}</td></tr>`).join('')}
 async function loadIntegrations(){const d=await j('/api/integrations');[['hubspot','hub'],['google_calendar','cal'],['salesforce','sf'],['twilio','tw'],['openai_realtime','oa']].forEach(([key,id])=>{const on=d[key].connected;$('#'+id+'Dot').classList.toggle('on',on);$('#'+id+'Text').textContent=(d[key].provider||key)+(on?' · verbunden':' · nicht verbunden')})}
 $('#hubSync').addEventListener('click',async()=>{try{$('#syncResult').textContent=JSON.stringify(await j('/api/integrations/hubspot/sync',{method:'POST'}),null,2)}catch(e){$('#syncResult').textContent=e.message}});$('#calSync').addEventListener('click',async()=>{try{$('#syncResult').textContent=JSON.stringify(await j('/api/integrations/google-calendar/sync',{method:'POST'}),null,2)}catch(e){$('#syncResult').textContent=e.message}});
-loadDashboard();loadManager();loadIntegrations();
+login().then(()=>{loadDashboard();loadManager();loadIntegrations();}).catch(e=>{document.querySelector('.shell').insertAdjacentHTML('afterbegin',`<div class="notice" style="border-color:#773541">Login fehlgeschlagen: ${e.message}</div>`)});
 </script>
 </body>
 </html>

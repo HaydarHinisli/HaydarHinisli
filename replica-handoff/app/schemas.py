@@ -10,6 +10,10 @@ class CreateCallRequest(BaseModel):
     segment: str = ''
     offer_key: str = 'default'
     campaign_key: str = 'pilot'
+    campaign_type: str = 'cold_b2b'
+    prospect_type: Literal['b2b', 'b2c', 'unknown'] = 'unknown'
+    speaker_mode: Literal['human_seller', 'human_with_replica_assist', 'ai_agent', 'hybrid'] = 'human_with_replica_assist'
+    jurisdiction_country: str | None = None
 
 
 class ConsentRequest(BaseModel):
@@ -86,6 +90,7 @@ class ConsentEventRequest(BaseModel):
 class NetworkLearningOptRequest(BaseModel):
     reason: str = ''
     evidence_ref: str = ''
+    company_id: int | None = None
 
 
 class FeatureFlagRequest(BaseModel):
@@ -93,13 +98,24 @@ class FeatureFlagRequest(BaseModel):
     enabled: bool
     jurisdiction: str | None = None
     campaign_type: str | None = None
-    actor: str = 'admin'
     reason: str = ''
+    company_id: int | None = None
 
 
 class ComplianceReviewSignoffRequest(BaseModel):
     action: str
     jurisdiction: str
-    acknowledged_by: str
     reason: str = ''
     reference: str = ''
+    company_id: int | None = None
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class CreateUserRequest(BaseModel):
+    email: str
+    password: str = Field(min_length=8)
+    role: Literal['seller', 'manager', 'tenant_admin', 'compliance_admin']

@@ -14,10 +14,25 @@ class Company(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class User(Base):
+    """Auth identity. company_id is NULL only for role='system_admin' (cross-tenant
+    superuser); every other role must belong to exactly one tenant."""
+    __tablename__ = 'users'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    company_id: Mapped[int | None] = mapped_column(ForeignKey('companies.id'), nullable=True, index=True)
+    email: Mapped[str] = mapped_column(String(220), unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(String(200))
+    role: Mapped[str] = mapped_column(String(40), index=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
 class Seller(Base):
     __tablename__ = 'sellers'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     company_id: Mapped[int] = mapped_column(ForeignKey('companies.id'), index=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey('users.id'), nullable=True, index=True)
     name: Mapped[str] = mapped_column(String(140))
     role: Mapped[str] = mapped_column(String(80), default='SDR')
     hired_at: Mapped[datetime] = mapped_column(DateTime)
@@ -76,6 +91,11 @@ class Turn(Base):
 class Suggestion(Base):
     __tablename__ = 'suggestions'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    # Nullable for pre-Sprint-1 rows; every suggestion created via the API from Sprint 1
+    # onward always sets it (sandbox suggestions with call_id=None still belong to the
+    # authenticated caller's tenant — see app/main.py copilot()). Without this, feedback
+    # on a sandbox suggestion (no call_id to derive a tenant from) could not be tenant-scoped.
+    company_id: Mapped[int | None] = mapped_column(ForeignKey('companies.id'), nullable=True, index=True)
     call_id: Mapped[int | None] = mapped_column(ForeignKey('calls.id'), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
     prospect_text: Mapped[str] = mapped_column(Text)

@@ -1,8 +1,13 @@
 from __future__ import annotations
 from datetime import datetime, timedelta
 from sqlalchemy import select
+from .auth.security import hash_password
 from .db import SessionLocal
-from .models import Company, ComplianceReviewSignoff, Seller, Call, Turn, Meeting, Deal, Experiment
+from .models import Company, ComplianceReviewSignoff, Seller, Call, Turn, Meeting, Deal, Experiment, User
+
+# Local/demo credential only — never used outside REPLICA_DEMO_MODE. Production
+# tenants are created via POST /api/admin/users with a real, unique password.
+DEMO_PASSWORD = 'replica-demo-2026'
 
 
 def seed_demo() -> None:
@@ -32,10 +37,25 @@ def seed_demo() -> None:
             reference='seed-demo-signoff-employee-analytics-de',
         ))
         now = datetime.utcnow()
+
+        password_hash = hash_password(DEMO_PASSWORD)
+        seller_users = {
+            'Haydar': User(company_id=company.id, email='haydar@replica-pilot.example', password_hash=password_hash, role='seller'),
+            'Mara': User(company_id=company.id, email='mara@replica-pilot.example', password_hash=password_hash, role='seller'),
+            'Jonas': User(company_id=company.id, email='jonas@replica-pilot.example', password_hash=password_hash, role='seller'),
+        }
+        db.add_all(seller_users.values())
+        db.add(User(company_id=company.id, email='manager@replica-pilot.example', password_hash=password_hash, role='manager'))
+        db.add(User(company_id=company.id, email='admin@replica-pilot.example', password_hash=password_hash, role='tenant_admin'))
+        db.add(User(company_id=company.id, email='compliance@replica-pilot.example', password_hash=password_hash, role='compliance_admin'))
+        # system_admin is a cross-tenant superuser and therefore belongs to no company.
+        db.add(User(company_id=None, email='sysadmin@replica.example', password_hash=password_hash, role='system_admin'))
+        db.flush()
+
         sellers = [
-            Seller(company_id=company.id, name='Haydar', hired_at=now-timedelta(days=55), product_started_at=now-timedelta(days=42), role='SDR'),
-            Seller(company_id=company.id, name='Mara', hired_at=now-timedelta(days=420), product_started_at=now-timedelta(days=300), role='SDR'),
-            Seller(company_id=company.id, name='Jonas', hired_at=now-timedelta(days=170), product_started_at=now-timedelta(days=160), role='SDR'),
+            Seller(company_id=company.id, user_id=seller_users['Haydar'].id, name='Haydar', hired_at=now-timedelta(days=55), product_started_at=now-timedelta(days=42), role='SDR'),
+            Seller(company_id=company.id, user_id=seller_users['Mara'].id, name='Mara', hired_at=now-timedelta(days=420), product_started_at=now-timedelta(days=300), role='SDR'),
+            Seller(company_id=company.id, user_id=seller_users['Jonas'].id, name='Jonas', hired_at=now-timedelta(days=170), product_started_at=now-timedelta(days=160), role='SDR'),
         ]
         db.add_all(sellers)
         db.flush()

@@ -65,10 +65,68 @@ def test_autonomous_voice_blocked_without_explicit_enable():
 
 
 def test_autonomous_voice_allowed_once_tenant_enables_and_jurisdiction_permits():
+    # Sprint 1: speaker_mode/prospect_type are now load-bearing (ADR-013/ADR-014), so
+    # this scenario must describe a realistic autonomous-agent, known-audience call.
     gb = _policy(country_code='GB', autonomous_marketing_call='consent_only')
-    ctx = PolicyContext(jurisdiction_policy=gb, tenant_id=1, feature_flags={'autonomous_call': True})
+    ctx = PolicyContext(
+        jurisdiction_policy=gb, tenant_id=1, feature_flags={'autonomous_call': True},
+        speaker_mode='ai_agent', prospect_type='b2b',
+    )
     decision = evaluate('autonomous_call', ctx)
     assert decision.result == Decision.ALLOWED
+
+
+def test_autonomous_call_denied_when_speaker_mode_is_not_ai():
+    # A misconfigured call marked as a human seller should never be able to slip
+    # through the autonomous_call path just because the tenant enabled the feature.
+    gb = _policy(country_code='GB', autonomous_marketing_call='consent_only')
+    ctx = PolicyContext(
+        jurisdiction_policy=gb, tenant_id=1, feature_flags={'autonomous_call': True},
+        speaker_mode='human_with_replica_assist', prospect_type='b2b',
+    )
+    decision = evaluate('autonomous_call', ctx)
+    assert decision.result == Decision.DENIED
+    assert decision.policy_reference == 'speaker_mode_mismatch'
+
+
+def test_autonomous_call_denied_when_prospect_type_unknown():
+    gb = _policy(country_code='GB', autonomous_marketing_call='consent_only')
+    ctx = PolicyContext(
+        jurisdiction_policy=gb, tenant_id=1, feature_flags={'autonomous_call': True},
+        speaker_mode='ai_agent', prospect_type='unknown',
+    )
+    decision = evaluate('autonomous_call', ctx)
+    assert decision.result == Decision.DENIED
+    assert decision.policy_reference == 'insufficient_context'
+
+
+def test_live_assist_denied_when_speaker_mode_is_pure_ai_agent():
+    # live_assist is the human-seller-plus-copilot flow; a pure AI agent has no
+    # "seller" to assist, so this must not silently fall through to ALLOWED.
+    ctx = PolicyContext(
+        jurisdiction_policy=_policy(), tenant_id=1,
+        consent_status={'live_copilot_processing': 'granted'}, speaker_mode='ai_agent',
+    )
+    decision = evaluate('live_assist', ctx)
+    assert decision.result == Decision.DENIED
+    assert decision.policy_reference == 'speaker_mode_mismatch'
+
+
+def test_record_audio_allowed_after_signoff_only_with_known_prospect_type():
+    # record_audio is tier='review' in every currently configured jurisdiction, so a
+    # signoff always has to exist first; once it does, prospect_type still gates it.
+    policy = _policy()  # DE recording=consent_and_legal_review -> tier 'review'
+    with_signoff = PolicyContext(
+        jurisdiction_policy=policy, tenant_id=1, review_signoffs={'record_audio'},
+        consent_status={'call_recording': 'granted'},
+    )
+    blocked = evaluate('record_audio', with_signoff)
+    assert blocked.result == Decision.DENIED
+    assert blocked.policy_reference == 'insufficient_context'
+
+    with_signoff.prospect_type = 'b2b'
+    allowed = evaluate('record_audio', with_signoff)
+    assert allowed.result == Decision.ALLOWED
 
 
 def test_employee_analytics_blocked_until_review_signoff():

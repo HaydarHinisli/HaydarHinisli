@@ -79,6 +79,19 @@ DEFAULT_DENY_ACTIONS = {'autonomous_call'}
 
 KNOWN_ACTIONS = set(ACTION_POLICY_FIELD) | {'emotion_inference'}
 
+# ADR-013: speaker_mode technically distinguishes "a human is on the line" (with or
+# without copilot assistance, or a human/AI hybrid) from "an AI agent is speaking
+# autonomously" — these are different consent/disclosure regimes, not the same action
+# under different labels.
+HUMAN_SPEAKER_ACTIONS = {'live_assist', 'transcribe'}
+HUMAN_SPEAKER_MODES = {'human_seller', 'human_with_replica_assist', 'hybrid'}
+AI_SPEAKER_MODES = {'ai_agent', 'hybrid'}
+
+# ADR-014: these two actions carry the most consumer-protection weight (persistent
+# audio capture, fully autonomous outbound speech), so they fail closed rather than
+# defaulting to a B2B-style presumed-consent tier when prospect_type is unknown.
+PROSPECT_TYPE_REQUIRED_ACTIONS = {'record_audio', 'autonomous_call'}
+
 
 def tier_for(value: str) -> str:
     return VALUE_TIER.get(value, 'review')
@@ -158,6 +171,29 @@ def evaluate(action: str, ctx: PolicyContext) -> PolicyDecision:
             f'"{action}" defaults to disabled for every tenant/jurisdiction until explicitly '
             'enabled (product default: autonomous voice OFF everywhere).',
             'product_default_deny',
+        )
+
+    # Sprint 1 (ADR-013/ADR-014): speaker_mode and prospect_type are now load-bearing,
+    # not just descriptive metadata. A mismatch or missing value fails closed with a
+    # DENIED carrying a distinct policy_reference, so callers/UI can tell "blocked by
+    # law" apart from "call context is incomplete/wrong" and fix the latter themselves.
+    if action in HUMAN_SPEAKER_ACTIONS and ctx.speaker_mode not in HUMAN_SPEAKER_MODES:
+        return PolicyDecision(
+            action, Decision.DENIED,
+            f'"{action}" requires a human-involved speaker_mode (one of {sorted(HUMAN_SPEAKER_MODES)}); got "{ctx.speaker_mode}".',
+            'speaker_mode_mismatch',
+        )
+    if action == 'autonomous_call' and ctx.speaker_mode not in AI_SPEAKER_MODES:
+        return PolicyDecision(
+            action, Decision.DENIED,
+            f'"autonomous_call" requires speaker_mode in {sorted(AI_SPEAKER_MODES)}; got "{ctx.speaker_mode}".',
+            'speaker_mode_mismatch',
+        )
+    if action in PROSPECT_TYPE_REQUIRED_ACTIONS and ctx.prospect_type == 'unknown':
+        return PolicyDecision(
+            action, Decision.DENIED,
+            f'"{action}" requires a known prospect_type (b2b or b2c) before it can be evaluated; call context is incomplete.',
+            'insufficient_context',
         )
 
     if action == 'network_learning':

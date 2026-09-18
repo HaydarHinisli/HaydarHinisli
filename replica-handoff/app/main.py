@@ -1,20 +1,25 @@
 from __future__ import annotations
 import json
+from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
-from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .config import get_settings
-from .db import Base, engine, get_db
-from .models import AuditEvent, Call, Company, ComplianceReviewSignoff, ConsentEvent, Experiment, ExperimentAssignment, Meeting, Seller, Suggestion, TenantFeatureFlag, Turn
+from .db import get_db
+from .migrate import run_migrations
+from .models import (
+    AuditEvent, Call, Company, ComplianceReviewSignoff, ConsentEvent, Experiment, ExperimentAssignment,
+    Meeting, Seller, Suggestion, TenantFeatureFlag, Turn, User,
+)
 from .schemas import (
     CompleteCallRequest, ComplianceReviewSignoffRequest, ConsentEventRequest, ConsentRequest, CreateCallRequest,
-    CreateExperimentRequest, FeatureFlagRequest, NetworkLearningOptRequest, PolicyResolveRequest, SuggestRequest,
-    SuggestionFeedbackRequest, TurnRequest,
+    CreateExperimentRequest, CreateUserRequest, FeatureFlagRequest, LoginRequest, NetworkLearningOptRequest,
+    PolicyResolveRequest, SuggestRequest, SuggestionFeedbackRequest, TurnRequest,
 )
 from .seed import seed_demo
 from .services.copilot import suggest
@@ -29,18 +34,29 @@ from .compliance.admin import record_review_signoff, set_feature_flag, set_netwo
 from .compliance.audit import log_audit
 from .compliance.jurisdiction_policy import resolve_country_policy
 from .compliance.policy_engine import Decision, can_process
+from .auth.dependencies import AuthContext, get_current_user, require_role, resolve_tenant_id
+from .auth.security import create_access_token, hash_password, verify_password
+from .logging_config import RequestContextMiddleware, configure_logging
 
 BASE_DIR = Path(__file__).resolve().parent
 settings = get_settings()
-app = FastAPI(title='REPLICA MVP', version='0.3.0', description='Adaptive Sales Intelligence pilot')
-app.mount('/static', StaticFiles(directory=BASE_DIR/'static'), name='static')
+configure_logging()
 
 
-@app.on_event('startup')
-def startup() -> None:
-    Base.metadata.create_all(bind=engine)
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Sprint 1: schema is now versioned via Alembic instead of Base.metadata.create_all(),
+    # so a stale local SQLite file no longer needs to be deleted between pulls — see
+    # app/migrate.py and docs/DECISIONS.md ADR-017.
+    run_migrations()
     if settings.replica_demo_mode:
         seed_demo()
+    yield
+
+
+app = FastAPI(title='REPLICA MVP', version='0.4.0', description='Adaptive Sales Intelligence pilot', lifespan=lifespan)
+app.add_middleware(RequestContextMiddleware)
+app.mount('/static', StaticFiles(directory=BASE_DIR/'static'), name='static')
 
 
 @app.get('/')
@@ -50,23 +66,92 @@ def root():
 
 @app.get('/api/health')
 def health():
-    return {'status': 'ok', 'version': '0.3.0', 'env': settings.replica_env, 'demo_mode': settings.replica_demo_mode}
+    return {'status': 'ok', 'version': '0.4.0', 'env': settings.replica_env, 'demo_mode': settings.replica_demo_mode}
 
 
-def _demo_company_id(db: Session) -> int:
-    company = db.scalar(select(Company).order_by(Company.id))
-    if not company:
-        raise HTTPException(404, 'No company found')
-    return company.id
+def _get_call_or_404(db: Session, call_id: int, tenant_id: int) -> Call:
+    """Cross-tenant access returns 404, never 403 — a tenant must not be able to
+    distinguish "this call belongs to someone else" from "this call doesn't exist"
+    by probing IDs."""
+    call = db.get(Call, call_id)
+    if not call or call.company_id != tenant_id:
+        raise HTTPException(404, 'Call not found')
+    return call
 
+
+# ---------------------------------------------------------------------------
+# Auth
+# ---------------------------------------------------------------------------
+
+@app.post('/api/auth/login')
+def login(req: LoginRequest, db: Session = Depends(get_db)):
+    user = db.scalar(select(User).where(User.email == req.email))
+    if not user or not verify_password(req.password, user.password_hash):
+        raise HTTPException(401, 'Invalid email or password')
+    if not user.is_active:
+        raise HTTPException(403, 'Account is disabled')
+    user.last_login_at = datetime.utcnow()
+    db.commit()
+    token = create_access_token(user_id=user.id, company_id=user.company_id, role=user.role)
+    return {
+        'access_token': token,
+        'token_type': 'bearer',
+        'user': {'id': user.id, 'email': user.email, 'role': user.role, 'company_id': user.company_id},
+    }
+
+
+@app.get('/api/auth/me')
+def me(current_user: AuthContext = Depends(get_current_user)):
+    return {'id': current_user.user_id, 'email': current_user.email, 'role': current_user.role, 'company_id': current_user.company_id}
+
+
+@app.post('/api/admin/users')
+def create_user(req: CreateUserRequest, current_user: AuthContext = Depends(require_role('tenant_admin')), db: Session = Depends(get_db)):
+    existing = db.scalar(select(User).where(User.email == req.email))
+    if existing:
+        raise HTTPException(409, 'Email already registered')
+    user = User(company_id=current_user.company_id, email=req.email, password_hash=hash_password(req.password), role=req.role, is_active=True)
+    db.add(user)
+    db.flush()
+    log_audit(db, current_user.company_id, actor=current_user.email, action='user.created', entity_type='user', entity_id=str(user.id), payload={'email': req.email, 'role': req.role})
+    db.commit()
+    db.refresh(user)
+    return {'id': user.id, 'email': user.email, 'role': user.role, 'is_active': user.is_active}
+
+
+@app.post('/api/admin/users/{user_id}/deactivate')
+def deactivate_user(user_id: int, current_user: AuthContext = Depends(require_role('tenant_admin')), db: Session = Depends(get_db)):
+    user = db.get(User, user_id)
+    if not user or user.company_id != current_user.company_id:
+        raise HTTPException(404, 'User not found')
+    user.is_active = False
+    log_audit(db, current_user.company_id, actor=current_user.email, action='user.deactivated', entity_type='user', entity_id=str(user.id))
+    db.commit()
+    return {'ok': True, 'is_active': user.is_active}
+
+
+@app.post('/api/admin/users/{user_id}/activate')
+def activate_user(user_id: int, current_user: AuthContext = Depends(require_role('tenant_admin')), db: Session = Depends(get_db)):
+    user = db.get(User, user_id)
+    if not user or user.company_id != current_user.company_id:
+        raise HTTPException(404, 'User not found')
+    user.is_active = True
+    log_audit(db, current_user.company_id, actor=current_user.email, action='user.activated', entity_type='user', entity_id=str(user.id))
+    db.commit()
+    return {'ok': True, 'is_active': user.is_active}
+
+
+# ---------------------------------------------------------------------------
+# Dashboard / calls / turns / copilot
+# ---------------------------------------------------------------------------
 
 @app.get('/api/dashboard')
-def dashboard(db: Session = Depends(get_db)):
-    company_id = _demo_company_id(db)
+def dashboard(current_user: AuthContext = Depends(require_role('seller', 'manager', 'tenant_admin')), db: Session = Depends(get_db)):
+    company_id = current_user.company_id
     calls = db.scalars(select(Call).where(Call.company_id == company_id)).all()
     sellers = db.scalars(select(Seller).where(Seller.company_id == company_id)).all()
     meetings = db.scalars(select(Meeting).where(Meeting.company_id == company_id).order_by(Meeting.starts_at)).all()
-    suggestions = db.scalars(select(Suggestion)).all()
+    suggestions = db.scalars(select(Suggestion).where(Suggestion.company_id == company_id)).all()
     total = len(calls); booked = sum(c.meeting_booked for c in calls); held = sum(c.meeting_held for c in calls); opps = sum(c.qualified_opportunity for c in calls)
     helpful = sum(1 for s in suggestions if s.rating in ('good','usable')); rated = sum(1 for s in suggestions if s.rating)
     latency_values = [s.latency_ms for s in suggestions]
@@ -89,42 +174,53 @@ def dashboard(db: Session = Depends(get_db)):
 
 
 @app.post('/api/calls')
-def create_call(req: CreateCallRequest, db: Session = Depends(get_db)):
+def create_call(req: CreateCallRequest, current_user: AuthContext = Depends(require_role('seller', 'manager', 'tenant_admin')), db: Session = Depends(get_db)):
     seller = db.get(Seller, req.seller_id)
-    if not seller:
+    if not seller or seller.company_id != current_user.company_id:
         raise HTTPException(404, 'Seller not found')
-    call = Call(company_id=seller.company_id, seller_id=seller.id, prospect_company=req.prospect_company, prospect_role=req.prospect_role, segment=req.segment, offer_key=req.offer_key, campaign_key=req.campaign_key)
-    db.add(call); db.flush()
-    db.add(AuditEvent(company_id=seller.company_id, actor='seller', action='call.created', entity_type='call', entity_id=str(call.id)))
-    db.commit(); db.refresh(call)
-    return {'id': call.id, 'consent_state': call.consent_state}
+    company = db.get(Company, current_user.company_id)
+    jurisdiction_country = req.jurisdiction_country or (company.country_code if company else None)
+    call = Call(
+        company_id=current_user.company_id, seller_id=seller.id, prospect_company=req.prospect_company,
+        prospect_role=req.prospect_role, segment=req.segment, offer_key=req.offer_key, campaign_key=req.campaign_key,
+        campaign_type=req.campaign_type, prospect_type=req.prospect_type, speaker_mode=req.speaker_mode,
+        jurisdiction_country=jurisdiction_country,
+    )
+    db.add(call)
+    db.flush()
+    log_audit(db, current_user.company_id, actor=current_user.email, action='call.created', entity_type='call', entity_id=str(call.id))
+    db.commit()
+    db.refresh(call)
+    return {'id': call.id, 'consent_state': call.consent_state, 'jurisdiction_country': call.jurisdiction_country}
 
 
 @app.post('/api/calls/{call_id}/consent')
-def set_consent(call_id: int, req: ConsentRequest, db: Session = Depends(get_db)):
-    call = db.get(Call, call_id)
-    if not call:
-        raise HTTPException(404, 'Call not found')
+def set_consent(call_id: int, req: ConsentRequest, current_user: AuthContext = Depends(require_role('seller', 'manager', 'tenant_admin')), db: Session = Depends(get_db)):
+    call = _get_call_or_404(db, call_id, current_user.company_id)
     call.consent_state = req.state
     call.consented_at = datetime.utcnow() if req.state == 'granted' else None
-    # Purpose-bound ledger entry alongside the legacy single-field gate above, so the
-    # new compliance layer has a real audit trail from day one (see docs/DECISIONS.md ADR-007).
+    # Convenience: this legacy single-field gate now only drives display state.
+    # Enforcement always runs through can_process() against the ConsentEvent ledger
+    # below (see docs/DECISIONS.md ADR-019) — granting here writes BOTH purposes this
+    # endpoint has always covered in one action (ADR-016), it does not itself bypass anything.
     event_status = {'granted': 'granted', 'declined': 'denied', 'withdrawn': 'withdrawn'}[req.state]
-    db.add(ConsentEvent(
-        company_id=call.company_id, call_id=call.id, consent_type='live_copilot_processing',
-        purpose='Live-Copilot-Verarbeitung während des Calls', status=event_status, collection_method='api',
-        withdrawn_at=datetime.utcnow() if event_status == 'withdrawn' else None,
-    ))
-    db.add(AuditEvent(company_id=call.company_id, actor='seller', action=f'consent.{req.state}', entity_type='call', entity_id=str(call.id)))
+    withdrawn_at = datetime.utcnow() if event_status == 'withdrawn' else None
+    for consent_type, label in (
+        ('live_copilot_processing', 'Live-Copilot-Verarbeitung während des Calls'),
+        ('transcription', 'Transkription der Gesprächsbeiträge'),
+    ):
+        db.add(ConsentEvent(
+            company_id=call.company_id, call_id=call.id, consent_type=consent_type,
+            purpose=label, status=event_status, collection_method='api', withdrawn_at=withdrawn_at,
+        ))
+    log_audit(db, call.company_id, actor=current_user.email, action=f'consent.{req.state}', entity_type='call', entity_id=str(call.id))
     db.commit()
     return {'ok': True, 'consent_state': call.consent_state}
 
 
 @app.post('/api/calls/{call_id}/consents')
-def create_consent_event(call_id: int, req: ConsentEventRequest, db: Session = Depends(get_db)):
-    call = db.get(Call, call_id)
-    if not call:
-        raise HTTPException(404, 'Call not found')
+def create_consent_event(call_id: int, req: ConsentEventRequest, current_user: AuthContext = Depends(require_role('seller', 'manager', 'tenant_admin')), db: Session = Depends(get_db)):
+    call = _get_call_or_404(db, call_id, current_user.company_id)
     row = ConsentEvent(
         company_id=call.company_id, call_id=call_id, prospect_reference=req.prospect_reference,
         consent_type=req.consent_type, purpose=req.purpose or req.consent_type, jurisdiction=req.jurisdiction,
@@ -132,28 +228,26 @@ def create_consent_event(call_id: int, req: ConsentEventRequest, db: Session = D
         evidence_ref=req.evidence_ref, withdrawn_at=datetime.utcnow() if req.status == 'withdrawn' else None,
     )
     db.add(row)
-    log_audit(db, call.company_id, actor='seller', action=f'consent.{req.status}', entity_type='consent_event', entity_id=req.consent_type, payload={'call_id': call_id, 'consent_type': req.consent_type, 'status': req.status})
-    db.commit(); db.refresh(row)
+    log_audit(db, call.company_id, actor=current_user.email, action=f'consent.{req.status}', entity_type='consent_event', entity_id=req.consent_type, payload={'call_id': call_id, 'consent_type': req.consent_type, 'status': req.status})
+    db.commit()
+    db.refresh(row)
     return {'id': row.id, 'consent_type': row.consent_type, 'status': row.status, 'captured_at': row.captured_at.isoformat()}
 
 
 @app.post('/api/calls/{call_id}/consents/{purpose}/withdraw')
-def withdraw_consent_event(call_id: int, purpose: str, db: Session = Depends(get_db)):
-    call = db.get(Call, call_id)
-    if not call:
-        raise HTTPException(404, 'Call not found')
+def withdraw_consent_event(call_id: int, purpose: str, current_user: AuthContext = Depends(require_role('seller', 'manager', 'tenant_admin')), db: Session = Depends(get_db)):
+    call = _get_call_or_404(db, call_id, current_user.company_id)
     row = ConsentEvent(company_id=call.company_id, call_id=call_id, consent_type=purpose, purpose=purpose, status='withdrawn', collection_method='api', withdrawn_at=datetime.utcnow())
     db.add(row)
-    log_audit(db, call.company_id, actor='seller', action='consent.withdrawn', entity_type='consent_event', entity_id=purpose, payload={'call_id': call_id, 'consent_type': purpose})
-    db.commit(); db.refresh(row)
+    log_audit(db, call.company_id, actor=current_user.email, action='consent.withdrawn', entity_type='consent_event', entity_id=purpose, payload={'call_id': call_id, 'consent_type': purpose})
+    db.commit()
+    db.refresh(row)
     return {'id': row.id, 'consent_type': row.consent_type, 'status': row.status}
 
 
 @app.get('/api/calls/{call_id}/processing-permissions')
-def call_processing_permissions(call_id: int, db: Session = Depends(get_db)):
-    call = db.get(Call, call_id)
-    if not call:
-        raise HTTPException(404, 'Call not found')
+def call_processing_permissions(call_id: int, current_user: AuthContext = Depends(require_role('seller', 'manager', 'tenant_admin', 'compliance_admin')), db: Session = Depends(get_db)):
+    call = _get_call_or_404(db, call_id, current_user.company_id)
     actions = ['record_audio', 'transcribe', 'live_assist']
     decisions = [
         can_process(
@@ -167,28 +261,45 @@ def call_processing_permissions(call_id: int, db: Session = Depends(get_db)):
 
 
 @app.post('/api/calls/{call_id}/turns')
-def add_turn(call_id: int, req: TurnRequest, db: Session = Depends(get_db)):
-    call = db.get(Call, call_id)
-    if not call:
-        raise HTTPException(404, 'Call not found')
-    if call.consent_state != 'granted':
-        raise HTTPException(409, 'Consent gate: call analysis is disabled until consent is granted')
+def add_turn(call_id: int, req: TurnRequest, current_user: AuthContext = Depends(require_role('seller', 'manager', 'tenant_admin')), db: Session = Depends(get_db)):
+    call = _get_call_or_404(db, call_id, current_user.company_id)
+    # Sprint 1 (ADR-020): the legacy `consent_state != 'granted' -> 409` gate is gone.
+    # Storing any turn's text is transcription processing, so it goes through the same
+    # central resolver as every other sensitive action — no separate/legacy bypass.
+    decision = can_process(
+        db, 'transcribe', tenant_id=call.company_id, call_id=call.id, country_code=call.jurisdiction_country,
+        prospect_type=call.prospect_type, campaign_type=call.campaign_type, speaker_mode=call.speaker_mode,
+    )
+    if decision.result != Decision.ALLOWED:
+        db.commit()
+        raise HTTPException(403, {'message': 'Transcription is not currently permitted for this call.', **decision.as_dict()})
     style = analyze_language(req.text) if req.speaker == 'prospect' else {}
     turn = Turn(call_id=call_id, style_snapshot=style, lexical_complexity=style.get('complexity_score') if style else None, **req.model_dump())
-    db.add(turn); db.commit(); db.refresh(turn)
-    return {'id': turn.id, 'style_snapshot': style}
+    db.add(turn)
+    db.commit()
+    db.refresh(turn)
+    return {'id': turn.id, 'style_snapshot': style, 'policy_decision': decision.as_dict()}
 
 
 @app.post('/api/copilot/suggest')
-def copilot(req: SuggestRequest, db: Session = Depends(get_db)):
+def copilot(req: SuggestRequest, current_user: AuthContext = Depends(require_role('seller', 'manager', 'tenant_admin')), db: Session = Depends(get_db)):
+    decision = None
     if req.call_id is not None:
-        call = db.get(Call, req.call_id)
-        if not call:
-            raise HTTPException(404, 'Call not found')
-        if call.consent_state != 'granted':
-            raise HTTPException(409, 'Consent gate: live analysis disabled for this call')
+        call = _get_call_or_404(db, req.call_id, current_user.company_id)
+        decision = can_process(
+            db, 'live_assist', tenant_id=call.company_id, call_id=call.id, country_code=call.jurisdiction_country,
+            prospect_type=call.prospect_type, campaign_type=call.campaign_type, speaker_mode=call.speaker_mode,
+        )
+        if decision.result != Decision.ALLOWED:
+            db.commit()
+            raise HTTPException(403, {'message': 'Live copilot assistance is not currently permitted for this call.', **decision.as_dict()})
+    # req.call_id is None: sandbox/practice mode. No real prospect is on the line, so
+    # there is nothing to obtain consent for; only tenant/role authorization applies
+    # (see docs/DECISIONS.md ADR-015). Still tenant-scoped via company_id below so
+    # feedback on it can never be read/rated cross-tenant.
     result = suggest(req.utterance, req.recent_context, req.reaction_snapshot)
     row = Suggestion(
+        company_id=current_user.company_id,
         call_id=req.call_id,
         prospect_text=req.utterance,
         suggestion=result['suggestion'],
@@ -200,44 +311,49 @@ def copilot(req: SuggestRequest, db: Session = Depends(get_db)):
         language_policy=result['language_policy'],
         reaction_snapshot=result['reaction_snapshot'],
     )
-    db.add(row); db.commit(); db.refresh(row)
-    return {**result, 'suggestion_id': row.id}
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    out = {**result, 'suggestion_id': row.id}
+    if decision is not None:
+        out['policy_decision'] = decision.as_dict()
+    return out
 
 
 @app.post('/api/suggestions/{suggestion_id}/feedback')
-def suggestion_feedback(suggestion_id: int, req: SuggestionFeedbackRequest, db: Session = Depends(get_db)):
+def suggestion_feedback(suggestion_id: int, req: SuggestionFeedbackRequest, current_user: AuthContext = Depends(require_role('seller', 'manager', 'tenant_admin')), db: Session = Depends(get_db)):
     row = db.get(Suggestion, suggestion_id)
-    if not row:
+    if not row or row.company_id != current_user.company_id:
         raise HTTPException(404, 'Suggestion not found')
-    row.rating = req.rating; row.used = req.used
+    row.rating = req.rating
+    row.used = req.used
     db.commit()
     return {'ok': True, 'rating': row.rating, 'used': row.used}
 
 
 @app.post('/api/calls/{call_id}/complete')
-def complete_call(call_id: int, req: CompleteCallRequest, db: Session = Depends(get_db)):
-    call = db.get(Call, call_id)
-    if not call:
-        raise HTTPException(404, 'Call not found')
-    call.ended_at = datetime.utcnow(); call.outcome = req.outcome; call.meeting_booked = req.meeting_booked; call.meeting_held = req.meeting_held; call.qualified_opportunity = req.qualified_opportunity; call.revenue = req.revenue
+def complete_call(call_id: int, req: CompleteCallRequest, current_user: AuthContext = Depends(require_role('seller', 'manager', 'tenant_admin')), db: Session = Depends(get_db)):
+    call = _get_call_or_404(db, call_id, current_user.company_id)
+    call.ended_at = datetime.utcnow()
+    call.outcome = req.outcome
+    call.meeting_booked = req.meeting_booked
+    call.meeting_held = req.meeting_held
+    call.qualified_opportunity = req.qualified_opportunity
+    call.revenue = req.revenue
     db.commit()
     return {'ok': True}
 
 
 @app.get('/api/calls/{call_id}/review')
-def call_review(call_id: int, db: Session = Depends(get_db)):
-    call = db.get(Call, call_id)
-    if not call:
-        raise HTTPException(404, 'Call not found')
+def call_review(call_id: int, current_user: AuthContext = Depends(require_role('seller', 'manager', 'tenant_admin')), db: Session = Depends(get_db)):
+    call = _get_call_or_404(db, call_id, current_user.company_id)
     turns = db.scalars(select(Turn).where(Turn.call_id == call_id).order_by(Turn.started_ms)).all()
     return build_call_review(turns, call)
 
 
 @app.get('/api/calls/{call_id}/reaction')
-def call_reaction(call_id: int, db: Session = Depends(get_db)):
-    call = db.get(Call, call_id)
-    if not call:
-        raise HTTPException(404, 'Call not found')
+def call_reaction(call_id: int, current_user: AuthContext = Depends(require_role('seller', 'manager', 'tenant_admin')), db: Session = Depends(get_db)):
+    call = _get_call_or_404(db, call_id, current_user.company_id)
     turns = db.scalars(select(Turn).where(Turn.call_id == call_id, Turn.speaker == 'prospect').order_by(Turn.started_ms)).all()
     if len(turns) < 2:
         return {'baseline': {}, 'events': [], 'message': 'Need at least two prospect turns.'}
@@ -246,18 +362,18 @@ def call_reaction(call_id: int, db: Session = Depends(get_db)):
 
 
 @app.get('/api/calls/recent/list')
-def recent_calls(limit: int = 12, db: Session = Depends(get_db)):
-    company_id = _demo_company_id(db)
+def recent_calls(limit: int = 12, current_user: AuthContext = Depends(require_role('seller', 'manager', 'tenant_admin')), db: Session = Depends(get_db)):
+    company_id = current_user.company_id
     rows = db.scalars(select(Call).where(Call.company_id == company_id).order_by(Call.started_at.desc()).limit(limit)).all()
     return [{'id': c.id, 'seller': c.seller.name, 'prospect_company': c.prospect_company, 'prospect_role': c.prospect_role, 'started_at': c.started_at.isoformat(), 'outcome': c.outcome, 'meeting_booked': c.meeting_booked, 'meeting_held': c.meeting_held} for c in rows]
 
 
 @app.get('/api/manager/overview')
-def manager_overview(db: Session = Depends(get_db)):
-    company_id = _demo_company_id(db)
+def manager_overview(current_user: AuthContext = Depends(require_role('manager', 'tenant_admin')), db: Session = Depends(get_db)):
+    company_id = current_user.company_id
     company = db.get(Company, company_id)
     decision = can_process(db, 'employee_analytics', tenant_id=company_id, country_code=company.country_code)
-    log_audit(db, company_id, actor='manager', action='employee_analytics.accessed', entity_type='company', entity_id=str(company_id), payload=decision.as_dict())
+    log_audit(db, company_id, actor=current_user.email, action='employee_analytics.accessed', entity_type='company', entity_id=str(company_id), payload=decision.as_dict())
     db.commit()
     if decision.result != Decision.ALLOWED:
         raise HTTPException(403, {'message': 'Employee analytics is not currently permitted for this tenant/jurisdiction.', **decision.as_dict()})
@@ -270,8 +386,12 @@ def manager_overview(db: Session = Depends(get_db)):
     }
 
 
+# ---------------------------------------------------------------------------
+# Integrations
+# ---------------------------------------------------------------------------
+
 @app.get('/api/integrations')
-def integrations_status():
+def integrations_status(current_user: AuthContext = Depends(require_role('tenant_admin'))):
     return {
         'hubspot': hubspot.status(),
         'google_calendar': google_calendar.status(),
@@ -282,42 +402,54 @@ def integrations_status():
 
 
 @app.post('/api/integrations/hubspot/sync')
-async def sync_hubspot():
+async def sync_hubspot(current_user: AuthContext = Depends(require_role('tenant_admin'))):
     return {'meetings': await hubspot.recent_meetings(), 'deals': await hubspot.recent_deals()}
 
 
 @app.post('/api/integrations/google-calendar/sync')
-async def sync_google():
+async def sync_google(current_user: AuthContext = Depends(require_role('tenant_admin'))):
     return await google_calendar.upcoming_events()
 
 
 @app.get('/api/integrations/openai-realtime/blueprint')
-def openai_realtime_blueprint():
+def openai_realtime_blueprint(current_user: AuthContext = Depends(require_role('tenant_admin'))):
     return session_blueprint()
 
 
+# ---------------------------------------------------------------------------
+# Experiments
+# ---------------------------------------------------------------------------
+
 @app.post('/api/experiments')
-def create_experiment(req: CreateExperimentRequest, db: Session = Depends(get_db)):
-    company_id = _demo_company_id(db)
-    experiment = Experiment(company_id=company_id, key=req.key, hypothesis=req.hypothesis, primary_metric=req.primary_metric, variants=req.variants)
-    db.add(experiment); db.commit(); db.refresh(experiment)
+def create_experiment(req: CreateExperimentRequest, current_user: AuthContext = Depends(require_role('tenant_admin', 'manager')), db: Session = Depends(get_db)):
+    experiment = Experiment(company_id=current_user.company_id, key=req.key, hypothesis=req.hypothesis, primary_metric=req.primary_metric, variants=req.variants)
+    db.add(experiment)
+    db.commit()
+    db.refresh(experiment)
     return {'id': experiment.id, 'key': experiment.key, 'status': experiment.status}
 
 
 @app.post('/api/experiments/{experiment_id}/assign/{call_id}')
-def assign_experiment(experiment_id: int, call_id: int, db: Session = Depends(get_db)):
-    experiment = db.get(Experiment, experiment_id); call = db.get(Call, call_id)
-    if not experiment or not call:
-        raise HTTPException(404, 'Experiment or call not found')
+def assign_experiment(experiment_id: int, call_id: int, current_user: AuthContext = Depends(require_role('tenant_admin', 'manager')), db: Session = Depends(get_db)):
+    call = _get_call_or_404(db, call_id, current_user.company_id)
+    experiment = db.get(Experiment, experiment_id)
+    if not experiment or experiment.company_id != current_user.company_id:
+        raise HTTPException(404, 'Experiment not found')
     variant = assign_variant(call_id, experiment.key, list(experiment.variants.keys()))
     row = ExperimentAssignment(experiment_id=experiment.id, call_id=call.id, variant_key=variant)
-    db.add(row); db.commit(); db.refresh(row)
+    db.add(row)
+    db.commit()
+    db.refresh(row)
     return {'assignment_id': row.id, 'variant': variant}
 
 
+# ---------------------------------------------------------------------------
+# Compliance
+# ---------------------------------------------------------------------------
+
 @app.post('/api/policy/resolve')
-def policy_resolve(req: PolicyResolveRequest, db: Session = Depends(get_db)):
-    tenant_id = req.tenant_id if req.tenant_id is not None else _demo_company_id(db)
+def policy_resolve(req: PolicyResolveRequest, current_user: AuthContext = Depends(require_role('tenant_admin', 'compliance_admin', 'system_admin')), db: Session = Depends(get_db)):
+    tenant_id = resolve_tenant_id(current_user, req.tenant_id)
     decision = can_process(
         db, req.action, tenant_id=tenant_id, call_id=req.call_id, country_code=req.country_code,
         prospect_type=req.prospect_type, campaign_type=req.campaign_type, speaker_mode=req.speaker_mode,
@@ -327,7 +459,7 @@ def policy_resolve(req: PolicyResolveRequest, db: Session = Depends(get_db)):
 
 
 @app.get('/api/policy/jurisdictions/{country}')
-def policy_jurisdiction(country: str):
+def policy_jurisdiction(country: str, current_user: AuthContext = Depends(get_current_user)):
     policy = resolve_country_policy(country)
     return {
         'country_code': policy.country_code,
@@ -343,23 +475,23 @@ def policy_jurisdiction(country: str):
 
 
 @app.post('/api/network-learning/opt-in')
-def network_learning_opt_in(req: NetworkLearningOptRequest, db: Session = Depends(get_db)):
-    company_id = _demo_company_id(db)
-    company = set_network_learning_opt_in(db, company_id=company_id, opt_in=True, reason=req.reason, evidence_ref=req.evidence_ref)
+def network_learning_opt_in(req: NetworkLearningOptRequest, current_user: AuthContext = Depends(require_role('tenant_admin', 'compliance_admin', 'system_admin')), db: Session = Depends(get_db)):
+    tenant_id = resolve_tenant_id(current_user, req.company_id)
+    company = set_network_learning_opt_in(db, company_id=tenant_id, opt_in=True, actor=current_user.email, reason=req.reason, evidence_ref=req.evidence_ref)
     return {'company_id': company.id, 'network_learning_opt_in': company.network_learning_opt_in}
 
 
 @app.post('/api/network-learning/withdraw')
-def network_learning_withdraw(req: NetworkLearningOptRequest, db: Session = Depends(get_db)):
-    company_id = _demo_company_id(db)
-    company = set_network_learning_opt_in(db, company_id=company_id, opt_in=False, reason=req.reason, evidence_ref=req.evidence_ref)
+def network_learning_withdraw(req: NetworkLearningOptRequest, current_user: AuthContext = Depends(require_role('tenant_admin', 'compliance_admin', 'system_admin')), db: Session = Depends(get_db)):
+    tenant_id = resolve_tenant_id(current_user, req.company_id)
+    company = set_network_learning_opt_in(db, company_id=tenant_id, opt_in=False, actor=current_user.email, reason=req.reason, evidence_ref=req.evidence_ref)
     return {'company_id': company.id, 'network_learning_opt_in': company.network_learning_opt_in}
 
 
 @app.get('/api/admin/feature-flags')
-def list_feature_flags(db: Session = Depends(get_db)):
-    company_id = _demo_company_id(db)
-    rows = db.scalars(select(TenantFeatureFlag).where(TenantFeatureFlag.company_id == company_id)).all()
+def list_feature_flags(company_id: int | None = Query(None), current_user: AuthContext = Depends(require_role('tenant_admin', 'compliance_admin', 'system_admin')), db: Session = Depends(get_db)):
+    tenant_id = resolve_tenant_id(current_user, company_id)
+    rows = db.scalars(select(TenantFeatureFlag).where(TenantFeatureFlag.company_id == tenant_id)).all()
     return [
         {
             'id': r.id, 'feature_key': r.feature_key, 'jurisdiction': r.jurisdiction, 'campaign_type': r.campaign_type,
@@ -370,30 +502,30 @@ def list_feature_flags(db: Session = Depends(get_db)):
 
 
 @app.post('/api/admin/feature-flags')
-def upsert_feature_flag(req: FeatureFlagRequest, db: Session = Depends(get_db)):
-    company_id = _demo_company_id(db)
+def upsert_feature_flag(req: FeatureFlagRequest, current_user: AuthContext = Depends(require_role('tenant_admin', 'compliance_admin', 'system_admin')), db: Session = Depends(get_db)):
+    tenant_id = resolve_tenant_id(current_user, req.company_id)
     row = set_feature_flag(
-        db, company_id=company_id, feature_key=req.feature_key, enabled=req.enabled,
-        jurisdiction=req.jurisdiction, campaign_type=req.campaign_type, actor=req.actor, reason=req.reason,
+        db, company_id=tenant_id, feature_key=req.feature_key, enabled=req.enabled,
+        jurisdiction=req.jurisdiction, campaign_type=req.campaign_type, actor=current_user.email, reason=req.reason,
     )
     return {'id': row.id, 'feature_key': row.feature_key, 'enabled': row.enabled, 'jurisdiction': row.jurisdiction, 'campaign_type': row.campaign_type}
 
 
 @app.post('/api/admin/compliance-signoffs')
-def upsert_compliance_signoff(req: ComplianceReviewSignoffRequest, db: Session = Depends(get_db)):
-    company_id = _demo_company_id(db)
+def upsert_compliance_signoff(req: ComplianceReviewSignoffRequest, current_user: AuthContext = Depends(require_role('tenant_admin', 'compliance_admin', 'system_admin')), db: Session = Depends(get_db)):
+    tenant_id = resolve_tenant_id(current_user, req.company_id)
     row = record_review_signoff(
-        db, company_id=company_id, action=req.action, jurisdiction=req.jurisdiction,
-        acknowledged_by=req.acknowledged_by, reason=req.reason, reference=req.reference,
+        db, company_id=tenant_id, action=req.action, jurisdiction=req.jurisdiction,
+        acknowledged_by=current_user.email, reason=req.reason, reference=req.reference,
     )
     return {'id': row.id, 'action': row.action, 'jurisdiction': row.jurisdiction, 'acknowledged_by': row.acknowledged_by}
 
 
 @app.get('/api/audit/export')
-def audit_export(limit: int = 100, db: Session = Depends(get_db)):
-    company_id = _demo_company_id(db)
+def audit_export(limit: int = 100, company_id: int | None = Query(None), current_user: AuthContext = Depends(require_role('tenant_admin', 'compliance_admin', 'system_admin')), db: Session = Depends(get_db)):
+    tenant_id = resolve_tenant_id(current_user, company_id)
     rows = db.scalars(
-        select(AuditEvent).where(AuditEvent.company_id == company_id).order_by(AuditEvent.created_at.desc()).limit(min(limit, 500))
+        select(AuditEvent).where(AuditEvent.company_id == tenant_id).order_by(AuditEvent.created_at.desc()).limit(min(limit, 500))
     ).all()
     return [
         {'id': r.id, 'actor': r.actor, 'action': r.action, 'entity_type': r.entity_type, 'entity_id': r.entity_id, 'payload': r.payload, 'created_at': r.created_at.isoformat()}
@@ -401,8 +533,14 @@ def audit_export(limit: int = 100, db: Session = Depends(get_db)):
     ]
 
 
+# ---------------------------------------------------------------------------
+# Streaming / demo helpers
+# ---------------------------------------------------------------------------
+
 @app.websocket('/ws/twilio-media')
 async def twilio_media(ws: WebSocket):
+    # Twilio Media Streams authenticate via request/signature verification (see
+    # docs/INTEGRATIONS.md), not a REPLICA user bearer token — no user JWT applies here.
     await ws.accept()
     state = TwilioStreamState()
     try:
@@ -416,9 +554,11 @@ async def twilio_media(ws: WebSocket):
 
 
 @app.get('/api/demo/review-call')
-def demo_review_call(db: Session = Depends(get_db)):
-    seller = db.scalar(select(Seller).where(Seller.name == 'Haydar'))
+def demo_review_call(current_user: AuthContext = Depends(require_role('seller', 'manager', 'tenant_admin')), db: Session = Depends(get_db)):
+    seller = db.scalar(select(Seller).where(Seller.name == 'Haydar', Seller.company_id == current_user.company_id))
     if not seller:
         raise HTTPException(404, 'Demo seller not found')
-    call = db.scalar(select(Call).where(Call.seller_id == seller.id).order_by(Call.started_at.desc()))
+    call = db.scalar(select(Call).where(Call.seller_id == seller.id, Call.company_id == current_user.company_id).order_by(Call.started_at.desc()))
+    if not call:
+        raise HTTPException(404, 'Demo call not found')
     return {'call_id': call.id}

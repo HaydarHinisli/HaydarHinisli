@@ -13,6 +13,12 @@ class Settings(BaseSettings):
     replica_audio_analysis_enabled: bool = False
     replica_global_learning_enabled: bool = False
 
+    # Sprint 1: JWT-based session tokens. The default is an insecure dev-only value;
+    # production MUST override REPLICA_JWT_SECRET (see docs/DECISIONS.md ADR-018 —
+    # full OAuth remains a documented open gap, this is the pilot-grade stepping stone).
+    replica_jwt_secret: str = 'dev-insecure-change-me-in-production'
+    replica_jwt_expires_minutes: int = 480
+
     openai_api_key: str | None = None
     openai_realtime_model: str = 'gpt-realtime-2.1'
 

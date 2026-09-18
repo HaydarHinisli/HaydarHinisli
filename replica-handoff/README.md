@@ -24,6 +24,8 @@ Der Ordner enthält zwei Dinge gleichzeitig:
 - Twilio Media Streams WebSocket-Eingang
 - OpenAI-Realtime-Integrationsnaht
 - API-Dokumentation automatisch unter `/docs`
+- Jurisdiction Policy Engine + Processing Permission Resolver (`can_process`), zweckgebundenes Consent-Ledger, Audit-Trail (Sprint 0)
+- PostgreSQL + Alembic-Migrationen, Multi-Tenant-Modell, JWT-Auth, API-seitig erzwungenes RBAC, strukturiertes Request-Logging (Sprint 1)
 
 ## Schnellstart lokal
 
@@ -35,6 +37,11 @@ pip install -r requirements.txt
 cp .env.example .env
 ./run.sh
 ```
+
+Die Datenbank wird beim Start automatisch über Alembic migriert (`app/migrate.py`) —
+eine bestehende lokale `replica.db` muss dafür nicht mehr gelöscht werden. Für den
+Demo-Login siehe `docs/DEV_EXAMPLES.md` (Standard-Tenant-Admin:
+`admin@replica-pilot.example` / `replica-demo-2026`, nur unter `REPLICA_DEMO_MODE=true`).
 
 Dann öffnen:
 
@@ -80,16 +87,16 @@ Der Smart Path darf den Fast Path ergänzen, aber nicht blockieren.
 
 ## Produktionslücken, die ein Entwickler schließen muss
 
-- OAuth statt statischer Tokens
-- echtes Multi-Tenant-Auth/RBAC
-- PostgreSQL + Migrationen/RLS
+- ~~PostgreSQL + Migrationen~~ ✅ Sprint 1 (Postgres-RLS als zusätzliche DB-seitige Tenant-Isolation steht noch aus, aktuell ausschließlich Anwendungsebene)
+- ~~echtes Multi-Tenant-Auth/RBAC~~ ✅ Sprint 1 (JWT/PBKDF2 sind Pilot-Niveau, siehe `docs/DECISIONS.md` ADR-018 — OAuth/OIDC + widerrufbare Sessions bleiben offen)
+- OAuth/OIDC statt JWT+PBKDF2 (Pilot-Stufe, siehe ADR-018)
 - Streaming-ASR mit Interim Transcripts
 - reale Turn-End-Erkennung
 - Audio-Feature-Extraktion
 - UI-Push via WebSocket/SSE
-- echte Suggestion-Latency-Messung vom Prospect-Turn-Ende bis Render
+- echte Suggestion-Latency-Messung vom Prospect-Turn-Ende bis Render (aktuelle Baseline misst nur Engine+HTTP, siehe `tests/test_live_copilot_policy.py`)
 - CRM/Calendar-Sync-Jobs + Webhooks
-- Observability, Rate Limits, Retry/Idempotency
+- Observability/Metrics-Export, Rate Limits, Retry/Idempotency (strukturiertes Logging seit Sprint 1 vorhanden, siehe `app/logging_config.py`)
 - Security Review, DPIA/Datenschutzkonzept, Verträge
 
 ## Empfohlener Pilotumfang

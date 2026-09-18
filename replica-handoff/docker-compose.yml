@@ -6,6 +6,7 @@ services:
     environment:
       REPLICA_DATABASE_URL: postgresql+psycopg://replica:replica@postgres:5432/replica
       REPLICA_DEMO_MODE: "true"
+      REPLICA_JWT_SECRET: change-me-outside-local-docker-compose
     depends_on:
       - postgres
       - redis

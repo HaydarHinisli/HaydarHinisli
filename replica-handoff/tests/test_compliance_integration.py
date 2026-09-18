@@ -48,8 +48,8 @@ def test_tenant_isolation_feature_flag_does_not_leak(session):
     tenant_b = _make_company(session, 'Tenant B', 'GB')
     set_feature_flag(session, company_id=tenant_a.id, feature_key='autonomous_call', enabled=True, jurisdiction='GB')
 
-    decision_a = can_process(session, 'autonomous_call', tenant_id=tenant_a.id, country_code='GB')
-    decision_b = can_process(session, 'autonomous_call', tenant_id=tenant_b.id, country_code='GB')
+    decision_a = can_process(session, 'autonomous_call', tenant_id=tenant_a.id, country_code='GB', speaker_mode='ai_agent', prospect_type='b2b')
+    decision_b = can_process(session, 'autonomous_call', tenant_id=tenant_b.id, country_code='GB', speaker_mode='ai_agent', prospect_type='b2b')
 
     assert decision_a.result == Decision.ALLOWED
     assert decision_b.result == Decision.DENIED
