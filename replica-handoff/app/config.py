@@ -19,6 +19,12 @@ class Settings(BaseSettings):
     replica_jwt_secret: str = 'dev-insecure-change-me-in-production'
     replica_jwt_expires_minutes: int = 480
 
+    # Fix-Sprint after Sprint 3A (ADR-051): Origin allowlist for /ws/live/{call_id},
+    # on top of its existing JWT auth. Comma-separated (e.g.
+    # "https://app.replica.example,https://staging.replica.example"). Unset/empty
+    # means "allow everything" ONLY in local dev — see app/services/ws_origin.py.
+    replica_allowed_ws_origins: str | None = None
+
     openai_api_key: str | None = None
     openai_realtime_model: str = 'gpt-realtime-2.1'
 

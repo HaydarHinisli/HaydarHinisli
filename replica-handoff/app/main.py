@@ -2,6 +2,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
@@ -26,6 +27,7 @@ from .schemas import (
 )
 from .secrets import get_secrets_provider
 from .seed import seed_demo
+from .services.clock_sync import ClockSyncSample, estimate_clock_sync
 from .services.conversation_state import apply_turn
 from .services.conversation_state_store import (
     apply_state_to_row, conversation_state_dict, load_or_create_conversation_state_row,
@@ -44,6 +46,7 @@ from .streaming.asr import ASRProvider, get_asr_provider
 from .streaming.media_stream_security import is_secure_transport, verify_media_stream_signature
 from .streaming.media_stream_session import MediaStreamSession
 from .streaming.pipeline import MediaStreamPipeline
+from .services.ws_origin import is_allowed_origin, parse_allowed_origins
 from .compliance.admin import record_review_signoff, set_feature_flag, set_network_learning_opt_in
 from .compliance.audit import log_audit
 from .compliance.jurisdiction_policy import resolve_country_policy
@@ -425,13 +428,21 @@ def suggestion_feedback(suggestion_id: int, req: SuggestionFeedbackRequest, curr
 
 @app.post('/api/suggestions/{suggestion_id}/render-ack')
 def suggestion_render_ack(suggestion_id: int, req: SuggestionRenderAckRequest, current_user: AuthContext = Depends(require_role('seller', 'manager', 'tenant_admin')), db: Session = Depends(get_db)):
-    """Sprint 3A (docs/DECISIONS.md ADR-048): the browser's Render-ACK, sent once
-    a suggestion has actually been painted — this is the ONLY place `t_ui_rendered_at`/
-    `real_rsl_ms` are ever set; nothing in the streaming pipeline approximates them
-    (see app/streaming/pipeline.py's `_process_turn()`). Looked up by `trace_id`
-    (the correlation id shared by the Suggestion row, the live-push envelope, and the
-    TurnLatencyTrace row for the same finalized turn) rather than by suggestion_id
-    directly, since TurnLatencyTrace is keyed by trace_id/turn_id, not suggestion_id.
+    """Sprint 3A (docs/DECISIONS.md ADR-048), refined by ADR-051: the browser's
+    Render-ACK, sent once a suggestion has actually been painted — this is the ONLY
+    place `t_ui_rendered_at`/`wallclock_rsl_estimate_ms` are ever set; nothing in the
+    streaming pipeline approximates them (see app/streaming/pipeline.py's
+    `_process_turn()`). Looked up by `trace_id` (the correlation id shared by the
+    Suggestion row, the live-push envelope, and the TurnLatencyTrace row for the
+    same finalized turn) rather than by suggestion_id directly, since
+    TurnLatencyTrace is keyed by trace_id/turn_id, not suggestion_id.
+
+    ADR-051 adds two things on top of Sprint 3A's original wall-clock-only
+    computation: `server_render_ack_latency_ms`, a robust monotonic upper bound
+    computed ENTIRELY server-side (never crosses a clock boundary, deliberately
+    includes this very HTTP request's own network/round-trip time); and, when the
+    caller supplies `clock_sync_samples`, a persisted clock-offset/RTT/uncertainty
+    estimate for later analysis (not yet used to correct anything).
     """
     row = db.get(Suggestion, suggestion_id)
     if not row or row.company_id != current_user.company_id:
@@ -456,23 +467,51 @@ def suggestion_render_ack(suggestion_id: int, req: SuggestionRenderAckRequest, c
         )
     if trace_row is None:
         db.commit()
-        return {'ok': True, 'real_rsl_ms': None, 'note': 'no matching TurnLatencyTrace found — nothing to update'}
+        return {'ok': True, 'wallclock_rsl_estimate_ms': None, 'note': 'no matching TurnLatencyTrace found — nothing to update'}
 
+    now_monotonic = time.monotonic()
+    trace_row.t_render_ack_received_at = datetime.utcnow()
     received_at = datetime.utcfromtimestamp(req.client_received_epoch_ms / 1000)
     rendered_at = datetime.utcfromtimestamp(req.client_rendered_epoch_ms / 1000)
     trace_row.t_browser_received_at = received_at
     trace_row.t_ui_rendered_at = rendered_at
     trace_row.client_render_latency_ms = req.client_rendered_perf_ms - req.client_received_perf_ms
     if trace_row.t_turn_end_detected_at is not None:
-        # Sprint 3A's own RSL formula: real_rsl_ms = t_ui_rendered - t_turn_end_detected.
-        # A cross-machine WALL-CLOCK delta (docs/DATA_MODEL.md's evidence-level note,
-        # app/models.py's TurnLatencyTrace docstring) — the only comparison possible
-        # between this server and the browser, subject to ordinary NTP clock skew.
-        trace_row.real_rsl_ms = (rendered_at - trace_row.t_turn_end_detected_at).total_seconds() * 1000
+        # ADR-051 (renamed from Sprint 3A's real_rsl_ms): a cross-machine
+        # WALL-CLOCK delta (docs/DATA_MODEL.md's evidence-level note, app/models.py's
+        # TurnLatencyTrace docstring) — the only comparison possible between this
+        # server and the browser without clock-sync correction, subject to
+        # ordinary NTP clock skew. Hence "estimate", never treated as exact.
+        trace_row.wallclock_rsl_estimate_ms = (rendered_at - trace_row.t_turn_end_detected_at).total_seconds() * 1000
+    if trace_row.t_turn_end_detected_monotonic is not None:
+        upper_bound = (now_monotonic - trace_row.t_turn_end_detected_monotonic) * 1000
+        # A negative value can only mean the process/machine restarted between
+        # turn-end and this request — time.monotonic() lost its reference point,
+        # so the raw persisted value is no longer comparable. Discard rather than
+        # persist a nonsensical negative "latency" (see app/models.py's docstring).
+        trace_row.server_render_ack_latency_ms = upper_bound if upper_bound >= 0 else None
+    if req.clock_sync_samples:
+        samples = [
+            ClockSyncSample(
+                t1_client_send_ms=s.t1_client_send_ms, t2_server_recv_ms=s.t2_server_recv_ms,
+                t3_server_send_ms=s.t3_server_send_ms, t4_client_recv_ms=s.t4_client_recv_ms,
+            )
+            for s in req.clock_sync_samples
+        ]
+        estimate = estimate_clock_sync(samples)
+        if estimate is not None:
+            trace_row.clock_offset_estimate_ms = estimate['offset_ms']
+            trace_row.clock_rtt_estimate_ms = estimate['rtt_ms']
+            trace_row.clock_uncertainty_ms = estimate['uncertainty_ms']
     db.commit()
     return {
-        'ok': True, 'trace_id': trace_row.trace_id, 'real_rsl_ms': trace_row.real_rsl_ms,
+        'ok': True, 'trace_id': trace_row.trace_id,
+        'wallclock_rsl_estimate_ms': trace_row.wallclock_rsl_estimate_ms,
+        'server_render_ack_latency_ms': trace_row.server_render_ack_latency_ms,
         'client_render_latency_ms': trace_row.client_render_latency_ms,
+        'clock_offset_estimate_ms': trace_row.clock_offset_estimate_ms,
+        'clock_rtt_estimate_ms': trace_row.clock_rtt_estimate_ms,
+        'clock_uncertainty_ms': trace_row.clock_uncertainty_ms,
         'is_synthetic': trace_row.is_synthetic, 'asr_provider': trace_row.asr_provider,
     }
 
@@ -882,8 +921,21 @@ async def live_suggestions(websocket: WebSocket, call_id: int):
     Tenant isolation mirrors `_get_call_or_404()`'s posture: a wrong-tenant call_id
     and a nonexistent call_id both just close the connection — never distinguishable
     from each other, so a client can never probe for another tenant's call_id.
+
+    Fix-Sprint (ADR-051): on top of the JWT auth above, the `Origin` header is
+    checked against a configurable allowlist (`REPLICA_ALLOWED_WS_ORIGINS`) outside
+    local dev — a valid JWT alone no longer suffices in production/staging if the
+    connecting page isn't served from an allowed REPLICA origin. See
+    app/services/ws_origin.py.
     """
     await websocket.accept()
+    if not is_allowed_origin(
+        websocket.headers.get('origin'), env=settings.replica_env,
+        allowed_origins=parse_allowed_origins(settings.replica_allowed_ws_origins),
+    ):
+        logger.warning('live suggestions: origin not allowed', extra={'fields': {'origin': websocket.headers.get('origin')}})
+        await websocket.close(code=1008)
+        return
     try:
         raw = await asyncio.wait_for(websocket.receive_text(), timeout=_LIVE_AUTH_TIMEOUT_S)
     except (asyncio.TimeoutError, WebSocketDisconnect):
@@ -940,13 +992,26 @@ async def live_suggestions(websocket: WebSocket, call_id: int):
             # (it may already have rendered this exact one) — see app/static/live.html.
             await websocket.send_json({'type': 'sync', **last})
         while True:
-            # This connection is push-only from the server's perspective (the
+            # This connection is push-only for SUGGESTION delivery (the
             # Render-ACK goes over a separate, reliable HTTP POST — see
             # POST /api/suggestions/{id}/render-ack — precisely so a momentarily
-            # flaky WS connection can never silently swallow an ACK). Reading here
-            # only serves to detect a client disconnect promptly; any inbound text
-            # (e.g. a keepalive ping) is otherwise ignored.
-            await websocket.receive_text()
+            # flaky WS connection can never silently swallow an ACK). The one
+            # thing the client DOES send here is clock-sync ping/pong (ADR-051,
+            # app/services/clock_sync.py) — anything else inbound is ignored;
+            # reading in a loop otherwise only serves to detect a disconnect promptly.
+            raw_in = await websocket.receive_text()
+            try:
+                inbound = json.loads(raw_in)
+            except (json.JSONDecodeError, AttributeError):
+                continue
+            if inbound.get('type') == 'ping':
+                server_recv_epoch_ms = time.time() * 1000
+                await websocket.send_json({
+                    'type': 'pong', 'seq': inbound.get('seq'),
+                    't1_client_send_ms': inbound.get('t1_client_send_ms'),
+                    't2_server_recv_ms': server_recv_epoch_ms,
+                    't3_server_send_ms': time.time() * 1000,
+                })
     except WebSocketDisconnect:
         pass
     finally:

@@ -67,15 +67,17 @@ Implement:
 - one primary recommendation, not a list
 - seller can rate/use suggestion with one click
 
-**Status (Sprint 3A)**: the "UI push" mechanism itself is now real —
-`app/services/live_push.LiveSuggestionHub` + `/ws/live/{call_id}` + a real
+**Status (Sprint 3A, refined by ADR-051)**: the "UI push" mechanism itself is now
+real — `app/services/live_push.LiveSuggestionHub` + `/ws/live/{call_id}` + a real
 browser Render-ACK (`POST /api/suggestions/{id}/render-ack`) — see
-`docs/DECISIONS.md` ADR-048. `real_rsl_ms` is now a genuinely computed value
-whenever a Render-ACK has fired, not merely a NULL placeholder. What is still
-missing before the P50/P95 targets above can be evaluated for real: actual
-measured values from a real Twilio/Deepgram call (blocked on the same
-credentials as Sprint 2B) — every value produced so far is against
-`SimulatedASRProvider`, honestly labelled `is_synthetic=True`. `app/static/
+`docs/DECISIONS.md` ADR-048/051. `wallclock_rsl_estimate_ms` (renamed from
+`real_rsl_ms`) and `server_render_ack_latency_ms` (a monotonic upper bound) are
+now genuinely computed whenever a Render-ACK has fired, not merely NULL
+placeholders — named to be honest about being an estimate/bound rather than an
+exact figure. What is still missing before the P50/P95 targets above can be
+evaluated for real: actual measured values from a real Twilio/Deepgram call
+(blocked on the same credentials as Sprint 2B) — every value produced so far is
+against `SimulatedASRProvider`, honestly labelled `is_synthetic=True`. `app/static/
 live.html` is a minimal test/debug UI proving the mechanism, not the final
 seller frontend (still future work) — early intent/event classifier on interim
 transcripts and an optional Smart Path remain unimplemented, out of Sprint 3A's

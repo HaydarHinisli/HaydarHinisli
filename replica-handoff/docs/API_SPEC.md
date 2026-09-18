@@ -144,9 +144,10 @@ suggest_transition_now}`), `trace_id`, and (when call-scoped) `policy_decision` 
 {"rating":"good","used":true}
 ```
 
-### `POST /api/suggestions/{id}/render-ack` (Sprint 3A, `docs/DECISIONS.md` ADR-048)
+### `POST /api/suggestions/{id}/render-ack` (Sprint 3A `docs/DECISIONS.md` ADR-048, refined by ADR-051)
 The browser's own Render-ACK, sent once a pushed suggestion has actually been
-painted on screen — the ONLY place `t_ui_rendered_at`/`real_rsl_ms` are ever set.
+painted on screen — the ONLY place `t_ui_rendered_at`/`wallclock_rsl_estimate_ms`
+are ever set.
 ```json
 {
   "trace_id": "3f9e...",
@@ -154,18 +155,35 @@ painted on screen — the ONLY place `t_ui_rendered_at`/`real_rsl_ms` are ever s
   "client_received_epoch_ms": 1758312345123.4,
   "client_rendered_epoch_ms": 1758312345168.9,
   "client_received_perf_ms": 512.3,
-  "client_rendered_perf_ms": 529.8
+  "client_rendered_perf_ms": 529.8,
+  "clock_sync_samples": [
+    {"t1_client_send_ms": 1758312344000.0, "t2_server_recv_ms": 1758312344010.0,
+     "t3_server_send_ms": 1758312344010.0, "t4_client_recv_ms": 1758312344020.0}
+  ]
 }
 ```
-`*_epoch_ms` (`Date.now()`, wall-clock) drive `real_rsl_ms` against this server's
-own `t_turn_end_detected_at` — necessarily a cross-machine wall-clock delta, since
-browser and server share no monotonic clock. `*_perf_ms` (`performance.now()`,
-monotonic, browser-local) drive `client_render_latency_ms` only — never compared
-against anything server-side. Looked up by `trace_id` (falls back to the
-suggestion's own `trace_id`, then to the most recent trace for the same call);
-a suggestion with no matching `TurnLatencyTrace` row returns `200 {"ok": true,
-"real_rsl_ms": null, ...}` rather than an error — a safe no-op, not a failure.
-Returns `404` if the suggestion does not belong to the caller's tenant.
+`*_epoch_ms` (`Date.now()`, wall-clock) drive `wallclock_rsl_estimate_ms` against
+this server's own `t_turn_end_detected_at` — necessarily a cross-machine wall-clock
+delta, since browser and server share no monotonic clock (hence "estimate", not
+an exact figure). `*_perf_ms` (`performance.now()`, monotonic, browser-local)
+drive `client_render_latency_ms` only — never compared against anything
+server-side. `clock_sync_samples` (optional, ADR-051) — raw ping/pong round trips
+collected over `/ws/live/{call_id}` (see below); the server computes an
+offset/RTT/uncertainty estimate from them (`app/services/clock_sync.py`),
+persisted for later analysis, not yet used to correct any RSL value.
+
+Looked up by `trace_id` (falls back to the suggestion's own `trace_id`, then to
+the most recent trace for the same call); a suggestion with no matching
+`TurnLatencyTrace` row returns `200 {"ok": true, "wallclock_rsl_estimate_ms":
+null, ...}` rather than an error — a safe no-op, not a failure. Returns `404` if
+the suggestion does not belong to the caller's tenant.
+
+Response also includes `server_render_ack_latency_ms` (ADR-051 — a monotonic,
+server-side-only upper bound on end-to-end latency that deliberately includes
+this very HTTP request's own round trip; `null` if the trace row never captured
+`t_turn_end_detected_monotonic`, e.g. an older row) and, when clock-sync samples
+were supplied, `clock_offset_estimate_ms`/`clock_rtt_estimate_ms`/
+`clock_uncertainty_ms`.
 
 ## Manager — `manager`, `tenant_admin`
 
@@ -315,7 +333,7 @@ the `TurnLatencyTrace`/`ConversationStateEvent` tables (no dedicated read endpoi
 for those two yet — direct DB/audit tooling only, matching this sprint's scope of
 proving the pipeline shape rather than adding new product-facing read APIs).
 
-### `WS /ws/live/{call_id}` (Sprint 3A, `docs/DECISIONS.md` ADR-048)
+### `WS /ws/live/{call_id}` (Sprint 3A `docs/DECISIONS.md` ADR-048, refined by ADR-051)
 Live Suggestion Push to a seller's connected browser client
 (`app/services/live_push.LiveSuggestionHub`). **No `Authorization` header and no
 token in the URL** — a browser WebSocket client cannot set custom handshake
@@ -326,6 +344,22 @@ expired token, disabled user, role not in `seller`/`manager`/`tenant_admin`/
 `system_admin`, or `call_id` not in this token's tenant) closes the connection
 (code 1008) — same fail-closed, non-distinguishing posture as `_get_call_or_404()`
 (a wrong-tenant call_id and a nonexistent one look identical).
+
+**Origin allowlist (ADR-051)**, checked immediately after accept, before even
+the auth-message wait: the `Origin` header must be on the
+`REPLICA_ALLOWED_WS_ORIGINS` allowlist outside `REPLICA_ENV=local` (production/
+staging/any other non-local value) — a valid JWT alone is no longer sufficient
+there. An empty/unset allowlist rejects every connection outside local dev
+(fail closed), never "allow everything". See `app/services/ws_origin.py`.
+
+**Clock-sync ping/pong (ADR-051)**: after authenticating, a client MAY send
+`{"type": "ping", "seq": N, "t1_client_send_ms": <Date.now()>}`, answered
+immediately with `{"type": "pong", "seq": N, "t1_client_send_ms": <echoed>,
+"t2_server_recv_ms": <server Date.now() on receipt>, "t3_server_send_ms":
+<server Date.now() just before reply>}`. The client fills in `t4` on receipt and
+attaches the resulting 4-timestamp sample(s) to its next Render-ACK's
+`clock_sync_samples` (see above) — this connection itself does nothing with the
+samples.
 
 On successful auth, if a suggestion was already pushed for this `call_id` since
 server start, it is immediately sent as `{"type": "sync", ...}` (reconnect
@@ -353,9 +387,11 @@ initial auth frame (Render-ACK goes over the separate, reliable
 `POST /api/suggestions/{id}/render-ack` above, precisely so a momentarily flaky
 push connection can never silently swallow an ACK).
 
-`t_suggestion_pushed_at` on the corresponding `TurnLatencyTrace` row is set the
-moment the pipeline hands the suggestion to this hub — regardless of whether any
-browser is connected at that instant (a legitimate outcome, not a failed handoff).
+`t_push_enqueued_at` (renamed by ADR-051) on the corresponding `TurnLatencyTrace`
+row is set the moment the pipeline hands the suggestion to this hub — regardless
+of whether any browser is connected at that instant (a legitimate outcome, not a
+failed handoff); `t_ws_send_completed_at` follows once the actual WebSocket
+send(s) finish.
 
 ### `GET /live/{call_id}`
 Serves `app/static/live.html` — a minimal, non-final test/debug UI for the above

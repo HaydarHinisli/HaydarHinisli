@@ -38,6 +38,16 @@ nonexistent `call_id` both just close the connection identically, mirroring
 `_get_call_or_404()`'s "existence must not be distinguishable from ownership"
 posture used everywhere else in this codebase.
 
+**Origin allowlist (Fix-Sprint, ADR-051)**: the JWT check above proves WHO is
+connecting, not WHERE the connecting page is served from. `/ws/live/{call_id}`
+additionally checks the `Origin` header against `REPLICA_ALLOWED_WS_ORIGINS`
+(`app/services/ws_origin.py`), immediately after `accept()` and before even the
+auth-message wait. Fails closed outside `REPLICA_ENV=local`: an empty/unset
+allowlist in production/staging rejects every origin — a real deployment must
+explicitly configure its actual origin(s) before this endpoint is reachable from
+the public internet. This is a second, independent layer on top of the JWT
+check, not a replacement for it.
+
 ## 3. Private Learning by default
 
 Default:

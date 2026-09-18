@@ -14,7 +14,9 @@ in-process, in-memory registry. It works for a single REPLICA server process
 instances — a seller connected to instance A never receives a push produced by
 instance B. A multi-instance deployment would need a shared pub/sub backplane
 (e.g. Redis) in front of this same publish/register interface; out of scope for
-Sprint 3A, tracked as tech debt in the Sprint 3A report.
+this pilot, tracked as tech debt. See `docs/DEPLOYMENT.md` for the exact
+deployment-topology requirement this implies (single instance, or sticky routing
+per call_id) — READ THAT before deploying this behind a load balancer.
 """
 from __future__ import annotations
 import logging

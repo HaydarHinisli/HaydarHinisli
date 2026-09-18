@@ -7,10 +7,14 @@ which a wall-clock reading can. Wall-clock (`datetime.utcnow()`) is stored purel
 audit/tracing correlation across systems and logs, per the explicit requirement to
 keep both; it is never used for latency math.
 
-Stage names match docs/ARCHITECTURE.md §8 / the Sprint 2 requirements exactly:
-audio_received, asr_interim, asr_final, turn_end_detected, salesbrain_started,
-salesbrain_finished, suggestion_persisted, suggestion_pushed, ui_rendered (the last
-one stays unmarked until Sprint 3 wires a real UI render acknowledgement).
+Stage names match docs/ARCHITECTURE.md §8 / the Sprint 2 requirements, refined in
+Sprint 3A/ADR-051: audio_received, asr_interim, asr_final, turn_end_detected,
+salesbrain_started, salesbrain_finished, suggestion_persisted, push_enqueued (the
+moment the pipeline hands the Suggestion to LiveSuggestionHub — renamed from
+suggestion_pushed), ws_send_completed (once the actual WebSocket send(s)
+finished — separates hub-handoff latency from network/event-loop latency),
+ui_rendered (stays unmarked here — only ever set out of band by a real
+Render-ACK, see app/services/turn_pipeline and app/main.py's render-ack endpoint).
 `provider_endpoint_detected` (Sprint 2B) is an additional, comparison-only stage —
 see docs/DECISIONS.md ADR-046.
 """
@@ -24,7 +28,7 @@ from ..models import TurnLatencyTrace
 STAGES = (
     'audio_received', 'asr_interim', 'asr_final', 'turn_end_detected',
     'provider_endpoint_detected', 'salesbrain_started', 'salesbrain_finished',
-    'suggestion_persisted', 'suggestion_pushed', 'ui_rendered',
+    'suggestion_persisted', 'push_enqueued', 'ws_send_completed', 'ui_rendered',
 )
 
 
@@ -81,20 +85,27 @@ def build_latency_trace_row(
         t_asr_interim_at=trace.wallclock('asr_interim'),
         t_asr_final_at=trace.wallclock('asr_final'),
         t_turn_end_detected_at=trace.wallclock('turn_end_detected'),
+        # ADR-051: the one deliberately-persisted raw monotonic value — see
+        # TurnLatencyTrace's class docstring — needed later to compute
+        # server_render_ack_latency_ms when the Render-ACK HTTP request arrives.
+        t_turn_end_detected_monotonic=trace.monotonic_at('turn_end_detected'),
         t_provider_endpoint_detected_at=trace.wallclock('provider_endpoint_detected'),
         t_salesbrain_started_at=trace.wallclock('salesbrain_started'),
         t_salesbrain_finished_at=trace.wallclock('salesbrain_finished'),
         t_suggestion_persisted_at=trace.wallclock('suggestion_persisted'),
-        t_suggestion_pushed_at=trace.wallclock('suggestion_pushed'),
+        t_push_enqueued_at=trace.wallclock('push_enqueued'),
+        t_ws_send_completed_at=trace.wallclock('ws_send_completed'),
         t_ui_rendered_at=trace.wallclock('ui_rendered'),
         audio_to_interim_ms=trace.delta_ms('audio_received', 'asr_interim'),
         audio_to_final_ms=trace.delta_ms('audio_received', 'asr_final'),
         turn_detection_latency_ms=trace.delta_ms('asr_final', 'turn_end_detected'),
         provider_endpoint_vs_turn_end_ms=trace.delta_ms('provider_endpoint_detected', 'turn_end_detected'),
         # Internal engine latency ONLY (docs/DECISIONS.md ADR-021/022) — never call
-        # this RSL. Real RSL is real_rsl_ms below, and it alone is the product metric.
+        # this RSL. wallclock_rsl_estimate_ms/server_render_ack_latency_ms (set
+        # later, out of band, by the Render-ACK endpoint) are the RSL-related figures.
         salesbrain_latency_ms=trace.delta_ms('salesbrain_started', 'salesbrain_finished'),
         suggestion_persist_latency_ms=trace.delta_ms('salesbrain_finished', 'suggestion_persisted'),
-        suggestion_push_latency_ms=trace.delta_ms('suggestion_persisted', 'suggestion_pushed'),
-        real_rsl_ms=trace.delta_ms('turn_end_detected', 'ui_rendered'),
+        suggestion_push_latency_ms=trace.delta_ms('suggestion_persisted', 'push_enqueued'),
+        ws_send_latency_ms=trace.delta_ms('push_enqueued', 'ws_send_completed'),
+        wallclock_rsl_estimate_ms=trace.delta_ms('turn_end_detected', 'ui_rendered'),
     )

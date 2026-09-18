@@ -367,25 +367,56 @@ class TurnLatencyTrace(Base):
     app/services/turn_pipeline.process_final_turn().
 
     Wall-clock `_at` columns are for audit/cross-system correlation only. Every
-    server-side `_ms` duration column (everything except `real_rsl_ms` and
-    `client_render_latency_ms`, see below) is computed from monotonic clock
+    server-side `_ms` duration column (everything except `wallclock_rsl_estimate_ms`
+    and `client_render_latency_ms`, see below) is computed from monotonic clock
     readings taken in-process (see docs/DECISIONS.md ADR-041) — monotonic values
-    themselves are never persisted, only the deltas, since a monotonic clock's
-    epoch is arbitrary and meaningless outside the process that read it.
+    themselves are never persisted, only the deltas, with ONE deliberate exception
+    (`t_turn_end_detected_monotonic`, see below), since a monotonic clock's epoch is
+    otherwise arbitrary and meaningless outside the process that read it.
 
     `salesbrain_latency_ms` is the pre-existing internal Fast-Path engine latency
     (ADR-021/022) now measured inside a real pipeline — it is NOT, and must never be
-    reported as, real RSL. `real_rsl_ms` is the actual product metric
-    (`t_ui_rendered - t_turn_end_detected`, per docs/ARCHITECTURE.md §8) and stays
-    NULL until a real Render-ACK from the browser exists (Sprint 3A, ADR-048); it is
-    never backfilled with an approximation. Unlike every other `_ms` column here,
-    `real_rsl_ms` is necessarily a WALL-CLOCK delta, not a monotonic one — the
-    browser and this server are different processes (usually different machines)
-    with no shared monotonic clock, so wall-clock is the only cross-machine
-    correlation available, exactly as docs/DATA_MODEL.md's evidence-level note and
-    the Sprint 3A brief both allow ("Wall-Clock kann zusätzlich für Korrelation/
-    Audit vorhanden sein"). This means `real_rsl_ms` inherits ordinary NTP clock-skew
-    risk between the two machines — a documented limitation, not an oversight.
+    reported as, real RSL.
+
+    Sprint 3A follow-up (ADR-051) renamed and split what Sprint 3A itself called
+    `real_rsl_ms`/`t_suggestion_pushed_at`, precisely because a cross-machine
+    wall-clock delta was found to be too easily mistaken for an exact measurement,
+    and "pushed" conflated two genuinely different moments:
+
+    - **`wallclock_rsl_estimate_ms`** (renamed from `real_rsl_ms`) —
+      `t_ui_rendered - t_turn_end_detected`, computed once a real Render-ACK exists
+      (Sprint 3A, ADR-048); NULL until then, never backfilled with an
+      approximation. The name states plainly what this always was: a WALL-CLOCK
+      delta between two different machines with no shared monotonic clock, hence
+      an *estimate* subject to ordinary NTP clock-skew, not an exact figure —
+      `clock_offset_estimate_ms`/`clock_uncertainty_ms` below exist to eventually
+      quantify exactly how much to trust it.
+    - **`server_render_ack_latency_ms`** — `render_ack_received - turn_end_detected`,
+      computed ENTIRELY server-side from two monotonic readings taken by this same
+      process (never crosses a clock boundary). Deliberately includes the full
+      Render-ACK HTTP round trip (network there, browser render, network back), so
+      it is a robust, monotonic UPPER BOUND on true end-to-end latency — always
+      `>= wallclock_rsl_estimate_ms` module clock skew, never itself claimed to be
+      the precise RSL.
+    - **`t_turn_end_detected_monotonic`** — the one deliberate exception to "never
+      persist a monotonic value": needed later, when the Render-ACK HTTP request
+      arrives (a separate request, potentially much later) on the SAME machine/
+      process, to compute `server_render_ack_latency_ms` above.
+      `time.monotonic()` is `CLOCK_MONOTONIC` on Linux, which is shared
+      system-wide (not per-process) — comparing it across two requests to the same
+      server is valid PROVIDED the process/machine has not restarted in between,
+      an assumption already implied by this pilot's single-instance deployment
+      topology (see `docs/DEPLOYMENT.md`). If the computed delta comes out
+      negative (the tell-tale sign of a restart in between), it is discarded
+      (left NULL) rather than persisting a nonsensical value.
+    - **`clock_offset_estimate_ms` / `clock_rtt_estimate_ms` / `clock_uncertainty_ms`**
+      — prepared, not yet used to correct anything: a lightweight NTP-style
+      offset/RTT/uncertainty estimate between the browser's and this server's
+      wall clocks, computed from ping/pong samples exchanged over `/ws/live/
+      {call_id}` (`app/services/clock_sync.py`) and submitted alongside a
+      Render-ACK. A later sprint can use these to turn
+      `wallclock_rsl_estimate_ms` into a genuinely clock-corrected estimate with a
+      stated uncertainty band — not done yet, per explicit instruction.
 
     Sprint 2B (ADR-045/046): `asr_provider`/`is_synthetic` make it structurally
     impossible to confuse a `SimulatedASRProvider` development measurement with a
@@ -396,14 +427,19 @@ class TurnLatencyTrace(Base):
     `t_turn_end_detected_at` after real test calls — never used to drive turn-end
     itself (our own VAD remains authoritative, see docs/DECISIONS.md ADR-039/046).
 
-    Sprint 3A (ADR-048): `t_browser_received_at`/`t_ui_rendered_at` and
-    `client_render_latency_ms` are populated later, out of band, by
-    POST /api/suggestions/{id}/render-ack — NOT by the streaming pipeline that
+    Sprint 3A (ADR-048)/ADR-051: `t_push_enqueued_at` (renamed from
+    `t_suggestion_pushed_at`) is set the moment the pipeline hands the Suggestion to
+    `LiveSuggestionHub` — regardless of whether a browser is connected — and
+    `t_ws_send_completed_at` a moment later, once every currently-connected
+    subscriber's `send_json()` has completed, separating "handed to the hub" from
+    "actually sent over the wire" for diagnosing hub vs. network/browser latency
+    separately. `t_browser_received_at`/`t_ui_rendered_at`, `t_render_ack_received_at`,
+    and `client_render_latency_ms` are all populated later, out of band, by
+    `POST /api/suggestions/{id}/render-ack` — NOT by the streaming pipeline that
     creates this row. `client_render_latency_ms` is the browser's own monotonic
     delta (`performance.now()` at render minus at receipt) and is a distinct
-    measurement from `real_rsl_ms`: one is "how long did the browser take to paint
-    it", the other is "how long did the whole thing take from turn-end" — never
-    merged into a single number.
+    measurement from every RSL figure above: "how long did the browser take to
+    paint it" is never merged into "how long did the whole thing take".
     """
     __tablename__ = 'turn_latency_traces'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -429,13 +465,24 @@ class TurnLatencyTrace(Base):
     t_salesbrain_started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     t_salesbrain_finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     t_suggestion_persisted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    t_suggestion_pushed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Sprint 3A/ADR-051: renamed from t_suggestion_pushed_at — the moment the
+    # Suggestion is handed to LiveSuggestionHub, distinct from t_ws_send_completed_at
+    # below (the moment the actual WebSocket send(s) finished).
+    t_push_enqueued_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    t_ws_send_completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # Sprint 3A (ADR-048): set from the browser's own Render-ACK, NOT estimated
     # server-side — the two halves of "how long did delivery to the browser take"
     # vs. "how long did the browser take to paint it" (client_render_latency_ms
     # below), kept separate rather than blended into one number.
     t_browser_received_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     t_ui_rendered_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # ADR-051: server wall-clock moment the Render-ACK HTTP request was processed —
+    # distinct from t_ui_rendered_at (the BROWSER's own reported render moment).
+    t_render_ack_received_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # ADR-051: the one deliberate exception to "never persist a monotonic value" —
+    # see the class docstring for why this is safe under the pilot's single-instance
+    # deployment assumption, and how a restart-in-between is detected/discarded.
+    t_turn_end_detected_monotonic: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     audio_to_interim_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
     audio_to_final_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -445,12 +492,24 @@ class TurnLatencyTrace(Base):
     provider_endpoint_vs_turn_end_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
     salesbrain_latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
     suggestion_persist_latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # persisted -> push_enqueued (hub handoff latency).
     suggestion_push_latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # ADR-051: push_enqueued -> ws_send_completed — purely server-internal/monotonic,
+    # isolates hub/event-loop scheduling latency from network+browser latency.
+    ws_send_latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
     # Sprint 3A (ADR-048): the browser's OWN monotonic delta (performance.now() at
     # render minus performance.now() at receipt) — how long the browser itself took
     # to paint the suggestion after receiving it. Never mixed with any server-side
     # or wall-clock number; it is meaningful only as a client-local duration.
     client_render_latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
-    real_rsl_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # ADR-051: renamed from real_rsl_ms — see class docstring for why "estimate".
+    wallclock_rsl_estimate_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # ADR-051: a robust monotonic UPPER BOUND (includes the Render-ACK round trip
+    # by design) — see class docstring.
+    server_render_ack_latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # ADR-051: clock-sync preparation, not yet used to correct any RSL value.
+    clock_offset_estimate_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    clock_rtt_estimate_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    clock_uncertainty_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)

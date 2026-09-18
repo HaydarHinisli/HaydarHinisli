@@ -128,12 +128,13 @@ discarding the fact that it arrived. See `docs/DECISIONS.md` ADR-035.
 - last_status / last_sequence_number
 - updated_at
 
-### TurnLatencyTrace (Sprint 2/2B)
+### TurnLatencyTrace (Sprint 2/2B/3A, refined by ADR-051)
 End-to-end pipeline timing for one final turn processed through the Twilio Media
 Streams pipeline (`app/streaming/pipeline.py` → `app/services/turn_pipeline.
 process_final_turn()`). One row per final turn. Wall-clock `_at` columns are for
-audit/cross-system correlation only; every `_ms` duration is computed from
-monotonic clock readings taken in-process. See `docs/DECISIONS.md` ADR-041.
+audit/cross-system correlation only; every server-side `_ms` duration (except
+`wallclock_rsl_estimate_ms`, see below) is computed from monotonic clock readings
+taken in-process. See `docs/DECISIONS.md` ADR-041/051.
 
 - company_id / call_id / turn_id / trace_id / speaker
 - **asr_provider / is_synthetic** (Sprint 2B, ADR-045): which `ASRProvider`
@@ -141,25 +142,45 @@ monotonic clock readings taken in-process. See `docs/DECISIONS.md` ADR-041.
   measurement (`is_synthetic=True`, the default) or a real one — query this before
   ever reporting a number, so a dev measurement can never be presented as real.
 - t_audio_received_at, t_asr_interim_at, t_asr_final_at, t_turn_end_detected_at,
+  **t_turn_end_detected_monotonic** (ADR-051 — a raw monotonic float, the ONE
+  deliberate exception to "never persist a monotonic value", needed later to
+  compute `server_render_ack_latency_ms`; valid only under this pilot's
+  single-instance deployment topology, see `docs/DEPLOYMENT.md`),
   t_provider_endpoint_detected_at (Sprint 2B, ADR-046 — the ASR provider's OWN
   endpointing signal, comparison-only, never authoritative),
   t_salesbrain_started_at, t_salesbrain_finished_at, t_suggestion_persisted_at,
-  t_suggestion_pushed_at (Sprint 3A, ADR-048 — set when the Suggestion is handed to
-  `LiveSuggestionHub`, regardless of whether a browser is connected at that moment),
-  **t_browser_received_at / t_ui_rendered_at** (Sprint 3A, ADR-048 — set ONLY by the
-  browser's own `POST /api/suggestions/{id}/render-ack`; never estimated server-side)
+  **t_push_enqueued_at** (renamed from `t_suggestion_pushed_at`, ADR-051 — set
+  when the Suggestion is handed to `LiveSuggestionHub`, regardless of whether a
+  browser is connected at that moment), **t_ws_send_completed_at** (ADR-051 —
+  once every currently-connected subscriber's WebSocket send has completed,
+  isolating hub-handoff latency from network/event-loop latency),
+  **t_browser_received_at / t_ui_rendered_at** (Sprint 3A, ADR-048 — set ONLY by
+  the browser's own `POST /api/suggestions/{id}/render-ack`; never estimated
+  server-side), **t_render_ack_received_at** (ADR-051 — server wall-clock moment
+  that same HTTP request was processed, distinct from `t_ui_rendered_at`)
 - audio_to_interim_ms, audio_to_final_ms (ASR latency), turn_detection_latency_ms,
   provider_endpoint_vs_turn_end_ms (Sprint 2B, ADR-046: our VAD turn-end minus the
   provider's own endpointing — positive means ours fired later),
   salesbrain_latency_ms (internal Fast-Path engine latency — **not** RSL),
-  suggestion_persist_latency_ms, suggestion_push_latency_ms,
+  suggestion_persist_latency_ms (persisted → push_enqueued),
+  **ws_send_latency_ms** (ADR-051: push_enqueued → ws_send_completed —
+  server-internal/monotonic, hub/event-loop scheduling latency only),
   **client_render_latency_ms** (Sprint 3A — the browser's own monotonic
   `performance.now()` delta between receiving and painting the suggestion; a
   browser-local diagnostic, never merged with anything server-side),
-  real_rsl_ms (`t_ui_rendered - t_turn_end_detected` — the actual product metric;
-  stays null until a real Render-ACK exists, never approximated. Since Sprint 3A
-  this is a genuine WALL-CLOCK delta once computed — the browser and server share
-  no monotonic clock — unlike every other `_ms` column above, which are monotonic)
+  **wallclock_rsl_estimate_ms** (renamed from `real_rsl_ms`, ADR-051 —
+  `t_ui_rendered - t_turn_end_detected`; stays null until a real Render-ACK
+  exists, never approximated. A genuine cross-machine WALL-CLOCK delta, hence
+  "estimate" — the browser and server share no monotonic clock, unlike every
+  other `_ms` column above),
+  **server_render_ack_latency_ms** (ADR-051 — `render_ack_received -
+  turn_end_detected`, computed entirely server-side from two monotonic readings
+  on the same process; a robust UPPER BOUND that deliberately includes the
+  Render-ACK's own HTTP round trip),
+  **clock_offset_estimate_ms / clock_rtt_estimate_ms / clock_uncertainty_ms**
+  (ADR-051 — an NTP-style browser↔server clock-sync estimate from ping/pong
+  samples exchanged over `/ws/live/{call_id}`, `app/services/clock_sync.py`;
+  prepared for later use, not yet used to correct `wallclock_rsl_estimate_ms`)
 
 ### Meeting
 - external provider ID

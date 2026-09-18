@@ -197,18 +197,21 @@ class MediaStreamPipeline:
                 return
             suggestion_payload = result.get('suggestion_payload')
             if suggestion_payload is not None:
-                # Sprint 3A requirement 1: handing the persisted Suggestion to the
-                # live-delivery layer IS this call — `t_suggestion_pushed` marks
-                # the handoff itself, not confirmed delivery to a browser (there
-                # may be zero connected subscribers right now, which is a valid
-                # outcome, not a failure — see LiveSuggestionHub.publish_suggestion()).
+                # ADR-051: `push_enqueued` marks handing the persisted Suggestion to
+                # the live-delivery layer (renamed from `suggestion_pushed`) — not
+                # confirmed delivery to a browser (there may be zero connected
+                # subscribers right now, a valid outcome, not a failure). Separately,
+                # `ws_send_completed` marks once the actual WebSocket send(s) for
+                # any currently-connected subscribers have finished, isolating
+                # hub-handoff latency from network/event-loop latency.
+                trace.mark('push_enqueued')
                 hub = get_live_suggestion_hub()
                 push_payload = {
                     'call_id': self.call_id, 'turn_id': result.get('turn_id'), **suggestion_payload,
                     'guidance_hint': guidance_hint(suggestion_payload.get('strategy')),
                     # Debug-only diagnostics (app/static/live.html's separate debug
                     # panel — Sprint 3A requirement 2): internal engine timings, NEVER
-                    # to be shown as or confused with real_rsl_ms (ADR-021/022/048).
+                    # to be shown as or confused with any RSL figure (ADR-021/022/048/051).
                     'debug': {
                         'asr_provider': self.asr_provider_name,
                         'is_synthetic': self.is_synthetic,
@@ -221,11 +224,12 @@ class MediaStreamPipeline:
                     },
                 }
                 await hub.publish_suggestion(call_id=self.call_id, company_id=self.company_id, payload=push_payload)
-                trace.mark('suggestion_pushed')
-            # Sprint 2 ended at "Suggestion persisted"; Sprint 3A adds the actual
-            # push above, but `t_ui_rendered`/`real_rsl_ms` still stay unmarked/NULL
-            # here — those are only ever set later, out of band, by the browser's
-            # own POST /api/suggestions/{id}/render-ack (docs/DECISIONS.md ADR-048).
+                trace.mark('ws_send_completed')
+            # Sprint 2 ended at "Suggestion persisted"; Sprint 3A/ADR-051 add the
+            # actual push above, but `t_ui_rendered`/`wallclock_rsl_estimate_ms`/
+            # `server_render_ack_latency_ms` still stay unmarked/NULL here — those
+            # are only ever set later, out of band, by the browser's own
+            # POST /api/suggestions/{id}/render-ack (docs/DECISIONS.md ADR-048/051).
             # Marking them here would silently manufacture a fake RSL number,
             # exactly what the explicit "never call internal latency real RSL"
             # requirement forbids.

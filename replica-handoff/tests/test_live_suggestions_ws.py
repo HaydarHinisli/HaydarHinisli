@@ -109,6 +109,81 @@ def test_ws_auth_timeout_closes_the_connection(client, monkeypatch):
             ws.receive_text()
 
 
+# --- Origin allowlist (Fix-Sprint, docs/DECISIONS.md ADR-051) ------------------------
+
+def test_ws_rejects_any_origin_in_production_without_an_allowlist_configured(client, monkeypatch):
+    import app.main as main_module
+    monkeypatch.setattr(main_module.settings, 'replica_env', 'production')
+    monkeypatch.setattr(main_module.settings, 'replica_allowed_ws_origins', None)
+    headers = auth_headers(client, 'haydar@replica-pilot.example')
+    call_id = _create_call(client, headers)
+    with pytest.raises(Exception):
+        with client.websocket_connect(f'/ws/live/{call_id}', headers={'origin': 'https://app.replica.example'}) as ws:
+            ws.receive_text()
+
+
+def test_ws_rejects_disallowed_origin_in_production(client, monkeypatch):
+    import app.main as main_module
+    monkeypatch.setattr(main_module.settings, 'replica_env', 'production')
+    monkeypatch.setattr(main_module.settings, 'replica_allowed_ws_origins', 'https://app.replica.example')
+    headers = auth_headers(client, 'haydar@replica-pilot.example')
+    call_id = _create_call(client, headers)
+    with pytest.raises(Exception):
+        with client.websocket_connect(f'/ws/live/{call_id}', headers={'origin': 'https://evil.example'}) as ws:
+            ws.receive_text()
+
+
+def test_ws_rejects_missing_origin_header_in_production(client, monkeypatch):
+    import app.main as main_module
+    monkeypatch.setattr(main_module.settings, 'replica_env', 'production')
+    monkeypatch.setattr(main_module.settings, 'replica_allowed_ws_origins', 'https://app.replica.example')
+    headers = auth_headers(client, 'haydar@replica-pilot.example')
+    call_id = _create_call(client, headers)
+    with pytest.raises(Exception):
+        with client.websocket_connect(f'/ws/live/{call_id}') as ws:  # no Origin header at all
+            ws.receive_text()
+
+
+def test_ws_accepts_allowlisted_origin_in_production(client, monkeypatch):
+    import app.main as main_module
+    monkeypatch.setattr(main_module.settings, 'replica_env', 'production')
+    monkeypatch.setattr(main_module.settings, 'replica_allowed_ws_origins', 'https://app.replica.example')
+    headers = auth_headers(client, 'haydar@replica-pilot.example')
+    call_id = _create_call(client, headers)
+    token = login(client, 'haydar@replica-pilot.example')
+    with client.websocket_connect(f'/ws/live/{call_id}', headers={'origin': 'https://app.replica.example'}) as ws:
+        ws.send_text(json.dumps({'type': 'auth', 'token': token}))
+        # closing cleanly (no exception) proves the origin check passed and auth succeeded
+
+
+def test_ws_local_env_allows_missing_origin(client):
+    """Default test env is 'local' — the Origin check must not break existing
+    local/dev/test usage that never sets an Origin header."""
+    headers = auth_headers(client, 'haydar@replica-pilot.example')
+    call_id = _create_call(client, headers)
+    token = login(client, 'haydar@replica-pilot.example')
+    with client.websocket_connect(f'/ws/live/{call_id}') as ws:
+        ws.send_text(json.dumps({'type': 'auth', 'token': token}))
+
+
+# --- Clock-sync ping/pong (Fix-Sprint, ADR-051) --------------------------------------
+
+def test_ws_ping_gets_a_pong_with_server_timestamps(client):
+    headers = auth_headers(client, 'haydar@replica-pilot.example')
+    call_id = _create_call(client, headers)
+    token = login(client, 'haydar@replica-pilot.example')
+    with client.websocket_connect(f'/ws/live/{call_id}') as ws:
+        ws.send_text(json.dumps({'type': 'auth', 'token': token}))
+        ws.send_text(json.dumps({'type': 'ping', 'seq': 1, 't1_client_send_ms': 12345.0}))
+        pong = ws.receive_json()
+        assert pong['type'] == 'pong'
+        assert pong['seq'] == 1
+        assert pong['t1_client_send_ms'] == 12345.0
+        assert isinstance(pong['t2_server_recv_ms'], (int, float))
+        assert isinstance(pong['t3_server_send_ms'], (int, float))
+        assert pong['t3_server_send_ms'] >= pong['t2_server_recv_ms']
+
+
 # --- Render-ACK --------------------------------------------------------------------
 
 def _ack_payload(**overrides):
@@ -124,12 +199,57 @@ def _ack_payload(**overrides):
     return payload
 
 
-def test_render_ack_updates_the_matching_trace_and_computes_real_rsl(client, db_session):
+def test_render_ack_updates_the_matching_trace_and_computes_wallclock_rsl_estimate(client, db_session):
     headers = auth_headers(client, 'haydar@replica-pilot.example')
     call_id = _create_call(client, headers)
     trace_id = 'test-trace-abc'
     trace = TurnLatencyTrace(
         company_id=1, call_id=call_id, turn_id='t1', trace_id=trace_id, speaker='prospect',
+        asr_provider='simulated', is_synthetic=True, t_turn_end_detected_at=datetime.utcnow(),
+        t_turn_end_detected_monotonic=time.monotonic(),
+    )
+    db_session.add(trace)
+    suggestion = Suggestion(
+        company_id=1, call_id=call_id, trace_id=trace_id, prospect_text='x', suggestion='y',
+        strategy='discover_buying_criteria', latency_ms=1.0,
+    )
+    db_session.add(suggestion)
+    db_session.commit()
+    db_session.refresh(suggestion)
+
+    r = client.post(
+        f'/api/suggestions/{suggestion.id}/render-ack', headers=headers,
+        json=_ack_payload(trace_id=trace_id, call_id=call_id),
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body['wallclock_rsl_estimate_ms'] is not None
+    assert body['wallclock_rsl_estimate_ms'] >= 0
+    assert body['server_render_ack_latency_ms'] is not None
+    assert body['server_render_ack_latency_ms'] >= 0
+    assert body['client_render_latency_ms'] == 17.0
+    assert body['is_synthetic'] is True
+    assert body['asr_provider'] == 'simulated'
+
+    db_session.refresh(trace)
+    assert trace.t_browser_received_at is not None
+    assert trace.t_ui_rendered_at is not None
+    assert trace.t_render_ack_received_at is not None
+    assert trace.wallclock_rsl_estimate_ms == body['wallclock_rsl_estimate_ms']
+    assert trace.server_render_ack_latency_ms == body['server_render_ack_latency_ms']
+    assert trace.client_render_latency_ms == 17.0
+
+
+def test_render_ack_without_turn_end_monotonic_leaves_server_upper_bound_null(client, db_session):
+    """A trace row that never captured t_turn_end_detected_monotonic (e.g. an
+    older row from before ADR-051, or one built by hand like this test) must not
+    get a fabricated server_render_ack_latency_ms — it stays None rather than
+    being computed from a missing anchor."""
+    headers = auth_headers(client, 'haydar@replica-pilot.example')
+    call_id = _create_call(client, headers)
+    trace_id = 'test-trace-no-monotonic'
+    trace = TurnLatencyTrace(
+        company_id=1, call_id=call_id, turn_id='t2', trace_id=trace_id, speaker='prospect',
         asr_provider='simulated', is_synthetic=True, t_turn_end_detected_at=datetime.utcnow(),
     )
     db_session.add(trace)
@@ -147,17 +267,8 @@ def test_render_ack_updates_the_matching_trace_and_computes_real_rsl(client, db_
     )
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body['real_rsl_ms'] is not None
-    assert body['real_rsl_ms'] >= 0
-    assert body['client_render_latency_ms'] == 17.0
-    assert body['is_synthetic'] is True
-    assert body['asr_provider'] == 'simulated'
-
-    db_session.refresh(trace)
-    assert trace.t_browser_received_at is not None
-    assert trace.t_ui_rendered_at is not None
-    assert trace.real_rsl_ms == body['real_rsl_ms']
-    assert trace.client_render_latency_ms == 17.0
+    assert body['wallclock_rsl_estimate_ms'] is not None  # still computed, wall-clock only needs t_turn_end_detected_at
+    assert body['server_render_ack_latency_ms'] is None
 
 
 def test_render_ack_is_tenant_scoped(client, other_tenant):
@@ -198,4 +309,4 @@ def test_render_ack_without_a_matching_trace_is_a_safe_no_op(client):
 
     r = client.post(f'/api/suggestions/{suggestion_id}/render-ack', headers=headers, json=_ack_payload())
     assert r.status_code == 200, r.text
-    assert r.json()['real_rsl_ms'] is None
+    assert r.json()['wallclock_rsl_estimate_ms'] is None

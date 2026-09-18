@@ -381,13 +381,16 @@ def test_latency_trace_stages_are_recorded_in_correct_monotonic_order(client, me
     assert trace.t_salesbrain_started_at is not None
     assert trace.t_salesbrain_finished_at is not None
     assert trace.t_suggestion_persisted_at is not None
-    # Sprint 3A: the suggestion is now actually handed to the live-delivery layer
-    # (docs/DECISIONS.md ADR-048), so t_suggestion_pushed_at IS set — but
-    # t_ui_rendered/real_rsl_ms only ever come from a real browser Render-ACK
-    # (POST /api/suggestions/{id}/render-ack), which never happens in this test.
-    assert trace.t_suggestion_pushed_at is not None
+    # Sprint 3A/ADR-051: the suggestion is now actually handed to the
+    # live-delivery layer, so t_push_enqueued_at/t_ws_send_completed_at ARE set —
+    # but t_ui_rendered/wallclock_rsl_estimate_ms/server_render_ack_latency_ms only
+    # ever come from a real browser Render-ACK (POST /api/suggestions/{id}/render-ack),
+    # which never happens in this test.
+    assert trace.t_push_enqueued_at is not None
+    assert trace.t_ws_send_completed_at is not None
     assert trace.t_ui_rendered_at is None
-    assert trace.real_rsl_ms is None  # never approximated — see docs/DECISIONS.md ADR-041/048
+    assert trace.wallclock_rsl_estimate_ms is None  # never approximated — see ADR-041/048/051
+    assert trace.server_render_ack_latency_ms is None
 
     # wall-clock ordering (audit/tracing correlation)
     assert trace.t_audio_received_at <= trace.t_asr_interim_at <= trace.t_asr_final_at
@@ -401,8 +404,9 @@ def test_latency_trace_stages_are_recorded_in_correct_monotonic_order(client, me
     assert trace.turn_detection_latency_ms is not None and trace.turn_detection_latency_ms >= 0
     assert trace.salesbrain_latency_ms is not None and trace.salesbrain_latency_ms >= 0
     assert trace.suggestion_persist_latency_ms is not None and trace.suggestion_persist_latency_ms >= 0
+    assert trace.ws_send_latency_ms is not None and trace.ws_send_latency_ms >= 0
     # internal engine latency must never be reported as RSL
-    assert trace.real_rsl_ms is None
+    assert trace.wallclock_rsl_estimate_ms is None
 
     # Sprint 2B (ADR-045): every trace must be honestly labelled as synthetic while
     # SimulatedASRProvider is in use — never silently look like a real measurement.
@@ -451,13 +455,14 @@ def test_sprint_3a_full_synthetic_path_through_live_push_and_render_ack(client, 
     final turn -> ConversationState -> SalesBrain -> Suggestion -> Live Push -> a
     REAL browser client connected over /ws/live/{call_id} -> a REAL Render-ACK HTTP
     call (with genuine, if synthetic-timed, performance.now()/Date.now()-shaped
-    values) -> a complete TurnLatencyTrace row including a computed real_rsl_ms.
+    values) -> a complete TurnLatencyTrace row including a computed
+    wallclock_rsl_estimate_ms and server_render_ack_latency_ms.
 
     Honesty, restated (see this file's module docstring and the Sprint 3A report):
     the audio/ASR content is still simulated, so this row's `is_synthetic` MUST stay
     True and `asr_provider` MUST stay 'simulated' — the MECHANISM being proven here
-    (live push, WS auth, Render-ACK, real_rsl_ms computation) is real production
-    code; the call audio and transcript are not.
+    (live push, WS auth, Render-ACK, RSL computation, clock-sync sample handling)
+    is real production code; the call audio and transcript are not.
     """
     from app.models import TurnLatencyTrace
 
@@ -499,7 +504,8 @@ def test_sprint_3a_full_synthetic_path_through_live_push_and_render_ack(client, 
     trace_id = pushed['trace_id']
 
     # --- Real UI-render acknowledgement (requirement 3): the browser's own
-    # monotonic (performance.now()-shaped) and wall-clock (Date.now()-shaped) pairs. ---
+    # monotonic (performance.now()-shaped) and wall-clock (Date.now()-shaped) pairs,
+    # plus a couple of clock-sync ping/pong samples (ADR-051). ---
     now_ms = time.time() * 1000
     ack = client.post(
         f'/api/suggestions/{suggestion_id}/render-ack', headers=headers,
@@ -507,24 +513,41 @@ def test_sprint_3a_full_synthetic_path_through_live_push_and_render_ack(client, 
             'trace_id': trace_id, 'call_id': call_id,
             'client_received_epoch_ms': now_ms, 'client_rendered_epoch_ms': now_ms + 40,
             'client_received_perf_ms': 500.0, 'client_rendered_perf_ms': 517.5,
+            'clock_sync_samples': [
+                {'t1_client_send_ms': 0, 't2_server_recv_ms': 10, 't3_server_send_ms': 10, 't4_client_recv_ms': 20},
+            ],
         },
     )
     assert ack.status_code == 200, ack.text
     ack_body = ack.json()
     assert ack_body['client_render_latency_ms'] == pytest.approx(17.5)
+    assert ack_body['clock_offset_estimate_ms'] == 0
+    assert ack_body['clock_rtt_estimate_ms'] == 20
+    assert ack_body['server_render_ack_latency_ms'] is not None
+    assert ack_body['server_render_ack_latency_ms'] >= 0
 
-    # --- Sprint 3A requirement 4: real_rsl_ms IS now computed (a real Render-ACK
-    # happened), but stays honestly labelled as a synthetic measurement (requirement 7). ---
+    # --- ADR-051: wallclock_rsl_estimate_ms and server_render_ack_latency_ms are
+    # now both computed (a real Render-ACK happened), the former a cross-machine
+    # wall-clock ESTIMATE, the latter a monotonic server-side UPPER BOUND — while
+    # everything stays honestly labelled as a synthetic measurement (requirement 7). ---
     trace = db_session.query(TurnLatencyTrace).filter_by(call_id=call_id, trace_id=trace_id).one()
-    assert trace.t_suggestion_pushed_at is not None  # handed to the live-delivery layer
+    assert trace.t_push_enqueued_at is not None  # handed to the live-delivery layer
+    assert trace.t_ws_send_completed_at is not None
     assert trace.t_browser_received_at is not None
     assert trace.t_ui_rendered_at is not None
-    assert trace.real_rsl_ms is not None
-    assert trace.real_rsl_ms >= 0
+    assert trace.t_render_ack_received_at is not None
+    assert trace.wallclock_rsl_estimate_ms is not None
+    assert trace.wallclock_rsl_estimate_ms >= 0
+    assert trace.server_render_ack_latency_ms is not None
+    assert trace.server_render_ack_latency_ms >= 0
     assert trace.client_render_latency_ms == pytest.approx(17.5)
+    assert trace.clock_offset_estimate_ms == 0
+    assert trace.clock_rtt_estimate_ms == 20
+    assert trace.clock_uncertainty_ms == 10
     assert trace.is_synthetic is True
     assert trace.asr_provider == 'simulated'
     # salesbrain_latency_ms is internal engine latency and must never be conflated
-    # with real_rsl_ms, even though both are non-null on this row now.
+    # with any RSL figure, even though both are non-null on this row now.
     assert trace.salesbrain_latency_ms is not None
-    assert trace.salesbrain_latency_ms != trace.real_rsl_ms
+    assert trace.salesbrain_latency_ms != trace.wallclock_rsl_estimate_ms
+    assert trace.salesbrain_latency_ms != trace.server_render_ack_latency_ms

@@ -66,21 +66,38 @@ class SuggestionFeedbackRequest(BaseModel):
     used: bool | None = None
 
 
+class ClockSyncSampleRequest(BaseModel):
+    """Fix-Sprint (docs/DECISIONS.md ADR-051): one raw ping/pong round trip
+    exchanged over /ws/live/{call_id}, all four timestamps in milliseconds. The
+    SERVER computes the offset/RTT/uncertainty from these raw values (via
+    app/services/clock_sync.py) rather than trusting a client-computed aggregate —
+    one shared, tested implementation instead of parallel client/server logic."""
+    t1_client_send_ms: float
+    t2_server_recv_ms: float
+    t3_server_send_ms: float
+    t4_client_recv_ms: float
+
+
 class SuggestionRenderAckRequest(BaseModel):
-    """Sprint 3A (docs/DECISIONS.md ADR-048): the browser's own Render-ACK, sent
-    once after a suggestion has actually been painted on screen — never estimated
-    server-side. `*_epoch_ms` are wall-clock (`Date.now()`), used to correlate
-    against this server's own wall-clock `t_turn_end_detected_at` for `real_rsl_ms`
-    (the two are different processes/machines with no shared monotonic clock).
-    `*_perf_ms` are the browser's own monotonic `performance.now()` readings, used
-    only for the browser-local `client_render_latency_ms` delta — never compared
-    against anything server-side."""
+    """Sprint 3A (docs/DECISIONS.md ADR-048), refined by ADR-051: the browser's own
+    Render-ACK, sent once after a suggestion has actually been painted on screen —
+    never estimated server-side. `*_epoch_ms` are wall-clock (`Date.now()`), used
+    to correlate against this server's own wall-clock `t_turn_end_detected_at` for
+    `wallclock_rsl_estimate_ms` (the two are different processes/machines with no
+    shared monotonic clock — hence "estimate", not an exact figure). `*_perf_ms`
+    are the browser's own monotonic `performance.now()` readings, used only for
+    the browser-local `client_render_latency_ms` delta — never compared against
+    anything server-side. `clock_sync_samples` (optional, ADR-051) carries raw
+    ping/pong round trips collected over `/ws/live/{call_id}` right after connect,
+    used to compute and persist a browser<->server clock offset/RTT/uncertainty
+    estimate for later analysis — not yet used to correct any RSL value."""
     trace_id: str | None = Field(default=None, max_length=80)
     call_id: int | None = None
     client_received_epoch_ms: float = Field(gt=0)
     client_rendered_epoch_ms: float = Field(gt=0)
     client_received_perf_ms: float = Field(ge=0)
     client_rendered_perf_ms: float = Field(ge=0)
+    clock_sync_samples: list[ClockSyncSampleRequest] = Field(default_factory=list, max_length=20)
 
 
 class CompleteCallRequest(BaseModel):

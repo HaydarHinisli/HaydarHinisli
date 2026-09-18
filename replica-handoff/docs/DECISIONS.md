@@ -1268,3 +1268,86 @@ efficient shape, in parallel, from that SAME `payload_bytes` value:
 No unnecessary transcoding exists today; no code change was made. The pipeline
 already matches the "raw mu-law → ASR, and in parallel mu-law → PCM decode →
 local VAD" shape the brief asked to verify.
+
+## ADR-051 — Fix-Sprint after Sprint 3A: cross-clock RSL honesty, split push timestamps, WS Origin allowlist, deployment topology documented
+Status: accepted
+
+Before the first real provider test call, a small measurement/security fix pass
+addressed four gaps found in Sprint 3A's own Live Suggestion Push / Render-ACK
+work — none of them new features, all of them precision/safety corrections on
+what Sprint 3A already built.
+
+**1. Cross-clock RSL was named too confidently.** Sprint 3A's `real_rsl_ms`
+compared a server wall-clock timestamp against a browser `Date.now()` timestamp
+— two different machines with no shared clock — and called the result "the
+actual product metric" without qualifying it as an estimate. Renamed to
+`wallclock_rsl_estimate_ms` (same computation: `t_ui_rendered -
+t_turn_end_detected`), so the name itself now states the caveat. Added, computed
+entirely server-side from two `time.monotonic()` readings on the SAME process
+(never crosses a clock boundary): `server_render_ack_latency_ms` — a robust
+UPPER BOUND that deliberately includes the Render-ACK HTTP round trip. Together
+these give two honestly-different numbers instead of one falsely-precise one:
+an estimate with unknown clock-skew error, and a bound that is monotonic-exact
+but intentionally pessimistic. `t_turn_end_detected_monotonic` is now the one
+deliberate exception to this codebase's "never persist a monotonic value" rule
+(see `app/models.py`'s `TurnLatencyTrace` docstring) — needed to compute the
+upper bound when the Render-ACK arrives as a separate, later request; a negative
+computed delta (the signature of a process restart in between) is discarded
+rather than persisted as a nonsensical negative latency.
+
+Also prepared, not yet used: `app/services/clock_sync.py`'s
+`estimate_clock_sync()`, a pure NTP-style four-timestamp offset/RTT/uncertainty
+calculation. `/ws/live/{call_id}` now answers a `{"type":"ping",
+"t1_client_send_ms":...}` message with `{"type":"pong", "t2_server_recv_ms":...,
+"t3_server_send_ms":...}`; `app/static/live.html` fires a handful of these right
+after connecting and attaches the raw four-timestamp samples to its next
+Render-ACK. The SERVER computes the offset/RTT/uncertainty from these raw
+values (`SuggestionRenderAckRequest.clock_sync_samples`) — deliberately not
+trusting a client-computed aggregate, so there is one shared, unit-tested
+implementation rather than parallel client/server arithmetic that could drift
+apart. Persisted as `clock_offset_estimate_ms`/`clock_rtt_estimate_ms`/
+`clock_uncertainty_ms`, purely for later analysis — nothing in this codebase yet
+uses them to correct `wallclock_rsl_estimate_ms`, per explicit instruction that
+a genuinely clock-corrected RSL is future work once this data exists.
+
+**2. Push-timestamp terminology conflated two moments.** Sprint 3A's
+`t_suggestion_pushed_at` was set the instant `LiveSuggestionHub.
+publish_suggestion()` was CALLED, which is "handed to the hub", not necessarily
+"actually sent over the wire". Renamed to `t_push_enqueued_at` and added
+`t_ws_send_completed_at` (set once every currently-connected subscriber's
+`send_json()` call has completed) plus a new `ws_send_latency_ms` duration
+column — separating hub/event-loop-scheduling latency from network/browser
+latency, exactly the "Hub-, Netzwerk- und Browser-Latenz getrennt
+diagnostizieren" requirement. `t_render_ack_received_at` (server wall-clock,
+set when the Render-ACK HTTP request is processed) is now also distinct from
+`t_ui_rendered_at` (the BROWSER's own reported render moment) — five genuinely
+different points in the pipeline where Sprint 3A had three.
+
+**3. WebSocket Origin allowlist.** `/ws/live/{call_id}`'s first-message JWT
+auth (ADR-048) proves WHO is connecting; it says nothing about WHERE the
+connecting page is served from. `app/services/ws_origin.py` adds an `Origin`
+header check against a configurable allowlist (`REPLICA_ALLOWED_WS_ORIGINS`),
+checked immediately after `accept()`, before even the auth-message wait. Fails
+closed outside local dev: an empty/unset allowlist in `production`/`staging`
+(or any env value other than `local`) rejects EVERY origin, never "allow
+everything" — a real deployment must explicitly configure its actual origin(s).
+Local dev keeps working unchanged (no Origin header exists in most local/test
+setups, and there is no real reverse-proxy/origin story to validate against
+there anyway — the same reasoning `app/streaming/media_stream_security.
+is_secure_transport()` already uses for wss enforcement). The existing
+first-message JWT auth is unchanged and remains the primary defense; this is a
+second, independent layer on top, not a replacement.
+
+**4. LiveSuggestionHub's single-instance scope, made an explicit deployment
+requirement, not just a code comment.** The hub was already documented in its
+own module docstring as in-process/single-instance; `docs/DEPLOYMENT.md` (new)
+states this as an operational REQUIREMENT for the pilot deployment topology
+(single instance, or call_id-sticky routing if multiple processes are ever
+used) rather than leaving it as something only a developer reading
+`live_push.py` would know. No Redis/NATS/other backplane was built — explicitly
+out of scope, per instruction, until it is actually needed.
+
+None of the four points above change SalesBrain, ConversationState, or the
+turn-detection/ASR pipeline — this is entirely measurement-precision and
+transport-security hardening on top of what Sprint 3A already built, ahead of
+the first real Twilio IE1 + Deepgram EU provider test call.

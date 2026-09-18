@@ -73,6 +73,9 @@ provider integration — included here because it is the other real-time transpo
 in the system, immediately after the Twilio one. In-process/single-instance only
 today (see ADR-048's known-limitation note); a multi-instance deployment would
 need a shared pub/sub backplane in front of the same publish/register interface.
+**See `docs/DEPLOYMENT.md`** for the exact deployment-topology requirement this
+implies for the pilot (single instance, or call_id-sticky routing) — read it
+before deploying behind a load balancer or with multiple worker processes.
 
 ## OpenAI Realtime / other speech foundation provider
 

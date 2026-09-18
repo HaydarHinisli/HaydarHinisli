@@ -88,6 +88,14 @@ pre{background:#0f141d;border:1px solid var(--border);border-radius:10px;padding
   var reconnectTimer = null;
   var lastRenderedSuggestionId = null;
   var manualClose = false;
+  // Fix-Sprint (ADR-051): raw ping/pong round trips, attached to the next
+  // Render-ACK so the SERVER can compute a clock-offset/RTT/uncertainty
+  // estimate (app/services/clock_sync.py) — not computed client-side, so there
+  // is one tested implementation instead of parallel client/server logic.
+  var clockSyncSamples = [];
+  var pingSeq = 0;
+  var PING_COUNT = 5;
+  var PING_INTERVAL_MS = 150;
 
   function setStatus(state, text) {
     els.statusDot.className = 'dot' + (state ? ' ' + state : '');
@@ -109,6 +117,7 @@ pre{background:#0f141d;border:1px solid var(--border);border-radius:10px;padding
       reconnectDelayMs = 500;
       ws.send(JSON.stringify({ type: 'auth', token: token }));
       setStatus('on', 'verbunden');
+      sendClockSyncPings();
     });
 
     ws.addEventListener('message', function (evt) {
@@ -118,6 +127,14 @@ pre{background:#0f141d;border:1px solid var(--border);border-radius:10px;padding
       try { msg = JSON.parse(evt.data); } catch (e) { return; }
       if (msg.type === 'suggestion' || msg.type === 'sync') {
         handleSuggestion(msg, receivedAtPerf, receivedAtEpoch);
+      } else if (msg.type === 'pong') {
+        clockSyncSamples.push({
+          t1_client_send_ms: msg.t1_client_send_ms,
+          t2_server_recv_ms: msg.t2_server_recv_ms,
+          t3_server_send_ms: msg.t3_server_send_ms,
+          t4_client_recv_ms: Date.now(),
+        });
+        if (clockSyncSamples.length > 10) clockSyncSamples.shift();
       }
     });
 
@@ -129,6 +146,21 @@ pre{background:#0f141d;border:1px solid var(--border);border-radius:10px;padding
     ws.addEventListener('error', function () {
       setStatus('err', 'Verbindungsfehler');
     });
+  }
+
+  function sendClockSyncPings() {
+    // A handful of ping/pong samples right after connecting (ADR-051) — spaced
+    // out rather than fired all at once, so they see slightly different network
+    // conditions instead of one burst that could all share the same anomaly.
+    for (var i = 0; i < PING_COUNT; i++) {
+      (function (delay) {
+        setTimeout(function () {
+          if (!ws || ws.readyState !== WebSocket.OPEN) return;
+          pingSeq += 1;
+          ws.send(JSON.stringify({ type: 'ping', seq: pingSeq, t1_client_send_ms: Date.now() }));
+        }, delay);
+      })(i * PING_INTERVAL_MS);
+    }
   }
 
   function scheduleReconnect() {
@@ -198,7 +230,7 @@ pre{background:#0f141d;border:1px solid var(--border);border-radius:10px;padding
       box.innerHTML = '<div class="k">' + escapeHtml(r[0]) + '</div><div class="v">' + escapeHtml(String(r[1] == null ? '—' : r[1])) + '</div>';
       els.debugPanel.appendChild(box);
     });
-    els.debugNotice.textContent = 'Diese Latenzwerte sind interne Engine-Zeiten (nie als reale RSL zu verstehen). Reale RSL erscheint erst nach einem echten Render-ACK und ist niemals approximiert.';
+    els.debugNotice.textContent = 'Diese Latenzwerte sind interne Engine-Zeiten (nie als RSL zu verstehen). Eine Wallclock-RSL-Schätzung (wallclock_rsl_estimate_ms) sowie eine robuste serverseitige Obergrenze (server_render_ack_latency_ms) erscheinen erst nach einem echten Render-ACK und sind niemals approximiert.';
   }
 
   function fmt(v) {
@@ -222,8 +254,12 @@ pre{background:#0f141d;border:1px solid var(--border);border-radius:10px;padding
         client_rendered_epoch_ms: renderedEpoch,
         client_received_perf_ms: receivedPerf,
         client_rendered_perf_ms: renderedPerf,
+        // ADR-051: whatever clock-sync samples have been collected so far —
+        // resent on every ACK (harmless: the server just overwrites its
+        // stored offset/RTT/uncertainty estimate with the latest computation).
+        clock_sync_samples: clockSyncSamples,
       }),
-    }).catch(function () { /* best-effort; a missed ACK just leaves real_rsl_ms null for this turn */ });
+    }).catch(function () { /* best-effort; a missed ACK just leaves the RSL figures null for this turn */ });
   }
 
   els.debugToggle.addEventListener('change', function () {
