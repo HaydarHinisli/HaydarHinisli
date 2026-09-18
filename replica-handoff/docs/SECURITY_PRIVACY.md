@@ -89,9 +89,11 @@ protocol. `app/config.py`'s `Settings` (loaded from `.env`) remains the source o
 truth for `twilio_auth_token` etc. until that backend exists — see ADR-028 for why.
 
 Webhook signatures (this gate): `POST /webhooks/twilio/call-status` is verified via
-Twilio's HMAC-SHA1 request signature (`app/webhooks/security.py`), fail-closed on any
-missing/invalid/unresolvable signature — see ADR-029. Delivery idempotency
-(`app/webhooks/idempotency.py`) prevents a retried delivery from being reprocessed.
+Twilio's own official `RequestValidator` (`app/webhooks/security.py`), fail-closed on
+any missing/invalid/unresolvable signature — see ADR-029/ADR-036. Delivery
+idempotency (`app/webhooks/idempotency.py`) prevents a retried delivery from being
+reprocessed, and out-of-order/stale status events are detected and not applied
+without being silently dropped (`app/webhooks/call_status.py` — see ADR-035).
 
 ---
 

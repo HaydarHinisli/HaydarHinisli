@@ -287,16 +287,21 @@ class ConversationStateEvent(Base):
 
 
 class ProcessedTurnEvent(Base):
-    """Provider-Ready Gate: exactly-once processing guard for real turns. Uniqueness
-    is scoped to (call_id, action, turn_id): the same real utterance is legitimately
-    claimed once for 'transcribe' (via POST /calls/{id}/turns) and once for
-    'live_assist' (via POST /copilot/suggest) under today's two-endpoint MVP split —
-    see docs/DECISIONS.md ADR-031/ADR-032. `turn_id` is REPLICA's own idempotency key;
-    `utterance_id`/`stream_id`/`provider_event_id` are carried through for
-    correlation/debugging but are not themselves the uniqueness boundary, since a
-    provider may legitimately reuse or omit them across interim/final ASR revisions.
-    `result_ref` points at the row produced by the first (successful) claim, so a
-    duplicate can return the original result instead of reprocessing.
+    """Provider-Ready Gate: idempotent, effectively-once processing guard for real
+    turns — precisely: not "exactly-once delivery" (a provider may call REPLICA more
+    than once for the same real turn), but the persisted effect happens exactly once
+    per successful attempt, and a failed attempt leaves zero trace, because the claim
+    lives in the same DB transaction as every other side effect the turn produces
+    (see docs/DECISIONS.md ADR-034). Uniqueness is scoped to (call_id, action,
+    turn_id): the same real utterance is legitimately claimed once for 'transcribe'
+    (via POST /calls/{id}/turns) and once for 'live_assist' (via POST
+    /copilot/suggest) under today's two-endpoint MVP split — see ADR-031/ADR-032.
+    `turn_id` is REPLICA's own idempotency key; `utterance_id`/`stream_id`/
+    `provider_event_id` are carried through for correlation/debugging but are not
+    themselves the uniqueness boundary, since a provider may legitimately reuse or
+    omit them across interim/final ASR revisions. `result_ref` points at the result
+    produced by the first (successful) claim, so a duplicate can return it instead of
+    reprocessing.
     """
     __tablename__ = 'processed_turn_events'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -329,3 +334,27 @@ class WebhookDelivery(Base):
     payload_summary: Mapped[dict] = mapped_column(JSON, default=dict)
 
     __table_args__ = (UniqueConstraint('provider', 'event_type', 'external_id', name='uq_webhook_delivery'),)
+
+
+class CallProviderStatus(Base):
+    """Provider-Ready Gate hardening: materialized "latest applied" provider call
+    status, kept separate from the WebhookDelivery ledger above (which only records
+    "have I seen this exact event before") and from Call's own seller-driven business
+    outcome fields. Twilio delivers status callbacks at-least-once and in no
+    guaranteed order — this row is what `app/webhooks/call_status.is_newer_event()`
+    compares an incoming event against, so a late/out-of-order event (e.g. a delayed
+    'in-progress' arriving after 'completed' was already applied) can be recognized
+    and NOT applied, without discarding the fact that it arrived (see ADR-035).
+    Keyed by (provider, external_call_id) rather than call_id so it works even before
+    a matching `Call` row can be resolved.
+    """
+    __tablename__ = 'call_provider_status'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    provider: Mapped[str] = mapped_column(String(60), index=True)
+    external_call_id: Mapped[str] = mapped_column(String(220), index=True)
+    call_id: Mapped[int | None] = mapped_column(ForeignKey('calls.id'), nullable=True, index=True)
+    last_status: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    last_sequence_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (UniqueConstraint('provider', 'external_call_id', name='uq_call_provider_status'),)

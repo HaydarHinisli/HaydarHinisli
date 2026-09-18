@@ -510,7 +510,7 @@ seller-turn branch calls it instead of the old bare `apply_seller_turn()` — bo
 sites get a `transition` for history-writing "for free" from the same call that
 already computed everything else.
 
-## ADR-031 — Event/Turn Identity & Deduplication: exactly-once processing per real turn
+## ADR-031 — Event/Turn Identity & Deduplication: idempotent, effectively-once processing per real turn
 Status: accepted
 
 Once Sprint 2 introduces streaming ASR, the same real spoken turn can legitimately
@@ -521,8 +521,18 @@ second state transition or a second Copilot suggestion for the same turn — tha
 double-count `turn_index`, corrupt phase progression, and show the seller two
 suggestions for one thing the prospect said once.
 
+Terminology, made precise here after an initial pass used "exactly once" loosely
+(corrected in this hardening round, see ADR-034): REPLICA cannot guarantee
+"exactly-once delivery" — nothing sitting behind HTTP/webhooks can, a provider is
+always free to call more than once for the same real turn. What it does guarantee is
+**idempotent, effectively-once processing**: the persisted effect of a real turn is
+applied exactly once per successful attempt, and a failed attempt leaves zero trace
+(ADR-034's transaction-boundary guarantee is what makes that true, not this table by
+itself). This ledger enforces the *idempotency* half of that; ADR-034 explains why a
+crash can never leave a turn stuck in a half-processed state.
+
 `ProcessedTurnEvent` (new table `processed_turn_events`) is the single choke point
-enforcing "exactly once", scoped to `(call_id, action, turn_id)` via a unique
+enforcing this, scoped to `(call_id, action, turn_id)` via a unique
 constraint — the same insert-then-catch-`IntegrityError` claim pattern as webhook
 idempotency (ADR-029), reused because it is the identical problem ("have I already
 claimed this token") under concurrent access. `app/services/turn_identity.py`
@@ -591,3 +601,170 @@ produced that suggestion, so a later real end-to-end RSL measurement (`t_turn_en
 caveats) has a join key across the pipeline once Sprint 2 exists. This is deliberately
 a thin, additive mechanism: it does not change what gets logged beyond adding one
 field, and it does not yet drive any behavior — it is purely for correlation.
+
+## ADR-034 — Turn processing transaction boundary: atomic, idempotent, effectively-once — not "exactly-once"
+Status: accepted
+
+Provider-Ready Gate finalization hardening. The concern this ADR answers: could a
+turn be claimed (via `ProcessedTurnEvent`/`claim_turn()`, ADR-031) and then lost —
+i.e. the claim persists, but the process crashes before the ConversationState update,
+`ConversationStateEvent`, or `Suggestion`/`Turn` row is written, so a retry is
+discarded as "already handled" even though nothing useful actually happened?
+
+**It cannot, by construction.** Every turn-processing endpoint (`POST
+/api/calls/{id}/turns`, `POST /api/copilot/suggest`) uses exactly one SQLAlchemy
+`Session` for the whole request (`app/db.py`'s `get_db()` dependency) and calls
+`db.commit()` exactly once, at the very end of its success path — after the claim,
+the ConversationState update, the `ConversationStateEvent` insert, and the
+`Turn`/`Suggestion` insert have all been queued on that same session. Concretely, in
+`copilot()`: `claim_turn()` -> `suggest_with_state()` (pure, no DB) ->
+`_apply_state_to_row()` -> `_record_state_event()` -> `Suggestion(...)` -> `db.add()`
+-> `record_result()` -> **one** `db.commit()`. `add_turn()` follows the identical
+shape. Nothing in between commits independently — `log_audit()` explicitly documents
+that it does not commit, matching this pattern.
+
+This has two consequences under failure:
+1. **A crash or unhandled exception before that commit rolls back everything
+   together**, including the claim. `get_db()`'s `finally: db.close()` runs during
+   stack unwinding regardless of how the exception propagates, and SQLAlchemy's
+   `Session.close()` rolls back any open transaction; a `Session.commit()` that
+   itself fails partway also triggers an automatic rollback. Either way, the DB ends
+   up as if the request had never started. A retry with the same `turn_id` sees no
+   existing `ProcessedTurnEvent` row and reprocesses the turn from scratch — proven by
+   `tests/test_turn_processing_atomicity.py`'s crash-injection tests (crash
+   immediately after claim, and crash after the ConversationState/history mutation
+   but before the final commit — both leave zero rows in `Turn`/`Suggestion`/
+   `ConversationStateEvent`/`ProcessedTurnEvent`, and a subsequent retry succeeds
+   fully, including the state advancing exactly once).
+2. **Only a fully committed attempt is ever treated as "already done."** A retry
+   after a successful commit correctly finds the claim and returns the cached
+   `result_ref` without reprocessing (existing dedup tests, reconfirmed here).
+
+**Terminology, precisely** (the original Provider-Ready Gate report over-claimed
+"exactly once" in several places, corrected here and in ADR-031's revised heading):
+REPLICA does not and cannot guarantee **exactly-once delivery** — Twilio, a websocket
+reconnect, or any HTTP client can always call an endpoint more than once for the same
+real turn, and no server-side design changes that. What the transaction boundary
+above guarantees is **idempotent, effectively-once processing**: the persisted
+*effect* of a real turn is applied exactly once per successful attempt, and a failed
+attempt is indistinguishable from "never attempted" — never half-applied, never
+silently double-applied. This is the correct name for the guarantee (option A from
+the hardening spec: atomic processing within one transaction), not the retry/state
+model of option B (`pending`/`completed`/`failed` rows) — a separate `pending` state
+was judged unnecessary because the DB transaction itself already provides the
+all-or-nothing guarantee that a `pending` row would otherwise have to simulate.
+
+**A second, independent bug found and fixed while verifying this** (via a
+parallel-claim test that races two concurrent first-turns for the same call): both
+`claim_turn()` (ADR-031) and `claim_webhook_delivery()` (ADR-029) originally called a
+full `db.rollback()` when losing a concurrency race on their own unique constraint.
+A full `Session.rollback()` discards *everything* pending in that session's
+transaction, not just the failed insert — so a losing request that had already
+queued unrelated work earlier in the same request (e.g. an `AuditEvent` from an
+earlier `can_process()` call) would silently lose that work too. Both are now fixed
+to catch the race inside a SAVEPOINT (`db.begin_nested()`), which undoes only the
+failed insert and leaves everything else in the session intact. The same latent bug
+existed in `_load_or_create_conversation_state_row()` (a plain get-or-create with no
+race handling at all — a genuine unhandled `IntegrityError` under concurrency, not
+just a wasted rollback) and is fixed the same way. All three race paths are covered
+by real multi-threaded tests (not mocked), since a single in-process
+check-then-insert race needs actual concurrent DB sessions to reproduce.
+
+## ADR-035 — Twilio call-status events: duplicate identity vs. out-of-order/stale detection are separate concerns
+Status: accepted
+
+Twilio's status-callback delivery is at-least-once and **not** guaranteed in order.
+Two distinct failure modes were being conflated in the original Provider-Ready Gate
+webhook, and are now handled as two separate, composable layers:
+
+**1. Event identity (is this the same event again?).** `CallSid` alone is not a
+unique event identifier — a single call legitimately produces several *different*
+status events over its lifetime (`queued` -> `ringing` -> `in-progress` ->
+`completed`), so `external_id = CallSid` would wrongly treat all of them as retries of
+the first. The fix: `external_id` incorporates Twilio's own `SequenceNumber` when
+present (`f'{CallSid}:{SequenceNumber}'`) — the authoritative per-event id Twilio
+itself assigns — falling back to `f'{CallSid}:{CallStatus}'` when a particular
+status-callback configuration doesn't include one. Known limitation of that fallback,
+documented rather than silently assumed away: without `SequenceNumber`, a call that
+legitimately repeats the identical `CallStatus` twice would collide and the second
+occurrence would be (incorrectly) treated as a duplicate delivery of the first. This
+identity still feeds the existing `WebhookDelivery` ledger/`claim_webhook_delivery()`
+(ADR-029) unchanged — a claimed duplicate is still recognized and skipped there.
+
+**2. Ordering (is this event, even though new, actually about the past?).** A
+delivery can fail the identity check above (i.e. it's genuinely new, never seen
+before) and *still* describe an older point in time than what's already been applied
+— e.g. a delayed `in-progress` arriving after `completed` was already processed,
+because of retry/network jitter rather than a duplicate send. `app/webhooks/
+call_status.py`'s `is_newer_event()` decides this, checked against a new
+`CallProviderStatus` row (one per `(provider, external_call_id)`, kept deliberately
+separate from `WebhookDelivery` and from `Call`'s own seller-driven business-outcome
+fields — a materialized "latest applied technical status", nothing else):
+1. No prior applied event for this call -> always apply (nothing to regress).
+2. Both the incoming and the last-applied event carry a `SequenceNumber` -> compare
+   numerically; Twilio's own order is authoritative, overriding the status values
+   themselves.
+3. Otherwise, once ANY terminal status (`completed`/`busy`/`failed`/`no-answer`/
+   `canceled`) has been applied, it is a one-way door — nothing that follows is ever
+   considered newer, sequence-number-less or not.
+4. Otherwise, a coarse status-progression rank (`queued/initiated` < `ringing` <
+   `in-progress/answered`) is the last-resort fallback, existing only to stop an
+   out-of-order non-terminal event from misordering non-terminal progress when no
+   better signal is available.
+
+**Duplicate vs. stale, defined precisely:** a **duplicate** is a delivery whose
+identity (per #1) has already been claimed — it is never reprocessed at all, and the
+response is `{"duplicate": true}`. A **stale** event is a delivery that is NOT a
+duplicate (new identity) but loses the ordering check (per #2) — it IS durably
+recorded (the `WebhookDelivery` claim already persisted it before the ordering check
+even runs, so it is never silently dropped), but it is NOT applied to
+`CallProviderStatus`, and it is separately audit-logged with a `.stale` action suffix
+and `"applied": false` in its payload — see `tests/test_call_status_ordering.py`'s
+`test_stale_event_is_still_durably_recorded_not_silently_dropped`. This answers the
+hardening spec's explicit question ("werden stale Events gespeichert, ignoriert oder
+separat protokolliert?") directly: **stored AND separately logged, never silently
+ignored.** The response body also reports `"applied": false` so a caller/operator
+inspecting delivery logs can see the distinction without a DB query.
+
+`get_or_create_provider_status()` uses the same SAVEPOINT-based race-safe
+get-or-create pattern as `claim_turn()`/`claim_webhook_delivery()` (ADR-034) for the
+(rare) case of two concurrent first-sightings of the same provider call.
+
+## ADR-036 — Twilio signature verification delegates the cryptographic check to the official RequestValidator
+Status: accepted
+
+The original Provider-Ready Gate implementation hand-rolled the HMAC-SHA1 computation
+directly in `app/webhooks/security.py`. That is functionally correct but puts REPLICA
+on the hook for independently tracking every edge case Twilio's own algorithm
+handles — multi-value POST parameters, the port-inclusive vs. port-stripped URL
+variants Twilio's own validator checks (some Twilio infrastructure signs with an
+explicit port, some without), and any future adjustment Twilio makes to the
+algorithm itself. `app/webhooks/security.py` now delegates the actual cryptographic
+comparison to `twilio.request_validator.RequestValidator` (the official `twilio`
+PyPI package, added to `requirements.txt`) — REPLICA's own code no longer computes
+or compares an HMAC digest at all; `compute_twilio_signature()` and
+`verify_twilio_signature()` are now thin wrappers whose entire body is a call into
+the library, kept only so the rest of the codebase (and its tests) have a stable,
+REPLICA-owned import surface rather than depending on `twilio.request_validator`
+everywhere.
+
+What stays REPLICA's own responsibility, entirely in `app/main.py`'s
+`twilio_call_status()` (unchanged by this switch): resolving the right secret
+(`get_secrets_provider()`, ADR-028), constructing the correct public-facing request
+URL, tenant/provider context, logging/audit, and fail-closed error handling
+(`verify_twilio_signature()` returning `False` for a missing signature or
+unresolvable token, never raising or falling back to "process anyway").
+
+**A real correctness gap was found and fixed while doing this**, not merely a
+refactor: the URL passed to the validator previously used only
+`{public_base_url}{request.url.path}`, silently dropping any query string. Twilio's
+signature covers "the full URL... from the protocol through the end of the query
+string" — a status-callback URL configured with query parameters (common, e.g. to
+carry an internal call reference) would have had its signature verification
+permanently and silently broken. Fixed to
+`{public_base_url}{request.url.path}?{request.url.query}` (query string included only
+when present). There is still, deliberately, no fallback path: an incorrectly
+configured `REPLICA_PUBLIC_BASE_URL` fails closed (403) rather than falling back to
+reconstructing the URL from `request.url`, which would defeat the entire reverse-proxy
+protection ADR-029 established — see `tests/test_signature_hardening.py`'s
+`test_endpoint_rejects_when_configured_public_base_url_is_wrong`.

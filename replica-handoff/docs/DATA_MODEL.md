@@ -115,6 +115,19 @@ external_id)` via a unique constraint. See `docs/DECISIONS.md` ADR-029.
 - company_id (nullable — set only when the delivery could be correlated to a tenant)
 - received_at / payload_summary
 
+### CallProviderStatus (Provider-Ready Gate hardening)
+Materialized "latest applied" provider call status — one row per `(provider,
+external_call_id)`, kept separate from `WebhookDelivery` above (which only answers
+"have I seen this exact event before") and from `Call`'s own seller-driven business
+outcome fields. What `is_newer_event()` compares an incoming Twilio status event
+against, so a late/out-of-order event can be recognized and not applied without
+discarding the fact that it arrived. See `docs/DECISIONS.md` ADR-035.
+
+- provider / external_call_id
+- call_id (nullable — correlated once a matching `Call` is resolved)
+- last_status / last_sequence_number
+- updated_at
+
 ### Meeting
 - external provider ID
 - source

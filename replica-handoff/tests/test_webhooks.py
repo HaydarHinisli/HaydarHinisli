@@ -44,7 +44,7 @@ def test_claim_webhook_delivery_is_true_once_then_false(db_session):
 
     second = claim_webhook_delivery(db_session, provider='twilio', event_type='call-status', external_id='CA1:completed')
     assert second is False
-    assert db_session.query(WebhookDelivery).count() == 1
+    assert db_session.query(WebhookDelivery).filter_by(external_id='CA1:completed').count() == 1
 
 
 def test_claim_webhook_delivery_distinguishes_by_full_key(db_session):
@@ -64,7 +64,7 @@ def test_twilio_webhook_accepts_valid_signature(client, monkeypatch):
     sig = compute_twilio_signature(URL, params, TOKEN)
     r = client.post('/webhooks/twilio/call-status', data=params, headers={'X-Twilio-Signature': sig})
     assert r.status_code == 200, r.text
-    assert r.json() == {'ok': True}
+    assert r.json() == {'ok': True, 'applied': True}
 
 
 def test_twilio_webhook_rejects_invalid_signature(client, monkeypatch):

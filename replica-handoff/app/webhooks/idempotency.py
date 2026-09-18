@@ -16,15 +16,21 @@ def claim_webhook_delivery(
 ) -> bool:
     """Returns True if this is the first delivery of this event (caller should
     process it), False if it's a retry/duplicate (caller should skip processing and
-    still return a 2xx so the provider stops retrying)."""
+    still return a 2xx so the provider stops retrying).
+
+    Concurrency (ADR-034): the losing side of a race is handled inside a SAVEPOINT
+    (`db.begin_nested()`), not a full `db.rollback()`, so it only undoes this claim
+    attempt — not any other pending change already queued on `db` in this request
+    (matching app/services/turn_identity.claim_turn()'s identical fix).
+    """
     row = WebhookDelivery(
         provider=provider, event_type=event_type, external_id=external_id,
         company_id=company_id, payload_summary=payload_summary or {},
     )
-    db.add(row)
     try:
-        db.flush()
+        with db.begin_nested():
+            db.add(row)
+            db.flush()
         return True
     except IntegrityError:
-        db.rollback()
         return False

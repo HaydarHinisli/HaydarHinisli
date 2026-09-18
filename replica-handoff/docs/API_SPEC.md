@@ -206,13 +206,29 @@ overrides, feature-flag changes, employee-analytics access, network-learning opt
 
 ### `POST /webhooks/twilio/call-status`
 Twilio's call-status-callback. **No `Authorization` header** — authenticated solely by
-the `X-Twilio-Signature` header per Twilio's HMAC-SHA1 request-signing scheme
-(`docs/DECISIONS.md` ADR-029). Missing/invalid signature, or an unresolvable auth
-token, → `403`, fail-closed, never processed. Idempotent per `(CallSid, CallStatus)`
-via the `webhook_deliveries` table — a Twilio retry returns
-`{"ok": true, "duplicate": true}` instead of reprocessing. On first delivery, logs a
-`call.status.<status>` audit event against the `Call` matched by `external_call_id`
-(no match → the delivery is still claimed/idempotent, just not correlated to a call).
+the `X-Twilio-Signature` header, verified via Twilio's own official
+`RequestValidator` (`docs/DECISIONS.md` ADR-029/ADR-036). Missing/invalid signature,
+or an unresolvable auth token, → `403`, fail-closed, never processed. The signed URL
+is the configured `REPLICA_PUBLIC_BASE_URL` + the request path + query string
+(exactly as Twilio's own algorithm requires) — never a fallback to the raw incoming
+request URL, so a reverse proxy or a misconfigured base URL cannot silently produce a
+false accept.
+
+Two independent hardening layers (`docs/DECISIONS.md` ADR-035):
+- **Duplicate detection**: identity is `(CallSid, SequenceNumber)` when Twilio sends
+  one, else `(CallSid, CallStatus)`. A delivery whose identity was already claimed is
+  a duplicate — not reprocessed, response is `{"ok": true, "duplicate": true}`.
+- **Ordering**: a delivery that is NOT a duplicate can still describe an older point
+  in time than what has already been applied (out-of-order/delayed delivery). Such an
+  event is durably recorded (its `WebhookDelivery` claim already persisted it) but
+  NOT applied — response is `{"ok": true, "applied": false}` — and a
+  `call.status.<status>.stale` audit event is logged instead of the normal
+  `call.status.<status>` one. A normally-applied, non-duplicate delivery returns
+  `{"ok": true, "applied": true}`.
+
+No match on `external_call_id` → the delivery is still claimed/ordered, just not
+correlated to a `Call` (no audit event is logged in that case, since there is no
+tenant to attribute it to).
 
 ## Integrations — `tenant_admin`
 

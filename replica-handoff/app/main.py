@@ -8,6 +8,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, 
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .config import get_settings
@@ -42,6 +43,7 @@ from .compliance.policy_engine import Decision, can_process
 from .auth.dependencies import AuthContext, get_current_user, require_role, resolve_tenant_id
 from .auth.security import create_access_token, hash_password, verify_password
 from .logging_config import RequestContextMiddleware, configure_logging
+from .webhooks.call_status import get_or_create_provider_status, is_newer_event, parse_sequence_number
 from .webhooks.idempotency import claim_webhook_delivery
 from .webhooks.security import verify_twilio_signature
 
@@ -89,12 +91,23 @@ def _get_call_or_404(db: Session, call_id: int, tenant_id: int) -> Call:
 
 
 def _load_or_create_conversation_state_row(db: Session, call: Call) -> ConversationStateRow:
+    """Race-safe get-or-create (ADR-034): two concurrent first turns for the same
+    call can both see no existing row and both attempt to create one — the loser
+    hits `ConversationState.call_id`'s unique index. That is handled inside a
+    SAVEPOINT (`db.begin_nested()`), the same pattern as claim_turn()/
+    claim_webhook_delivery(), so only this insert attempt is undone rather than the
+    request's whole pending transaction."""
     row = db.scalar(select(ConversationStateRow).where(ConversationStateRow.call_id == call.id))
-    if row is None:
-        row = ConversationStateRow(call_id=call.id)
-        db.add(row)
-        db.flush()
-    return row
+    if row is not None:
+        return row
+    row = ConversationStateRow(call_id=call.id)
+    try:
+        with db.begin_nested():
+            db.add(row)
+            db.flush()
+        return row
+    except IntegrityError:
+        return db.scalar(select(ConversationStateRow).where(ConversationStateRow.call_id == call.id))
 
 
 def _state_from_row(row: ConversationStateRow) -> ConversationState:
@@ -575,12 +588,22 @@ def openai_realtime_blueprint(current_user: AuthContext = Depends(require_role('
 @app.post('/webhooks/twilio/call-status')
 async def twilio_call_status(request: Request, db: Session = Depends(get_db)):
     """Twilio's call-status-callback webhook (see docs/PROVIDER_REFERENCES.md).
-    Authenticated ONLY by the X-Twilio-Signature header (ADR-029) — Twilio cannot
-    present one of our bearer tokens, so a missing/invalid/unresolvable signature
-    fails closed with 403, never "process anyway". Idempotent per (CallSid,
-    CallStatus): Twilio retries a delivery on anything other than a fast 2xx, so a
-    retried delivery of the same status must be recognized and skipped, not
-    reprocessed (ADR-029).
+    Authenticated ONLY by the X-Twilio-Signature header, verified via Twilio's own
+    official RequestValidator (ADR-029/ADR-036) — Twilio cannot present one of our
+    bearer tokens, so a missing/invalid/unresolvable signature fails closed with 403,
+    never "process anyway".
+
+    Two independent hardening layers on top of that (ADR-035):
+    - Delivery idempotency: a byte-identical retried delivery (same CallSid + the
+      same SequenceNumber, or the same CallStatus when Twilio doesn't send one) is
+      recognized via `claim_webhook_delivery()` and never reprocessed.
+    - Ordering: a delivery that IS new (never claimed before) can still describe a
+      point in time OLDER than what's already been applied for this call — e.g. a
+      delayed 'in-progress' arriving after 'completed'. `is_newer_event()` decides
+      whether to apply it; a stale one is still durably recorded (the
+      WebhookDelivery claim above already persisted it) and separately audit-logged
+      as `.stale`, never silently dropped and never allowed to regress the call's
+      materialized status.
 
     Tech debt (documented, see final report): this endpoint must be `async def` to
     read the form body via Starlette, but the SQLAlchemy calls inside it are
@@ -597,10 +620,13 @@ async def twilio_call_status(request: Request, db: Session = Depends(get_db)):
         logger.error('secrets backend error while resolving Twilio auth token', extra={'fields': {'error': str(exc)}})
         raise HTTPException(403, 'Webhook verification unavailable') from exc
 
-    # Twilio signs the exact URL it called. Behind a TLS-terminating reverse proxy,
-    # request.url can come back as http:// even though Twilio called https://, so the
-    # publicly configured base URL is authoritative here, not request.url (ADR-029).
-    url = f'{settings.replica_public_base_url.rstrip("/")}{request.url.path}'
+    # Twilio signs the exact URL it called, protocol through the end of the query
+    # string. Behind a TLS-terminating reverse proxy, request.url can come back as
+    # http:// even though Twilio called https://, so the publicly configured base URL
+    # is authoritative here, not request.url's scheme/host — but the PATH and QUERY
+    # STRING still have to match exactly what Twilio actually requested (ADR-029/036).
+    query = f'?{request.url.query}' if request.url.query else ''
+    url = f'{settings.replica_public_base_url.rstrip("/")}{request.url.path}{query}'
     if not verify_twilio_signature(url, params, signature, auth_token):
         logger.warning('twilio webhook signature verification failed', extra={'fields': {'path': request.url.path}})
         raise HTTPException(403, 'Invalid webhook signature')
@@ -610,19 +636,40 @@ async def twilio_call_status(request: Request, db: Session = Depends(get_db)):
     if not call_sid:
         raise HTTPException(400, 'Missing CallSid')
 
+    # ADR-035: CallSid alone is not a unique event identifier — one call legitimately
+    # produces several distinct status events over its lifetime. SequenceNumber (when
+    # Twilio sends it) is the authoritative per-event id; without it, fall back to
+    # (CallSid, CallStatus) — a real limitation documented in ADR-035 rather than
+    # silently assumed away.
+    sequence_number = parse_sequence_number(params.get('SequenceNumber'))
+    external_id = f'{call_sid}:{sequence_number}' if sequence_number is not None else f'{call_sid}:{call_status}'
+
     claimed = claim_webhook_delivery(
-        db, provider='twilio', event_type='call-status', external_id=f'{call_sid}:{call_status}',
-        payload_summary={'call_status': call_status},
+        db, provider='twilio', event_type='call-status', external_id=external_id,
+        payload_summary={'call_status': call_status, 'sequence_number': sequence_number},
     )
     if not claimed:
         db.commit()
         return {'ok': True, 'duplicate': True}
 
     call = db.scalar(select(Call).where(Call.external_call_id == call_sid))
+    provider_status = get_or_create_provider_status(db, provider='twilio', external_call_id=call_sid, call_id=call.id if call else None)
+    applied = is_newer_event(
+        incoming_status=call_status, incoming_sequence=sequence_number,
+        last_status=provider_status.last_status, last_sequence=provider_status.last_sequence_number,
+    )
+    if applied:
+        provider_status.last_status = call_status
+        provider_status.last_sequence_number = sequence_number
     if call is not None:
-        log_audit(db, call.company_id, actor='twilio-webhook', action=f'call.status.{call_status}', entity_type='call', entity_id=str(call.id))
+        log_audit(
+            db, call.company_id, actor='twilio-webhook',
+            action=f'call.status.{call_status}' if applied else f'call.status.{call_status}.stale',
+            entity_type='call', entity_id=str(call.id),
+            payload={'sequence_number': sequence_number, 'applied': applied},
+        )
     db.commit()
-    return {'ok': True}
+    return {'ok': True, 'applied': applied}
 
 
 # ---------------------------------------------------------------------------
