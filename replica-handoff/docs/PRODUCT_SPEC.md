@@ -28,7 +28,7 @@ Das System passt Empfehlungen an beobachtete Sprache des Prospects an: Wortwahl,
 1. Call startet.
 2. Consent-Status wird dokumentiert.
 3. Audio/ASR streamt Prospect-Aussage als Interim Transcript.
-4. Fast Path klassifiziert Sales-Event frühzeitig.
+4. Fast Path klassifiziert Sales-Event und Gesprächsphase frühzeitig (siehe unten).
 5. LanguageSync aktualisiert Sprachprofil.
 6. Prospect-Turn endet.
 7. REPLICA zeigt **eine** primäre Empfehlung:
@@ -38,6 +38,23 @@ Das System passt Empfehlungen an beobachtete Sprache des Prospects an: Wortwahl,
    - `Nicht tun`
 8. Verkäufer nutzt oder ignoriert Empfehlung.
 9. Verkäufer bewertet Empfehlung optional mit `gut / brauchbar / falsch`.
+
+REPLICA funktioniert bereits ab der ersten Gesprächssekunde, nicht erst ab Discovery
+oder Einwandbehandlung. SalesBrain unterscheidet dafür Gesprächsphasen:
+`greeting, rapport_smalltalk, transition, opening, discovery, pitch, objection,
+negotiation, closing, wrap_up` (Implementierung: `app/services/sales_brain.py`,
+Details/Abgrenzung: `docs/DECISIONS.md` ADR-022–025).
+
+Für Smalltalk/Begrüßung beantwortet REPLICA konkret:
+- Ist Smalltalk gerade angemessen? (nur wenn der Prospect selbst einen persönlichen
+  Anker einbringt, z. B. „Ich komme gerade aus einem Meeting.“)
+- Reicht eine kurze soziale Reaktion, oder passt eine kurze Folgefrage?
+- Möchte der Prospect erkennbar direkt zum Anliegen kommen (z. B. „Ja, worum geht
+  es?“) — dann sofort Übergang zum Business, kein Smalltalk erzwingen.
+- Ist jetzt der richtige Zeitpunkt für den Übergang zum Business?
+
+Smalltalk wird nie künstlich verlängert: Nach dem ersten Austausch verschiebt sich die
+Empfehlung automatisch Richtung Übergang statt weiterer Folgefragen.
 
 ### Flow B — Post-Call Review
 Unmittelbar nach dem Call:

@@ -41,6 +41,7 @@ class SuggestRequest(BaseModel):
     utterance: str = Field(min_length=1, max_length=6000)
     recent_context: list[str] = Field(default_factory=list, max_length=12)
     reaction_snapshot: dict = Field(default_factory=dict)
+    turn_index: int | None = Field(default=None, ge=0)
 
 
 class SuggestionFeedbackRequest(BaseModel):

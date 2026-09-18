@@ -276,3 +276,74 @@ demo identity when `REPLICA_DEMO_MODE=true` — was rejected: it is a bypass by 
 name, and the task explicitly ruled out "Demo- oder Legacy-Bypässe im späteren
 Pilotbetrieb". The demo password is intentionally public; it only ever works against a
 tenant seeded by `seed_demo()` and is not a credential for any real tenant.
+
+---
+
+## SalesBrain conversation-phase / smalltalk feature (2026-09-18)
+
+## ADR-022 — Phase detection can only ever specialize the two generic fallback events
+Status: accepted
+
+`app/services/sales_brain.py` adds ten conversation phases
+(`greeting, rapport_smalltalk, transition, opening, discovery, pitch, objection,
+negotiation, closing, wrap_up`) and prospect-anchored smalltalk analysis
+(`analyze_smalltalk`). The priority order in `decide()` is deliberate and load-bearing
+for backward compatibility:
+
+1. If `classify_sales_event()` returns one of the six specific objection/exit events
+   (`time_pressure, email_exit, no_interest, existing_supplier, price, authority`),
+   phase is unconditionally `'objection'` and the response comes from the existing,
+   tested `PLAYBOOK[event]` — exactly as before this feature existed. New phase
+   detection is never even consulted for these events.
+2. Only the two generic fallback events (`discovery`, `question`) are checked against
+   `detect_special_phase()` for a more specific moment (greeting/smalltalk/transition/
+   negotiation/closing/wrap_up) before falling back to their own `PLAYBOOK` entry.
+
+Consequence: adding phase awareness can only make a *generic* response more specific;
+it can never change the response to an already-specific objection. Verified by
+`tests/test_sales_brain_phases.py`'s three regression tests
+(`existing_supplier`/`time_pressure`/`price` objections asserted unchanged) plus all
+pre-existing `tests/test_core.py` assertions, none of which needed modification.
+
+`event == 'question'` maps to `phase == 'pitch'` (a prospect question typically arises
+while the seller is presenting/explaining) rather than exposing `'question'` as a
+phase name, since the product brief's phase list doesn't include it.
+
+## ADR-023 — `'opening'` is not auto-detected from prospect text alone
+Status: accepted (tech debt, tracked)
+
+`'opening'` remains in `CONVERSATION_PHASES` for schema completeness (it's a real,
+named phase in the product brief) but `detect_special_phase()` never returns it. It is
+naturally the seller's own next move right after `'transition'` — "briefly explain why
+I'm calling, then move to discovery" — and a stateless, single-utterance heuristic
+(matching the rest of the Fast Path's design) has no reliable signal to distinguish "the
+seller is opening" from "the seller is doing discovery" purely from the prospect's
+current turn. Correctly modeling `'opening'` needs call-level phase state carried
+across turns (e.g. "we know the previous phase was `transition`, so the next seller
+turn is `opening`"), which requires the per-call turn sequence Sprint 2's real audio
+ingestion introduces. Tracked as a Sprint 2+ follow-up, not silently dropped.
+
+## ADR-024 — Smalltalk anchors are read, never invented
+Status: accepted
+
+`analyze_smalltalk()` only flags `smalltalk_appropriate=True` when the **prospect's own
+current utterance** contains a recognizable personal/non-business anchor
+(`SMALLTALK_MARKERS`: meeting, weekend, weather, "gerade unterwegs", etc.). It never
+looks at prior calls, CRM data, or assumed context — matching the product brief's
+"Persönliche Gesprächsanker sollen nur verwendet werden, wenn sie vom Prospect selbst im
+aktuellen Gespräch eingebracht wurden" verbatim. `suggest_follow_up_question` is also
+capped to the first exchange (`turn_index <= 1`); from the second prospect turn with a
+smalltalk anchor onward, `suggest_transition_now` becomes `True` instead, so smalltalk
+is never artificially prolonged (`tests/test_sales_brain_phases.py::test_smalltalk_follow_up_not_suggested_after_first_exchange`).
+
+## ADR-025 — Phase/smalltalk fields are response-only, not yet persisted
+Status: accepted (tech debt, tracked)
+
+`decide()`'s new `phase` and `smalltalk` fields flow through `suggest()` into the
+`POST /api/copilot/suggest` response, but `Suggestion` (the DB row) gains no new
+columns for them in this task — consistent with `event`, which was already
+response-only and never persisted before this feature existed. Persisting phase
+history per call (for post-call review, e.g. "spent too long in rapport_smalltalk
+before transitioning") is a reasonable Sprint 2+ addition once Cold Call Genome
+storage (`docs/DATA_MODEL.md` §2 Turn/Suggestion) is revisited for real call data,
+not invented speculatively here.

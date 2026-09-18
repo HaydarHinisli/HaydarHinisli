@@ -74,7 +74,8 @@ Input:
   "call_id": null,
   "utterance": "Wir haben bereits einen Anbieter.",
   "recent_context": [],
-  "reaction_snapshot": {}
+  "reaction_snapshot": {},
+  "turn_index": null
 }
 ```
 - `call_id` set → gated by `can_process(db, 'live_assist', ...)` for that call; `403`
@@ -82,9 +83,17 @@ Input:
 - `call_id` omitted → **sandbox/practice mode**: no real prospect, no policy gate, only
   auth/RBAC apply (`docs/DECISIONS.md` ADR-015). The resulting suggestion is still
   tenant-scoped, so feedback on it can never cross tenants.
+- `turn_index` (the prospect's turn number within the call, 0-based) is optional; when
+  omitted it is inferred as `len(recent_context)`. It feeds SalesBrain's conversation-
+  phase detection (see `docs/PRODUCT_SPEC.md` Flow A, `docs/DECISIONS.md` ADR-022) —
+  mainly to avoid suggesting a smalltalk follow-up question past the first exchange.
 
 Output includes `suggestion`, `strategy`, `do_not`, `reason`, `confidence`,
-`language_policy`, `latency_ms`, `evidence_level`, and (when call-scoped) `policy_decision`.
+`language_policy`, `latency_ms`, `evidence_level`, `phase` (one of
+`greeting, rapport_smalltalk, transition, opening, discovery, pitch, objection,
+negotiation, closing, wrap_up`), `smalltalk` (`{smalltalk_appropriate,
+prospect_wants_business, suggest_brief_reaction, suggest_follow_up_question,
+suggest_transition_now}`), and (when call-scoped) `policy_decision`.
 
 ### `POST /api/suggestions/{id}/feedback`
 ```json

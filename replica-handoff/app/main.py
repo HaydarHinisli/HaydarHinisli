@@ -297,7 +297,7 @@ def copilot(req: SuggestRequest, current_user: AuthContext = Depends(require_rol
     # there is nothing to obtain consent for; only tenant/role authorization applies
     # (see docs/DECISIONS.md ADR-015). Still tenant-scoped via company_id below so
     # feedback on it can never be read/rated cross-tenant.
-    result = suggest(req.utterance, req.recent_context, req.reaction_snapshot)
+    result = suggest(req.utterance, req.recent_context, req.reaction_snapshot, turn_index=req.turn_index)
     row = Suggestion(
         company_id=current_user.company_id,
         call_id=req.call_id,
