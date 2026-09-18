@@ -1,0 +1,76 @@
+version: "2026-09-18-alpha"
+default:
+  human_copilot: review_required
+  recording: review_required
+  autonomous_marketing_call: disabled
+  ai_identity_disclosure: review_required
+  employee_analytics: review_required
+  emotion_inference_workplace: disabled
+  network_intelligence: aggregate_only
+
+jurisdictions:
+  DE:
+    human_copilot: enabled_with_conditions
+    recording: consent_and_legal_review
+    autonomous_marketing_call: disabled_by_default
+    ai_identity_disclosure: required_for_direct_ai_interaction
+    employee_analytics: high_risk_controls
+    emotion_inference_workplace: disabled
+    network_intelligence: aggregate_only
+    works_council_review_flag: true
+
+  GB:
+    human_copilot: enabled_with_conditions
+    recording: review_required
+    autonomous_marketing_call: consent_only
+    live_marketing_screening: tps_ctps_and_internal_suppression
+    ai_identity_disclosure: review_required
+    employee_analytics: review_required
+    emotion_inference_workplace: disabled_by_product_policy
+    network_intelligence: aggregate_only
+
+  US:
+    human_copilot: enabled_with_conditions
+    recording: state_specific_review
+    autonomous_marketing_call: disabled_by_default
+    ai_voice_consumer_calls: prior_express_consent_or_exemption
+    ai_identity_disclosure: campaign_specific_review
+    employee_analytics: state_and_federal_review
+    emotion_inference_workplace: disabled_by_product_policy
+    network_intelligence: aggregate_only
+
+  CA:
+    human_copilot: enabled_with_conditions
+    recording: review_required
+    autonomous_marketing_call: consent_only
+    adad_solicitation: express_consent_required
+    employee_analytics: review_required
+    emotion_inference_workplace: disabled_by_product_policy
+    network_intelligence: aggregate_only
+
+  AU:
+    human_copilot: enabled_with_conditions
+    recording: state_territory_review
+    autonomous_marketing_call: review_required
+    do_not_call_screening: provider_integration_required_when_applicable
+    employee_analytics: review_required
+    emotion_inference_workplace: disabled_by_product_policy
+    network_intelligence: aggregate_only
+
+  SG:
+    human_copilot: enabled_with_conditions
+    recording: review_required
+    autonomous_marketing_call: review_required
+    b2b_dnc_exclusion: true_for_true_business_purpose
+    employee_analytics: review_required
+    emotion_inference_workplace: disabled_by_product_policy
+    network_intelligence: aggregate_only
+
+  IN:
+    human_copilot: legal_review_required
+    recording: legal_review_required
+    autonomous_marketing_call: disabled_by_default
+    commercial_communications_framework: TCCCPR_DLT
+    employee_analytics: legal_review_required
+    emotion_inference_workplace: disabled_by_product_policy
+    network_intelligence: aggregate_only

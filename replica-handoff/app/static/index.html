@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>REPLICA — Adaptive Sales Intelligence</title>
+<style>
+:root{--bg:#0c0f14;--panel:#121722;--card:#171d2a;--border:#283246;--text:#f2f5fb;--muted:#9da9bd;--accent:#6f8cff;--good:#4ed6a6;--warn:#ffc66d;--bad:#ff7f8c}*{box-sizing:border-box}body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--text)}button,input,textarea{font:inherit}.shell{max-width:1180px;margin:0 auto;padding:26px 18px 60px}.topbar{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:22px}.brand h1{margin:0;font-size:30px;letter-spacing:-.03em}.brand p{margin:5px 0 0;color:var(--muted)}.pill{border:1px solid var(--border);border-radius:999px;padding:8px 11px;color:var(--muted);font-size:13px}.nav{display:flex;gap:8px;flex-wrap:wrap;border-bottom:1px solid var(--border);padding-bottom:12px;margin-bottom:20px}.nav button{background:transparent;color:var(--muted);border:1px solid transparent;border-radius:9px;padding:9px 12px;cursor:pointer}.nav button.active{color:var(--text);background:var(--panel);border-color:var(--border)}.view{display:none}.view.active{display:block}.grid{display:grid;gap:14px}.grid.kpis{grid-template-columns:repeat(4,minmax(0,1fr))}.grid.two{grid-template-columns:repeat(2,minmax(0,1fr))}.grid.three{grid-template-columns:repeat(3,minmax(0,1fr))}.card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px}.metric{font-size:30px;font-weight:750;margin-top:4px}.hint{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}.muted{color:var(--muted)}h2,h3{letter-spacing:-.02em}.section-title{display:flex;justify-content:space-between;align-items:end;gap:12px;margin:24px 0 10px}.section-title h2{margin:0;font-size:19px}.section-title span{color:var(--muted);font-size:13px}.btn{border:0;border-radius:10px;background:var(--accent);color:white;padding:10px 13px;cursor:pointer;font-weight:700}.btn.secondary{background:transparent;border:1px solid var(--border);color:var(--text)}.btn.good{background:#1b644f}.btn.bad{background:#773541}.btn:disabled{opacity:.55;cursor:not-allowed}.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}textarea{width:100%;min-height:138px;background:#0f141d;color:var(--text);border:1px solid var(--border);border-radius:11px;padding:13px;resize:vertical}.suggestion{font-size:26px;font-weight:780;line-height:1.25;letter-spacing:-.03em;margin-top:8px}.tagrow{display:flex;gap:7px;flex-wrap:wrap;margin-top:14px}.tag{font-size:12px;border:1px solid var(--border);border-radius:999px;padding:6px 9px;color:var(--muted)}.notice{margin-top:14px;padding:11px 12px;border:1px solid var(--border);border-radius:10px;background:#111621}.list{display:grid;gap:8px}.item{padding:11px 12px;border:1px solid var(--border);border-radius:10px;background:#111621}.item.positive{border-color:#255e50}.item.negative{border-color:#623843}.status{display:flex;align-items:center;gap:8px;margin:8px 0}.dot{width:9px;height:9px;border-radius:50%;background:#687187}.dot.on{background:var(--good)}table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;padding:11px 10px;border-bottom:1px solid var(--border);vertical-align:top}th{color:var(--muted);font-size:12px;font-weight:650;text-transform:uppercase;letter-spacing:.06em}.trend-up{color:var(--good)}.trend-flat{color:var(--muted)}.trend-down{color:var(--warn)}pre{background:#0f141d;border:1px solid var(--border);border-radius:10px;padding:12px;overflow:auto}.review-head{display:flex;justify-content:space-between;gap:12px;align-items:center}.mini{font-size:12px;color:var(--muted)}@media(max-width:850px){.grid.kpis,.grid.three,.grid.two{grid-template-columns:1fr 1fr}.topbar{flex-direction:column}.suggestion{font-size:22px}}@media(max-width:600px){.grid.kpis,.grid.three,.grid.two{grid-template-columns:1fr}.shell{padding:18px 12px 45px}.review-head{align-items:flex-start;flex-direction:column}}
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="topbar">
+    <div class="brand"><h1>REPLICA</h1><p>Adaptive Sales Intelligence · funktionierender MVP / Entwickler-Handoff</p></div>
+    <div class="pill">Demo-Daten sind klar als Demo markiert</div>
+  </div>
+  <nav class="nav">
+    <button class="active" data-view="dashboard">Dashboard</button>
+    <button data-view="copilot">Live Copilot</button>
+    <button data-view="review">Call Review</button>
+    <button data-view="manager">Manager</button>
+    <button data-view="integrations">Integrationen</button>
+  </nav>
+
+  <section id="dashboard" class="view active">
+    <div class="grid kpis">
+      <div class="card"><div class="hint">Calls</div><div id="kCalls" class="metric">—</div></div>
+      <div class="card"><div class="hint">Meeting Rate</div><div id="kMeeting" class="metric">—</div></div>
+      <div class="card"><div class="hint">Held Rate</div><div id="kHeld" class="metric">—</div></div>
+      <div class="card"><div class="hint">Opportunity Rate</div><div id="kOpp" class="metric">—</div></div>
+    </div>
+    <div class="section-title"><h2>Der MVP zeigt den Produktkern</h2><span>Live → Lernen → Coaching → Outcome</span></div>
+    <div class="grid three">
+      <div class="card"><h3>Während des Calls</h3><p class="muted">Eine kurze nächste Antwort, angepasst an Einwand und beobachtete Sprache des Prospects.</p></div>
+      <div class="card"><h3>Nach dem Call</h3><p class="muted">Stärken, Verbesserungen, verpasste Chancen und ein konkreter Fokus für den nächsten Call.</p></div>
+      <div class="card"><h3>Für Führungskräfte</h3><p class="muted">Ergebnis plus Ramp-up und Trend. Kein automatischer „Fire Score“ und kein Verkäufer-Ranking.</p></div>
+    </div>
+    <div class="section-title"><h2>Kommende Meetings</h2><span>später CRM + Kalender</span></div>
+    <div id="meetings" class="list"></div>
+  </section>
+
+  <section id="copilot" class="view">
+    <div class="grid two">
+      <div class="card">
+        <h3>Prospect-Aussage</h3>
+        <p class="muted">Der MVP verwendet einen extrem schnellen deterministischen Fast Path. Im Produktionssystem wird dieser durch Streaming-ASR, Klassifikation und einen Smart Path ergänzt.</p>
+        <textarea id="utterance">Wir haben dafür schon einen Anbieter und sind eigentlich zufrieden.</textarea>
+        <div class="actions">
+          <button id="analyzeBtn" class="btn">Jetzt analysieren</button>
+          <button class="btn secondary example" data-text="Ich habe gerade wirklich wenig Zeit, sagen Sie einfach kurz worum es geht.">Zeitdruck</button>
+          <button class="btn secondary example" data-text="Schicken Sie mir einfach etwas per Mail.">Mail</button>
+          <button class="btn secondary example" data-text="Wie unterscheidet sich Ihr Ansatz konkret von regelbasierter Sales-Automation und unserer bestehenden Infrastruktur?">Analytisch</button>
+        </div>
+      </div>
+      <div class="card">
+        <div class="hint">SAG JETZT</div>
+        <div id="suggestion" class="suggestion">„Was ist Ihnen bei Ihrer aktuellen Lösung am wichtigsten?“</div>
+        <div id="styleTags" class="tagrow"></div>
+        <div style="margin-top:16px"><strong id="strategy">discover_buying_criteria</strong><div id="reason" class="muted" style="margin-top:5px">Bestehender Anbieter ist zuerst Informationsquelle.</div></div>
+        <div class="notice"><strong>Nicht tun:</strong> <span id="doNot">Den bestehenden Anbieter nicht schlechtreden.</span></div>
+        <div id="feedback" class="actions" style="display:none">
+          <button class="btn good" data-rate="good">Gut</button><button class="btn secondary" data-rate="usable">Brauchbar</button><button class="btn bad" data-rate="bad">Falsch</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="review" class="view">
+    <div class="review-head"><div><h2 style="margin:0">Post-Call Review</h2><div class="muted">Ein kompakter Coach nach jedem Gespräch</div></div><button id="loadReview" class="btn">Demo-Analyse laden</button></div>
+    <div class="grid two" style="margin-top:14px">
+      <div class="card"><h3>Zusammenfassung</h3><p id="reviewSummary" class="muted">Analyse noch nicht geladen.</p><div class="section-title"><h2>Positiv</h2></div><div id="strengths" class="list"></div></div>
+      <div class="card"><h3>Nächster Fokus</h3><div id="nextFocus" class="suggestion" style="font-size:21px">—</div><div class="section-title"><h2>Verbessern</h2></div><div id="improvements" class="list"></div><div class="section-title"><h2>Verpasste Chance</h2></div><div id="missed" class="list"></div></div>
+    </div>
+  </section>
+
+  <section id="manager" class="view">
+    <div class="notice"><strong>Produktprinzip:</strong> REPLICA trennt kurzfristiges Ergebnis, Ramp-up und Entwicklung. Es erzeugt keine automatisierte Kündigungs-, Eignungs- oder Rankingentscheidung.</div>
+    <div class="card" style="margin-top:14px">
+      <h3>Teamübersicht</h3>
+      <div style="overflow:auto"><table><thead><tr><th>Verkäufer</th><th>Calls</th><th>Meeting Rate</th><th>Team</th><th>Produkt-Erfahrung</th><th>Trend</th><th>Kontext</th></tr></thead><tbody id="managerRows"></tbody></table></div>
+    </div>
+  </section>
+
+  <section id="integrations" class="view">
+    <div class="grid three">
+      <div class="card"><h3>CRM</h3><div class="status"><span id="hubDot" class="dot"></span><span id="hubText">HubSpot</span></div><div class="status"><span id="sfDot" class="dot"></span><span id="sfText">Salesforce</span></div><p class="muted">Meetings, Opportunities, Deals und Revenue-Outcomes.</p><button id="hubSync" class="btn secondary">HubSpot Sync testen</button></div>
+      <div class="card"><h3>Kalender</h3><div class="status"><span id="calDot" class="dot"></span><span id="calText">Google Calendar</span></div><p class="muted">Termin gebucht vs. tatsächlich stattgefunden.</p><button id="calSync" class="btn secondary">Calendar Sync testen</button></div>
+      <div class="card"><h3>Voice / AI</h3><div class="status"><span id="twDot" class="dot"></span><span id="twText">Twilio</span></div><div class="status"><span id="oaDot" class="dot"></span><span id="oaText">OpenAI Realtime</span></div><p class="muted">Media Streams + serverseitiger Realtime-Adapter sind als Integrationsnaht vorbereitet.</p></div>
+    </div>
+    <div class="card" style="margin-top:14px"><h3>Provider-Antwort</h3><pre id="syncResult">Noch kein Sync ausgeführt.</pre></div>
+  </section>
+</div>
+<script>
+const $=s=>document.querySelector(s), $$=s=>document.querySelectorAll(s); let currentSuggestion=null;
+$$('.nav button').forEach(b=>b.addEventListener('click',()=>{$$('.nav button').forEach(x=>x.classList.remove('active'));b.classList.add('active');$$('.view').forEach(v=>v.classList.remove('active'));$('#'+b.dataset.view).classList.add('active')}));
+async function j(url,opt){const r=await fetch(url,opt);let body;try{body=await r.json()}catch{body={}}if(!r.ok)throw new Error(body.detail||body.message||r.statusText);return body}
+async function loadDashboard(){const d=await j('/api/dashboard');$('#kCalls').textContent=d.kpis.calls;$('#kMeeting').textContent=d.kpis.meeting_rate+'%';$('#kHeld').textContent=d.kpis.held_rate+'%';$('#kOpp').textContent=d.kpis.opportunity_rate+'%';$('#meetings').innerHTML=d.upcoming_meetings.length?d.upcoming_meetings.map(m=>`<div class="item"><strong>${m.title}</strong><div class="mini">${new Date(m.starts_at).toLocaleString('de-DE')} · ${m.source}</div></div>`).join(''):'<div class="muted">Keine kommenden Meetings.</div>'}
+async function analyze(){const btn=$('#analyzeBtn');btn.disabled=true;btn.textContent='Analysiere…';try{const d=await j('/api/copilot/suggest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({utterance:$('#utterance').value})});currentSuggestion=d.suggestion_id;$('#suggestion').textContent='„'+d.suggestion+'“';$('#strategy').textContent=d.strategy;$('#reason').textContent=d.reason;$('#doNot').textContent=d.do_not;$('#styleTags').innerHTML=`<span class="tag">Sprache: ${d.language_policy.complexity}</span><span class="tag">Direktheit: ${d.language_policy.directness}</span><span class="tag">Ziel: ≤ ${d.language_policy.target_response_words} Wörter</span><span class="tag">Fast Path: ${d.latency_ms} ms</span>`;$('#feedback').style.display='flex'}catch(e){alert(e.message)}finally{btn.disabled=false;btn.textContent='Jetzt analysieren'}}
+$('#analyzeBtn').addEventListener('click',analyze);$$('.example').forEach(b=>b.addEventListener('click',()=>{$('#utterance').value=b.dataset.text;analyze()}));$$('#feedback button').forEach(b=>b.addEventListener('click',async()=>{if(!currentSuggestion)return;const label=b.textContent;await j('/api/suggestions/'+currentSuggestion+'/feedback',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rating:b.dataset.rate,used:b.dataset.rate!=='bad'})});b.textContent='Gespeichert ✓';setTimeout(()=>b.textContent=label,900)}));
+async function loadReview(){const x=await j('/api/demo/review-call');const d=await j('/api/calls/'+x.call_id+'/review');$('#reviewSummary').textContent=d.summary+' Ergebnis: '+d.outcome+'.';$('#nextFocus').textContent=d.next_call_focus;$('#strengths').innerHTML=(d.strengths.length?d.strengths:['Noch keine positiven Signale erkannt.']).map(x=>`<div class="item positive">✓ ${x}</div>`).join('');$('#improvements').innerHTML=(d.improvements.length?d.improvements:['Keine akute Verbesserung markiert.']).map(x=>`<div class="item negative">→ ${x}</div>`).join('');$('#missed').innerHTML=(d.missed_opportunities.length?d.missed_opportunities:['Keine eindeutige verpasste Chance markiert.']).map(x=>`<div class="item">${x}</div>`).join('')}
+$('#loadReview').addEventListener('click',loadReview);
+async function loadManager(){const d=await j('/api/manager/overview');$('#managerRows').innerHTML=d.sellers.map(s=>`<tr><td><strong>${s.seller}</strong></td><td>${s.calls}</td><td>${s.meeting_rate}%</td><td>${s.team_meeting_rate}%</td><td>${s.product_tenure_days} Tage</td><td class="${s.trend==='improving'?'trend-up':s.trend==='declining'?'trend-down':'trend-flat'}">${s.trend}</td><td>${s.context.join(' ')}</td></tr>`).join('')}
+async function loadIntegrations(){const d=await j('/api/integrations');[['hubspot','hub'],['google_calendar','cal'],['salesforce','sf'],['twilio','tw'],['openai_realtime','oa']].forEach(([key,id])=>{const on=d[key].connected;$('#'+id+'Dot').classList.toggle('on',on);$('#'+id+'Text').textContent=(d[key].provider||key)+(on?' · verbunden':' · nicht verbunden')})}
+$('#hubSync').addEventListener('click',async()=>{try{$('#syncResult').textContent=JSON.stringify(await j('/api/integrations/hubspot/sync',{method:'POST'}),null,2)}catch(e){$('#syncResult').textContent=e.message}});$('#calSync').addEventListener('click',async()=>{try{$('#syncResult').textContent=JSON.stringify(await j('/api/integrations/google-calendar/sync',{method:'POST'}),null,2)}catch(e){$('#syncResult').textContent=e.message}});
+loadDashboard();loadManager();loadIntegrations();
+</script>
+</body>
+</html>

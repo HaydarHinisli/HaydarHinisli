@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+replica.db
+.pytest_cache/
