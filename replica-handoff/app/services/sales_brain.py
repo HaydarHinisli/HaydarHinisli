@@ -217,8 +217,10 @@ def detect_special_phase(text: str, *, turn_index: int = 0) -> str | None:
     return None
 
 
-def decide(text: str, language_policy: dict, *, turn_index: int = 0) -> dict:
-    """Chooses the response strategy. Priority order (see docs/DECISIONS.md ADR-022):
+def resolve_phase(event: str, text: str, *, turn_index: int = 0) -> str:
+    """The stateless phase-resolution rule shared by decide() and, as a starting
+    point before state-aware refinement, app/services/conversation_state.py.
+    Priority order (see docs/DECISIONS.md ADR-022):
 
     1. A specific objection/exit event (time_pressure, email_exit, no_interest,
        existing_supplier, price, authority) always wins — these have dedicated,
@@ -230,30 +232,49 @@ def decide(text: str, language_policy: dict, *, turn_index: int = 0) -> dict:
     This ordering means adding phase awareness can only ever make a *generic* response
     more specific — it can never override an already-specific objection response.
     """
-    event = classify_sales_event(text)
-    smalltalk = analyze_smalltalk(text, turn_index=turn_index)
-
     if event in OBJECTION_EVENTS:
-        phase = 'objection'
-        rule = PLAYBOOK[event]
-    else:
-        special_phase = detect_special_phase(text, turn_index=turn_index)
-        if special_phase:
-            phase = special_phase
-            rule = PHASE_PLAYBOOK[special_phase]
-        else:
-            phase = 'pitch' if event == 'question' else event  # event == 'discovery'
-            rule = PLAYBOOK[event]
+        return 'objection'
+    special_phase = detect_special_phase(text, turn_index=turn_index)
+    if special_phase:
+        return special_phase
+    return 'pitch' if event == 'question' else event  # event == 'discovery'
 
+
+def build_response(*, phase: str, event: str, language_policy: dict) -> dict:
+    """Looks up the strategy/suggestion/do_not/reason for a given (already resolved)
+    phase + event pair. Shared by decide() (stateless) and
+    app/services/conversation_state.apply_prospect_turn() (stateful), so a state-aware
+    caller can override the phase without duplicating the playbook lookup rules."""
+    if phase == 'objection':
+        rule = PLAYBOOK[event]
+    elif phase in PHASE_PLAYBOOK:
+        rule = PHASE_PLAYBOOK[phase]
+    else:
+        rule = PLAYBOOK.get(event, PLAYBOOK['discovery'])
     advanced = language_policy.get('complexity') == 'high'
     suggestion = rule['suggestion_advanced'] if advanced else rule['suggestion_plain']
     return {
-        'event': event,
-        'phase': phase,
         'strategy': rule['strategy'],
         'suggestion': suggestion,
         'do_not': rule['do_not'],
         'reason': rule['reason'],
+    }
+
+
+def decide(text: str, language_policy: dict, *, turn_index: int = 0) -> dict:
+    """Stateless single-utterance decision (see resolve_phase() for the priority
+    rules). For call-level state that understands phase transitions across turns
+    (e.g. greeting -> rapport_smalltalk -> transition -> opening -> discovery), use
+    app/services/conversation_state.apply_prospect_turn() instead.
+    """
+    event = classify_sales_event(text)
+    smalltalk = analyze_smalltalk(text, turn_index=turn_index)
+    phase = resolve_phase(event, text, turn_index=turn_index)
+    response = build_response(phase=phase, event=event, language_policy=language_policy)
+    return {
+        'event': event,
+        'phase': phase,
+        **response,
         'confidence': 0.88 if event != 'discovery' else 0.68,
         'smalltalk': smalltalk,
     }

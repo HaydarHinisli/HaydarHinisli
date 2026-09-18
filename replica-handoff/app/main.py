@@ -16,13 +16,15 @@ from .models import (
     AuditEvent, Call, Company, ComplianceReviewSignoff, ConsentEvent, Experiment, ExperimentAssignment,
     Meeting, Seller, Suggestion, TenantFeatureFlag, Turn, User,
 )
+from .models import ConversationState as ConversationStateRow
 from .schemas import (
     CompleteCallRequest, ComplianceReviewSignoffRequest, ConsentEventRequest, ConsentRequest, CreateCallRequest,
     CreateExperimentRequest, CreateUserRequest, FeatureFlagRequest, LoginRequest, NetworkLearningOptRequest,
     PolicyResolveRequest, SuggestRequest, SuggestionFeedbackRequest, TurnRequest,
 )
 from .seed import seed_demo
-from .services.copilot import suggest
+from .services.conversation_state import ConversationState, apply_seller_turn
+from .services.copilot import suggest, suggest_with_state
 from .services.experiments import assign_variant
 from .services.language_sync import analyze_language
 from .services.reaction_delta import build_baseline, reaction_delta
@@ -77,6 +79,63 @@ def _get_call_or_404(db: Session, call_id: int, tenant_id: int) -> Call:
     if not call or call.company_id != tenant_id:
         raise HTTPException(404, 'Call not found')
     return call
+
+
+def _load_or_create_conversation_state_row(db: Session, call: Call) -> ConversationStateRow:
+    row = db.scalar(select(ConversationStateRow).where(ConversationStateRow.call_id == call.id))
+    if row is None:
+        row = ConversationStateRow(call_id=call.id)
+        db.add(row)
+        db.flush()
+    return row
+
+
+def _state_from_row(row: ConversationStateRow) -> ConversationState:
+    return ConversationState(
+        call_id=row.call_id, current_phase=row.current_phase, previous_phase=row.previous_phase,
+        turn_index=row.turn_index, smalltalk_turns=row.smalltalk_turns,
+        business_transition_started=row.business_transition_started, opening_completed=row.opening_completed,
+        discovery_started=row.discovery_started, pitch_delivered=row.pitch_delivered,
+        price_discussed=row.price_discussed, active_objection=row.active_objection,
+        resolved_objections=list(row.resolved_objections or []),
+        last_seller_action=row.last_seller_action, last_prospect_event=row.last_prospect_event,
+    )
+
+
+def _apply_state_to_row(row: ConversationStateRow, state: ConversationState) -> None:
+    row.current_phase = state.current_phase
+    row.previous_phase = state.previous_phase
+    row.turn_index = state.turn_index
+    row.smalltalk_turns = state.smalltalk_turns
+    row.business_transition_started = state.business_transition_started
+    row.opening_completed = state.opening_completed
+    row.discovery_started = state.discovery_started
+    row.pitch_delivered = state.pitch_delivered
+    row.price_discussed = state.price_discussed
+    row.active_objection = state.active_objection
+    row.resolved_objections = state.resolved_objections
+    row.last_seller_action = state.last_seller_action
+    row.last_prospect_event = state.last_prospect_event
+
+
+def _conversation_state_dict(row: ConversationStateRow) -> dict:
+    return {
+        'call_id': row.call_id,
+        'current_phase': row.current_phase,
+        'previous_phase': row.previous_phase,
+        'turn_index': row.turn_index,
+        'smalltalk_turns': row.smalltalk_turns,
+        'business_transition_started': row.business_transition_started,
+        'opening_completed': row.opening_completed,
+        'discovery_started': row.discovery_started,
+        'pitch_delivered': row.pitch_delivered,
+        'price_discussed': row.price_discussed,
+        'active_objection': row.active_objection,
+        'resolved_objections': row.resolved_objections,
+        'last_seller_action': row.last_seller_action,
+        'last_prospect_event': row.last_prospect_event,
+        'updated_at': row.updated_at.isoformat(),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -276,6 +335,12 @@ def add_turn(call_id: int, req: TurnRequest, current_user: AuthContext = Depends
     style = analyze_language(req.text) if req.speaker == 'prospect' else {}
     turn = Turn(call_id=call_id, style_snapshot=style, lexical_complexity=style.get('complexity_score') if style else None, **req.model_dump())
     db.add(turn)
+    if req.speaker == 'seller':
+        # Bookkeeping only (last_seller_action/opening_completed/pitch_delivered) —
+        # the phase machine itself only advances on prospect turns via
+        # POST /api/copilot/suggest (see docs/DECISIONS.md ADR-027).
+        state_row = _load_or_create_conversation_state_row(db, call)
+        _apply_state_to_row(state_row, apply_seller_turn(_state_from_row(state_row), req.text))
     db.commit()
     db.refresh(turn)
     return {'id': turn.id, 'style_snapshot': style, 'policy_decision': decision.as_dict()}
@@ -284,6 +349,7 @@ def add_turn(call_id: int, req: TurnRequest, current_user: AuthContext = Depends
 @app.post('/api/copilot/suggest')
 def copilot(req: SuggestRequest, current_user: AuthContext = Depends(require_role('seller', 'manager', 'tenant_admin')), db: Session = Depends(get_db)):
     decision = None
+    state_row = None
     if req.call_id is not None:
         call = _get_call_or_404(db, req.call_id, current_user.company_id)
         decision = can_process(
@@ -293,11 +359,18 @@ def copilot(req: SuggestRequest, current_user: AuthContext = Depends(require_rol
         if decision.result != Decision.ALLOWED:
             db.commit()
             raise HTTPException(403, {'message': 'Live copilot assistance is not currently permitted for this call.', **decision.as_dict()})
-    # req.call_id is None: sandbox/practice mode. No real prospect is on the line, so
-    # there is nothing to obtain consent for; only tenant/role authorization applies
-    # (see docs/DECISIONS.md ADR-015). Still tenant-scoped via company_id below so
-    # feedback on it can never be read/rated cross-tenant.
-    result = suggest(req.utterance, req.recent_context, req.reaction_snapshot, turn_index=req.turn_index)
+        # Sprint 1.5 (ADR-026): call-scoped suggestions advance the call's persisted
+        # ConversationState instead of reclassifying the utterance in isolation, so
+        # SalesBrain understands phase transitions across the whole running call.
+        state_row = _load_or_create_conversation_state_row(db, call)
+        new_state, result = suggest_with_state(_state_from_row(state_row), req.utterance, req.reaction_snapshot)
+        _apply_state_to_row(state_row, new_state)
+    else:
+        # req.call_id is None: sandbox/practice mode. No real prospect is on the line,
+        # so there is nothing to obtain consent for and no call to persist state
+        # against; only tenant/role authorization applies (ADR-015). Still
+        # tenant-scoped via company_id below so feedback on it can never cross tenants.
+        result = suggest(req.utterance, req.recent_context, req.reaction_snapshot, turn_index=req.turn_index)
     row = Suggestion(
         company_id=current_user.company_id,
         call_id=req.call_id,
@@ -317,7 +390,17 @@ def copilot(req: SuggestRequest, current_user: AuthContext = Depends(require_rol
     out = {**result, 'suggestion_id': row.id}
     if decision is not None:
         out['policy_decision'] = decision.as_dict()
+    if state_row is not None:
+        out['conversation_state'] = _conversation_state_dict(state_row)
     return out
+
+
+@app.get('/api/calls/{call_id}/conversation-state')
+def call_conversation_state(call_id: int, current_user: AuthContext = Depends(require_role('seller', 'manager', 'tenant_admin', 'compliance_admin')), db: Session = Depends(get_db)):
+    call = _get_call_or_404(db, call_id, current_user.company_id)
+    state_row = _load_or_create_conversation_state_row(db, call)
+    db.commit()
+    return _conversation_state_dict(state_row)
 
 
 @app.post('/api/suggestions/{suggestion_id}/feedback')

@@ -58,6 +58,26 @@ Language:
 - seller feedback
 - used/not used
 
+### ConversationState (Sprint 1.5)
+One row per Call. Lets SalesBrain understand phase transitions across the whole
+running call (`greeting -> rapport_smalltalk -> transition -> opening -> discovery`,
+objections layered on top) instead of reclassifying each prospect sentence in
+isolation. See `app/services/conversation_state.py` for the state machine and
+`docs/DECISIONS.md` ADR-026/ADR-027 for the design rationale.
+
+- current_phase / previous_phase
+- turn_index
+- smalltalk_turns
+- business_transition_started
+- opening_completed
+- discovery_started
+- pitch_delivered
+- price_discussed
+- active_objection
+- resolved_objections
+- last_seller_action
+- last_prospect_event
+
 ### Meeting
 - external provider ID
 - source

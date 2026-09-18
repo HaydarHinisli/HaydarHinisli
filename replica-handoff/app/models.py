@@ -227,3 +227,30 @@ class ComplianceReviewSignoff(Base):
     reason: Mapped[str] = mapped_column(Text, default='')
     reference: Mapped[str] = mapped_column(String(220), default='')
     acknowledged_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class ConversationState(Base):
+    """Sprint 1.5: call-bound conversation state so SalesBrain understands phase
+    transitions across the whole running call (greeting -> rapport_smalltalk ->
+    transition -> opening -> discovery, objections layered on top) instead of
+    reclassifying each prospect sentence in isolation. One row per Call; mirrors
+    app/services/conversation_state.ConversationState (see that module for the state
+    machine itself — this is storage only).
+    """
+    __tablename__ = 'conversation_states'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    call_id: Mapped[int] = mapped_column(ForeignKey('calls.id'), unique=True, index=True)
+    current_phase: Mapped[str] = mapped_column(String(40), default='greeting')
+    previous_phase: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    turn_index: Mapped[int] = mapped_column(Integer, default=0)
+    smalltalk_turns: Mapped[int] = mapped_column(Integer, default=0)
+    business_transition_started: Mapped[bool] = mapped_column(Boolean, default=False)
+    opening_completed: Mapped[bool] = mapped_column(Boolean, default=False)
+    discovery_started: Mapped[bool] = mapped_column(Boolean, default=False)
+    pitch_delivered: Mapped[bool] = mapped_column(Boolean, default=False)
+    price_discussed: Mapped[bool] = mapped_column(Boolean, default=False)
+    active_objection: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    resolved_objections: Mapped[list] = mapped_column(JSON, default=list)
+    last_seller_action: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    last_prospect_event: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

@@ -347,3 +347,72 @@ history per call (for post-call review, e.g. "spent too long in rapport_smalltal
 before transitioning") is a reasonable Sprint 2+ addition once Cold Call Genome
 storage (`docs/DATA_MODEL.md` §2 Turn/Suggestion) is revisited for real call data,
 not invented speculatively here.
+
+---
+
+## Sprint 1.5 — Conversation State Foundation (2026-09-18)
+
+`ConversationState` (`app/models.py`, `app/services/conversation_state.py`) resolves
+ADR-025's tracked gap by giving SalesBrain call-level memory: phase decisions now
+understand transitions (`greeting -> rapport_smalltalk -> transition -> opening ->
+discovery`, objections layered on top) instead of reclassifying each prospect
+utterance from a blank slate.
+
+## ADR-026 — State refines the stateless phase resolution; it never re-implements it
+Status: accepted
+
+`app/services/conversation_state.apply_prospect_turn()` reuses
+`sales_brain.classify_sales_event()`, `detect_special_phase()`, `analyze_smalltalk()`
+and the new `build_response()` helper (extracted from `decide()` in this sprint,
+pure refactor — see the `sales_brain.py` history) rather than duplicating any
+classification logic. The state machine only adds three things on top:
+1. A **business-anchor override**: a smalltalk-flavored utterance that also mentions
+   something business-relevant (new office, a stated problem/challenge, growth,
+   headcount, ...) resolves straight to `'discovery'` (with `discovery_started=True`)
+   instead of `'rapport_smalltalk'` — the product brief's explicit requirement that a
+   relevant anchor inside smalltalk must not be discarded as "just rapport".
+2. A **front-phase regression guard**: once the call has passed a point in
+   `greeting -> rapport_smalltalk -> transition -> opening -> discovery`, a new
+   utterance that superficially reads as an earlier phase (e.g. a stray smalltalk-like
+   aside in the middle of discovery) cannot move the call backward — it resumes at the
+   furthest phase implied by the state's own flags (`_resume_phase()`), never at
+   `'greeting'`. Objection/negotiation/closing/wrap_up are not part of this ordered
+   progression and can interleave freely, since they are reactions to specific
+   content, not call-stage markers.
+3. **Objection lifecycle bookkeeping**: `active_objection` / `resolved_objections`
+   track which objection (if any) is currently open and which have been moved past —
+   switching to a different objection resolves the previous one; repeating the same
+   objection does not duplicate the resolved list; `price_discussed` persists once set,
+   independent of whether the price objection is later resolved.
+
+The MVP smalltalk default from ADR-024 (push toward transition after the first plain
+exchange) is preserved as exactly that — a default — and is the first thing the
+business-anchor override supersedes, per the task's explicit instruction not to model
+it as a hard rule that would ignore a relevant anchor.
+
+## ADR-027 — Only prospect turns advance the phase machine; seller turns are bookkeeping
+Status: accepted
+
+`POST /api/copilot/suggest` (call-scoped) is the single place a `ConversationState` row
+advances its phase, via `apply_prospect_turn()` — this mirrors the existing product
+architecture where REPLICA reacts to what the *prospect* says next, and avoids the
+double-counting risk of two separate endpoints (`/turns` and `/copilot/suggest`)
+independently reclassifying the same utterance if both happened to be called for it.
+`POST /api/calls/{id}/turns` with `speaker='seller'` calls `apply_seller_turn()`
+instead, which only updates `last_seller_action` / `opening_completed` /
+`pitch_delivered` bookkeeping and never touches `current_phase` — consistent with
+`'opening'` remaining not independently phase-classified (ADR-023), since it is a
+seller-side action layered onto the prospect-driven phase machine.
+
+This endpoint split is itself a known simplification of the MVP's historical
+turns/suggest separation (`docs/CODER_HANDOFF.md` Sprint 3 already anticipates
+`Turn Detector -> FAST PATH` as one pipeline step). Sprint 2's real turn-end detection
+naturally collapses it: once there is exactly one internal call per detected prospect
+turn, the "which endpoint owns state advancement" question disappears together with
+the two-endpoint design that raised it.
+
+New `GET /api/calls/{call_id}/processing-permissions`-style read endpoint,
+`GET /api/calls/{call_id}/conversation-state`, exposes the persisted state directly
+(same RBAC as other call-scoped endpoints, same 404-not-403 tenant scoping) — mainly
+for debugging and for Sprint 2+ manager/coaching views that may want to show phase
+history, without requiring every consumer to replay `/copilot/suggest` calls.

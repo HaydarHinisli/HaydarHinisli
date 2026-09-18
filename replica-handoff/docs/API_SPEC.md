@@ -52,7 +52,10 @@ Stores a measured/transcribed turn. Sprint 1: gated by
 `can_process(db, 'transcribe', ...)` using the call's own jurisdiction/campaign/
 speaker_mode/consent context — returns `403` with the full policy decision
 (`action`, `result`, `reason`, `policy_reference`) when not `allowed`. The old
-`409 Consent gate` response is gone (`docs/DECISIONS.md` ADR-020).
+`409 Consent gate` response is gone (`docs/DECISIONS.md` ADR-020). Sprint 1.5: a
+`speaker: "seller"` turn also updates the call's `ConversationState` bookkeeping
+(`last_seller_action`, `opening_completed`, `pitch_delivered`) — it does not change
+`current_phase` (see ADR-027).
 
 ### `POST /api/calls/{call_id}/complete`
 Stores business outcome.
@@ -62,6 +65,13 @@ Returns compact post-call coaching.
 
 ### `GET /api/calls/{call_id}/reaction`
 Returns baseline + relative reaction deltas for Prospect turns.
+
+### `GET /api/calls/{call_id}/conversation-state`
+Sprint 1.5. Returns the call's persisted phase-transition state: `current_phase`,
+`previous_phase`, `turn_index`, `smalltalk_turns`, `business_transition_started`,
+`opening_completed`, `discovery_started`, `pitch_delivered`, `price_discussed`,
+`active_objection`, `resolved_objections`, `last_seller_action`,
+`last_prospect_event`, `updated_at`. Created on first access if it doesn't exist yet.
 
 ### `GET /api/calls/recent/list`
 
@@ -79,21 +89,23 @@ Input:
 }
 ```
 - `call_id` set → gated by `can_process(db, 'live_assist', ...)` for that call; `403`
-  with the policy decision when not `allowed`.
-- `call_id` omitted → **sandbox/practice mode**: no real prospect, no policy gate, only
-  auth/RBAC apply (`docs/DECISIONS.md` ADR-015). The resulting suggestion is still
-  tenant-scoped, so feedback on it can never cross tenants.
-- `turn_index` (the prospect's turn number within the call, 0-based) is optional; when
-  omitted it is inferred as `len(recent_context)`. It feeds SalesBrain's conversation-
-  phase detection (see `docs/PRODUCT_SPEC.md` Flow A, `docs/DECISIONS.md` ADR-022) —
-  mainly to avoid suggesting a smalltalk follow-up question past the first exchange.
+  with the policy decision when not `allowed`. Sprint 1.5: also advances and persists
+  the call's `ConversationState` (`docs/DECISIONS.md` ADR-026/ADR-027) — phase
+  decisions understand transitions across the whole call, not just this utterance.
+- `call_id` omitted → **sandbox/practice mode**: no real prospect, no policy gate, no
+  persisted state, only auth/RBAC apply (`docs/DECISIONS.md` ADR-015). The resulting
+  suggestion is still tenant-scoped, so feedback on it can never cross tenants.
+- `turn_index` is only used in sandbox mode (optional; inferred as
+  `len(recent_context)` when omitted). Call-scoped requests ignore it — the persisted
+  `ConversationState.turn_index` is authoritative there.
 
 Output includes `suggestion`, `strategy`, `do_not`, `reason`, `confidence`,
 `language_policy`, `latency_ms`, `evidence_level`, `phase` (one of
 `greeting, rapport_smalltalk, transition, opening, discovery, pitch, objection,
 negotiation, closing, wrap_up`), `smalltalk` (`{smalltalk_appropriate,
 prospect_wants_business, suggest_brief_reaction, suggest_follow_up_question,
-suggest_transition_now}`), and (when call-scoped) `policy_decision`.
+suggest_transition_now}`), and (when call-scoped) `policy_decision` and
+`conversation_state` (same shape as `GET .../conversation-state` below).
 
 ### `POST /api/suggestions/{id}/feedback`
 ```json
