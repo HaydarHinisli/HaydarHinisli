@@ -48,12 +48,31 @@ Implemented in Sprint 2/2B (`app/streaming/`, `POST /ws/twilio-media` in
    *correlated* to a `Call` via `external_call_id` (or `customParameters.replica_call_id`,
    preferred when set) rather than written by the stream itself, matching how the
    call-status webhook already does this correlation (ADR-029).
+8. **EU region/edge (Sprint 3A, ADR-049)** — `TWILIO_REGION`/`TWILIO_EDGE` (default
+   `ie1`/`dublin`) govern any REST API call REPLICA makes TO Twilio (not the inbound
+   webhook/Media Streams traffic above, which targets `REPLICA_PUBLIC_BASE_URL` and
+   has no region concept). No such REST call exists in the codebase yet — this
+   prepares `app/integrations/twilio_rest.get_twilio_rest_client()` as the single
+   seam for when one is added, refusing to build a client (rather than silently
+   inheriting the SDK's own `us1` default) unless both are explicitly configured.
 
 Heavy AI work still does not run synchronously in the media handler: ASR/VAD/turn
 detection are lightweight per-chunk operations, and the one DB-touching,
 potentially-heavier step (`process_final_turn()`) runs only once per detected final
 turn, on its own short-lived DB session — never inside the tight per-chunk receive
 loop for anything other than that.
+
+## Live Suggestion Push (Sprint 3A)
+
+Downstream of the Twilio Media Streams pipeline above: every Suggestion
+`process_final_turn()` persists is handed to `app/services/live_push.
+LiveSuggestionHub`, which pushes it to the seller's browser over
+`/ws/live/{call_id}` (`docs/DECISIONS.md` ADR-048, `docs/API_SPEC.md`). This is
+REPLICA's own WebSocket to REPLICA's own browser client — not a third-party
+provider integration — included here because it is the other real-time transport
+in the system, immediately after the Twilio one. In-process/single-instance only
+today (see ADR-048's known-limitation note); a multi-instance deployment would
+need a shared pub/sub backplane in front of the same publish/register interface.
 
 ## OpenAI Realtime / other speech foundation provider
 

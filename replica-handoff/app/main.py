@@ -1,9 +1,11 @@
 from __future__ import annotations
+import asyncio
 import json
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
+import jwt
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -15,12 +17,12 @@ from .db import SessionLocal, get_db
 from .migrate import run_migrations
 from .models import (
     AuditEvent, Call, Company, ComplianceReviewSignoff, ConsentEvent, Experiment,
-    ExperimentAssignment, Meeting, Seller, Suggestion, TenantFeatureFlag, Turn, User,
+    ExperimentAssignment, Meeting, Seller, Suggestion, TenantFeatureFlag, Turn, TurnLatencyTrace, User,
 )
 from .schemas import (
     CompleteCallRequest, ComplianceReviewSignoffRequest, ConsentEventRequest, ConsentRequest, CreateCallRequest,
     CreateExperimentRequest, CreateUserRequest, FeatureFlagRequest, LoginRequest, NetworkLearningOptRequest,
-    PolicyResolveRequest, SuggestRequest, SuggestionFeedbackRequest, TurnRequest,
+    PolicyResolveRequest, SuggestRequest, SuggestionFeedbackRequest, SuggestionRenderAckRequest, TurnRequest,
 )
 from .secrets import get_secrets_provider
 from .seed import seed_demo
@@ -32,10 +34,11 @@ from .services.conversation_state_store import (
 from .services.copilot import suggest, suggest_with_state
 from .services.experiments import assign_variant
 from .services.language_sync import analyze_language
+from .services.live_push import get_live_suggestion_hub
 from .services.reaction_delta import build_baseline, reaction_delta
 from .services.review import build_call_review, manager_analysis
 from .services.turn_identity import claim_turn, record_result, synthesize_turn_id
-from .integrations import google_calendar, hubspot, salesforce
+from .integrations import google_calendar, hubspot, salesforce, twilio_rest
 from .integrations.openai_realtime import status as openai_status, session_blueprint
 from .streaming.asr import ASRProvider, get_asr_provider
 from .streaming.media_stream_security import is_secure_transport, verify_media_stream_signature
@@ -46,7 +49,7 @@ from .compliance.audit import log_audit
 from .compliance.jurisdiction_policy import resolve_country_policy
 from .compliance.policy_engine import Decision, can_process
 from .auth.dependencies import AuthContext, get_current_user, require_role, resolve_tenant_id
-from .auth.security import create_access_token, hash_password, verify_password
+from .auth.security import create_access_token, decode_access_token, hash_password, verify_password
 from .logging_config import RequestContextMiddleware, configure_logging
 from .webhooks.call_status import get_or_create_provider_status, is_newer_event, parse_sequence_number
 from .webhooks.idempotency import claim_webhook_delivery
@@ -420,6 +423,60 @@ def suggestion_feedback(suggestion_id: int, req: SuggestionFeedbackRequest, curr
     return {'ok': True, 'rating': row.rating, 'used': row.used}
 
 
+@app.post('/api/suggestions/{suggestion_id}/render-ack')
+def suggestion_render_ack(suggestion_id: int, req: SuggestionRenderAckRequest, current_user: AuthContext = Depends(require_role('seller', 'manager', 'tenant_admin')), db: Session = Depends(get_db)):
+    """Sprint 3A (docs/DECISIONS.md ADR-048): the browser's Render-ACK, sent once
+    a suggestion has actually been painted — this is the ONLY place `t_ui_rendered_at`/
+    `real_rsl_ms` are ever set; nothing in the streaming pipeline approximates them
+    (see app/streaming/pipeline.py's `_process_turn()`). Looked up by `trace_id`
+    (the correlation id shared by the Suggestion row, the live-push envelope, and the
+    TurnLatencyTrace row for the same finalized turn) rather than by suggestion_id
+    directly, since TurnLatencyTrace is keyed by trace_id/turn_id, not suggestion_id.
+    """
+    row = db.get(Suggestion, suggestion_id)
+    if not row or row.company_id != current_user.company_id:
+        raise HTTPException(404, 'Suggestion not found')
+    if req.call_id is not None and row.call_id is not None and req.call_id != row.call_id:
+        raise HTTPException(400, 'call_id does not match this suggestion')
+
+    trace_id = req.trace_id or row.trace_id
+    trace_row = None
+    if trace_id:
+        trace_row = db.scalar(
+            select(TurnLatencyTrace).where(TurnLatencyTrace.trace_id == trace_id, TurnLatencyTrace.company_id == current_user.company_id)
+        )
+    if trace_row is None and row.call_id is not None:
+        # Fallback for a Suggestion whose trace_id didn't correlate to a trace row
+        # (e.g. an older/sandbox suggestion) — best-effort: the most recent trace
+        # for the same call. Never guessed across calls/tenants.
+        trace_row = db.scalar(
+            select(TurnLatencyTrace)
+            .where(TurnLatencyTrace.call_id == row.call_id, TurnLatencyTrace.company_id == current_user.company_id)
+            .order_by(TurnLatencyTrace.id.desc())
+        )
+    if trace_row is None:
+        db.commit()
+        return {'ok': True, 'real_rsl_ms': None, 'note': 'no matching TurnLatencyTrace found — nothing to update'}
+
+    received_at = datetime.utcfromtimestamp(req.client_received_epoch_ms / 1000)
+    rendered_at = datetime.utcfromtimestamp(req.client_rendered_epoch_ms / 1000)
+    trace_row.t_browser_received_at = received_at
+    trace_row.t_ui_rendered_at = rendered_at
+    trace_row.client_render_latency_ms = req.client_rendered_perf_ms - req.client_received_perf_ms
+    if trace_row.t_turn_end_detected_at is not None:
+        # Sprint 3A's own RSL formula: real_rsl_ms = t_ui_rendered - t_turn_end_detected.
+        # A cross-machine WALL-CLOCK delta (docs/DATA_MODEL.md's evidence-level note,
+        # app/models.py's TurnLatencyTrace docstring) — the only comparison possible
+        # between this server and the browser, subject to ordinary NTP clock skew.
+        trace_row.real_rsl_ms = (rendered_at - trace_row.t_turn_end_detected_at).total_seconds() * 1000
+    db.commit()
+    return {
+        'ok': True, 'trace_id': trace_row.trace_id, 'real_rsl_ms': trace_row.real_rsl_ms,
+        'client_render_latency_ms': trace_row.client_render_latency_ms,
+        'is_synthetic': trace_row.is_synthetic, 'asr_provider': trace_row.asr_provider,
+    }
+
+
 @app.post('/api/calls/{call_id}/complete')
 def complete_call(call_id: int, req: CompleteCallRequest, current_user: AuthContext = Depends(require_role('seller', 'manager', 'tenant_admin')), db: Session = Depends(get_db)):
     call = _get_call_or_404(db, call_id, current_user.company_id)
@@ -485,7 +542,7 @@ def integrations_status(current_user: AuthContext = Depends(require_role('tenant
         'hubspot': hubspot.status(),
         'google_calendar': google_calendar.status(),
         'salesforce': salesforce.status(),
-        'twilio': {'provider': 'twilio', 'connected': bool(settings.twilio_account_sid and settings.twilio_auth_token)},
+        'twilio': twilio_rest.status(),
         'openai_realtime': openai_status(),
     }
 
@@ -800,6 +857,106 @@ async def twilio_media(websocket: WebSocket, asr_provider: ASRProvider = Depends
         if pipeline is not None:
             await pipeline.close()
             logger.info('media stream diagnostics', extra={'fields': pipeline.diagnostics_summary()})
+
+
+_LIVE_AUTH_TIMEOUT_S = 5.0
+
+
+@app.websocket('/ws/live/{call_id}')
+async def live_suggestions(websocket: WebSocket, call_id: int):
+    """Sprint 3A (docs/DECISIONS.md ADR-048): live suggestion delivery to a
+    connected seller's browser client (app/services/live_push.LiveSuggestionHub).
+
+    Auth model: unlike Twilio's media stream (authenticated by X-Twilio-Signature
+    before accept()), this is a real browser client — it cannot set a custom
+    Authorization header on a WebSocket handshake, and putting a bearer token in
+    the URL query string risks it being captured in proxy/CDN access logs. So
+    instead of either, the connection is accepted first, and the FIRST message
+    must be `{"type": "auth", "token": "<JWT>"}` within `_LIVE_AUTH_TIMEOUT_S` —
+    functionally the same fail-closed posture as the media stream (an
+    unauthenticated connection is never left open, never processed), just carried
+    over the WS message channel instead of HTTP headers. Anything else (timeout, no
+    token, invalid/expired token, disabled user, role not permitted, call not in
+    this token's tenant) closes the connection immediately with code 1008.
+
+    Tenant isolation mirrors `_get_call_or_404()`'s posture: a wrong-tenant call_id
+    and a nonexistent call_id both just close the connection — never distinguishable
+    from each other, so a client can never probe for another tenant's call_id.
+    """
+    await websocket.accept()
+    try:
+        raw = await asyncio.wait_for(websocket.receive_text(), timeout=_LIVE_AUTH_TIMEOUT_S)
+    except (asyncio.TimeoutError, WebSocketDisconnect):
+        await websocket.close(code=1008)
+        return
+
+    token = None
+    auth_message: dict = {}
+    try:
+        auth_message = json.loads(raw)
+        if auth_message.get('type') == 'auth':
+            token = auth_message.get('token')
+    except (json.JSONDecodeError, AttributeError):
+        pass
+    if not token:
+        logger.warning('live suggestions: first message was not a valid auth frame')
+        await websocket.close(code=1008)
+        return
+    try:
+        payload = decode_access_token(token)
+    except jwt.InvalidTokenError:
+        logger.warning('live suggestions: invalid or expired token')
+        await websocket.close(code=1008)
+        return
+
+    db = SessionLocal()
+    try:
+        user = db.get(User, int(payload['sub']))
+        if user is None or not user.is_active:
+            await websocket.close(code=1008)
+            return
+        if user.role not in ('seller', 'manager', 'tenant_admin', 'system_admin'):
+            await websocket.close(code=1008)
+            return
+        call = db.get(Call, call_id)
+        tenant_id = user.company_id
+        if user.role == 'system_admin':
+            tenant_id = auth_message.get('company_id') or (call.company_id if call else None)
+        if call is None or tenant_id is None or call.company_id != tenant_id:
+            await websocket.close(code=1008)
+            return
+    finally:
+        db.close()
+
+    hub = get_live_suggestion_hub()
+    sub = hub.register(call_id=call_id, company_id=call.company_id, user_id=user.id, websocket=websocket)
+    logger.info('live suggestion client connected', extra={'fields': {'call_id': call_id, 'user_id': user.id}})
+    try:
+        last = hub.last_payload(call_id)
+        if last is not None:
+            # Reconnect behavior (Sprint 3A requirement 1): a reconnecting client
+            # is never left blank — it immediately gets the most recent suggestion
+            # for this call. The client is expected to dedupe on `suggestion_id`
+            # (it may already have rendered this exact one) — see app/static/live.html.
+            await websocket.send_json({'type': 'sync', **last})
+        while True:
+            # This connection is push-only from the server's perspective (the
+            # Render-ACK goes over a separate, reliable HTTP POST — see
+            # POST /api/suggestions/{id}/render-ack — precisely so a momentarily
+            # flaky WS connection can never silently swallow an ACK). Reading here
+            # only serves to detect a client disconnect promptly; any inbound text
+            # (e.g. a keepalive ping) is otherwise ignored.
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        pass
+    finally:
+        hub.unregister(sub)
+        logger.info('live suggestion client disconnected', extra={'fields': {'call_id': call_id, 'user_id': user.id}})
+
+
+@app.get('/live/{call_id}')
+def live_page(call_id: int):
+    return FileResponse(BASE_DIR/'static'/'live.html')
 
 
 @app.get('/api/demo/review-call')

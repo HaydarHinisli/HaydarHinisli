@@ -20,10 +20,11 @@ vendor, or real network conditions.
 import base64
 import json
 import math
+import time
 
 import pytest
 
-from conftest import auth_headers
+from conftest import auth_headers, login
 
 from app.streaming import mulaw
 from app.streaming.asr import SimulatedASRProvider, get_asr_provider
@@ -380,10 +381,13 @@ def test_latency_trace_stages_are_recorded_in_correct_monotonic_order(client, me
     assert trace.t_salesbrain_started_at is not None
     assert trace.t_salesbrain_finished_at is not None
     assert trace.t_suggestion_persisted_at is not None
-    # Sprint 2 explicitly stops at "Suggestion persisted" — no UI push exists yet.
-    assert trace.t_suggestion_pushed_at is None
+    # Sprint 3A: the suggestion is now actually handed to the live-delivery layer
+    # (docs/DECISIONS.md ADR-048), so t_suggestion_pushed_at IS set — but
+    # t_ui_rendered/real_rsl_ms only ever come from a real browser Render-ACK
+    # (POST /api/suggestions/{id}/render-ack), which never happens in this test.
+    assert trace.t_suggestion_pushed_at is not None
     assert trace.t_ui_rendered_at is None
-    assert trace.real_rsl_ms is None  # never approximated — see docs/DECISIONS.md ADR-041
+    assert trace.real_rsl_ms is None  # never approximated — see docs/DECISIONS.md ADR-041/048
 
     # wall-clock ordering (audit/tracing correlation)
     assert trace.t_audio_received_at <= trace.t_asr_interim_at <= trace.t_asr_final_at
@@ -437,3 +441,90 @@ def test_media_stream_never_sends_audio_back_to_twilio(client, media_stream_clie
 
     from app.models import Turn
     assert db_session.query(Turn).filter_by(call_id=call_id).count() == 1  # the call still completed normally
+
+
+# --- Sprint 3A Definition of Done: simulated stream -> ... -> live push -> real browser client -> Render-ACK -> full trace ---
+
+def test_sprint_3a_full_synthetic_path_through_live_push_and_render_ack(client, media_stream_client, db_session):
+    """Sprint 3A's own Definition of Done, run against the existing simulator since
+    no real Twilio/Deepgram credentials exist yet: simulated Twilio stream -> ASR ->
+    final turn -> ConversationState -> SalesBrain -> Suggestion -> Live Push -> a
+    REAL browser client connected over /ws/live/{call_id} -> a REAL Render-ACK HTTP
+    call (with genuine, if synthetic-timed, performance.now()/Date.now()-shaped
+    values) -> a complete TurnLatencyTrace row including a computed real_rsl_ms.
+
+    Honesty, restated (see this file's module docstring and the Sprint 3A report):
+    the audio/ASR content is still simulated, so this row's `is_synthetic` MUST stay
+    True and `asr_provider` MUST stay 'simulated' — the MECHANISM being proven here
+    (live push, WS auth, Render-ACK, real_rsl_ms computation) is real production
+    code; the call audio and transcript are not.
+    """
+    from app.models import TurnLatencyTrace
+
+    headers = auth_headers(client, 'haydar@replica-pilot.example')
+    call_id = _create_call(client, headers)
+    live_token = login(client, 'haydar@replica-pilot.example')
+
+    _use_script(client.app, {'inbound': ['Wir haben bereits einen Anbieter.']})
+    try:
+        with client.websocket_connect(f'/ws/live/{call_id}') as live_ws:
+            live_ws.send_text(json.dumps({'type': 'auth', 'token': live_token}))
+            with _connect(media_stream_client) as ws:
+                sim = StreamSimulator(ws, call_id=call_id)
+                sim.start()
+                sim.silence('inbound', 0.1)
+                sim.speak('inbound', 0.4)
+                sim.silence('inbound', 0.4)  # > 300ms hangover -> finalize/turn-end
+                sim.stop()
+            pushed = live_ws.receive_json()
+    finally:
+        _clear_script(client.app)
+
+    # --- Live Suggestion Push (requirement 1) ---
+    assert pushed['type'] == 'suggestion'
+    assert pushed['call_id'] == call_id
+    assert pushed['suggestion_id'] is not None
+    assert pushed['trace_id'] is not None
+    assert pushed['suggestion']  # non-empty "SAG JETZT" text
+
+    # --- Minimal UI payload shape (requirement 2): a guidance hint derived from
+    # the EXISTING strategy, plus separately-tagged debug info, never blended. ---
+    assert pushed['guidance_hint'] == 'weiterfragen'  # strategy: discover_buying_criteria
+    assert pushed['conversation_phase']
+    assert pushed['debug']['is_synthetic'] is True
+    assert pushed['debug']['asr_provider'] == 'simulated'
+    assert pushed['debug']['latencies_ms']['salesbrain'] is not None  # internal only, never real RSL
+
+    suggestion_id = pushed['suggestion_id']
+    trace_id = pushed['trace_id']
+
+    # --- Real UI-render acknowledgement (requirement 3): the browser's own
+    # monotonic (performance.now()-shaped) and wall-clock (Date.now()-shaped) pairs. ---
+    now_ms = time.time() * 1000
+    ack = client.post(
+        f'/api/suggestions/{suggestion_id}/render-ack', headers=headers,
+        json={
+            'trace_id': trace_id, 'call_id': call_id,
+            'client_received_epoch_ms': now_ms, 'client_rendered_epoch_ms': now_ms + 40,
+            'client_received_perf_ms': 500.0, 'client_rendered_perf_ms': 517.5,
+        },
+    )
+    assert ack.status_code == 200, ack.text
+    ack_body = ack.json()
+    assert ack_body['client_render_latency_ms'] == pytest.approx(17.5)
+
+    # --- Sprint 3A requirement 4: real_rsl_ms IS now computed (a real Render-ACK
+    # happened), but stays honestly labelled as a synthetic measurement (requirement 7). ---
+    trace = db_session.query(TurnLatencyTrace).filter_by(call_id=call_id, trace_id=trace_id).one()
+    assert trace.t_suggestion_pushed_at is not None  # handed to the live-delivery layer
+    assert trace.t_browser_received_at is not None
+    assert trace.t_ui_rendered_at is not None
+    assert trace.real_rsl_ms is not None
+    assert trace.real_rsl_ms >= 0
+    assert trace.client_render_latency_ms == pytest.approx(17.5)
+    assert trace.is_synthetic is True
+    assert trace.asr_provider == 'simulated'
+    # salesbrain_latency_ms is internal engine latency and must never be conflated
+    # with real_rsl_ms, even though both are non-null on this row now.
+    assert trace.salesbrain_latency_ms is not None
+    assert trace.salesbrain_latency_ms != trace.real_rsl_ms

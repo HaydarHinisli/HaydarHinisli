@@ -66,6 +66,23 @@ class SuggestionFeedbackRequest(BaseModel):
     used: bool | None = None
 
 
+class SuggestionRenderAckRequest(BaseModel):
+    """Sprint 3A (docs/DECISIONS.md ADR-048): the browser's own Render-ACK, sent
+    once after a suggestion has actually been painted on screen — never estimated
+    server-side. `*_epoch_ms` are wall-clock (`Date.now()`), used to correlate
+    against this server's own wall-clock `t_turn_end_detected_at` for `real_rsl_ms`
+    (the two are different processes/machines with no shared monotonic clock).
+    `*_perf_ms` are the browser's own monotonic `performance.now()` readings, used
+    only for the browser-local `client_render_latency_ms` delta — never compared
+    against anything server-side."""
+    trace_id: str | None = Field(default=None, max_length=80)
+    call_id: int | None = None
+    client_received_epoch_ms: float = Field(gt=0)
+    client_rendered_epoch_ms: float = Field(gt=0)
+    client_received_perf_ms: float = Field(ge=0)
+    client_rendered_perf_ms: float = Field(ge=0)
+
+
 class CompleteCallRequest(BaseModel):
     outcome: str = 'no_meeting'
     meeting_booked: bool = False

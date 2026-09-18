@@ -144,15 +144,22 @@ monotonic clock readings taken in-process. See `docs/DECISIONS.md` ADR-041.
   t_provider_endpoint_detected_at (Sprint 2B, ADR-046 — the ASR provider's OWN
   endpointing signal, comparison-only, never authoritative),
   t_salesbrain_started_at, t_salesbrain_finished_at, t_suggestion_persisted_at,
-  t_suggestion_pushed_at (still always null — no UI push exists yet),
-  t_ui_rendered_at (Sprint 3+)
+  t_suggestion_pushed_at (Sprint 3A, ADR-048 — set when the Suggestion is handed to
+  `LiveSuggestionHub`, regardless of whether a browser is connected at that moment),
+  **t_browser_received_at / t_ui_rendered_at** (Sprint 3A, ADR-048 — set ONLY by the
+  browser's own `POST /api/suggestions/{id}/render-ack`; never estimated server-side)
 - audio_to_interim_ms, audio_to_final_ms (ASR latency), turn_detection_latency_ms,
   provider_endpoint_vs_turn_end_ms (Sprint 2B, ADR-046: our VAD turn-end minus the
   provider's own endpointing — positive means ours fired later),
   salesbrain_latency_ms (internal Fast-Path engine latency — **not** RSL),
   suggestion_persist_latency_ms, suggestion_push_latency_ms,
+  **client_render_latency_ms** (Sprint 3A — the browser's own monotonic
+  `performance.now()` delta between receiving and painting the suggestion; a
+  browser-local diagnostic, never merged with anything server-side),
   real_rsl_ms (`t_ui_rendered - t_turn_end_detected` — the actual product metric;
-  stays null until a real UI render exists, never approximated)
+  stays null until a real Render-ACK exists, never approximated. Since Sprint 3A
+  this is a genuine WALL-CLOCK delta once computed — the browser and server share
+  no monotonic clock — unlike every other `_ms` column above, which are monotonic)
 
 ### Meeting
 - external provider ID

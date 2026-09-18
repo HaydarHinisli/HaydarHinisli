@@ -1148,3 +1148,123 @@ incidental: `tests/test_streaming_pipeline_e2e.py`'s
 `WebSocket.send_text`/`send_bytes`/`send_json` to raise, then runs a full
 golden-path simulated call through the real endpoint end to end — proving no code
 path attempts to send, rather than merely observing that none currently does.
+
+## ADR-048 — Live Suggestion Push + Render-ACK: WS auth over the message channel, wall-clock RSL, browser is the only source of `t_ui_rendered`
+Status: accepted
+
+Sprint 3A needs the last technical stretch for a real end-to-end RSL measurement:
+a persisted Suggestion pushed to the seller's browser, and a real (not estimated)
+timestamp for when it was actually painted.
+
+**Push transport and auth.** `app/services/live_push.LiveSuggestionHub` is an
+in-process, call_id-scoped WebSocket registry; `/ws/live/{call_id}`
+(`app/main.py`) is the browser-facing endpoint. Unlike the Twilio media stream
+(authenticated via `X-Twilio-Signature` before `accept()`, since Twilio can set
+custom headers), a browser WebSocket client cannot set a custom `Authorization`
+header on the handshake, and a bearer token in the URL query string risks being
+captured in reverse-proxy/CDN access logs. The endpoint therefore accepts the
+connection, then requires the FIRST message to be `{"type": "auth", "token":
+"<JWT>"}` within a short timeout — functionally the same fail-closed posture
+(unauthenticated connections are never left open or processed), carried over the
+WS message channel instead of HTTP headers. Tenant isolation is enforced twice
+redundantly: once when the endpoint registers a subscriber (only ever with the
+company_id it verified from that subscriber's own JWT), and again inside
+`LiveSuggestionHub.publish_suggestion()` itself before every send — a bug in
+either place alone still cannot cause a cross-tenant delivery. A wrong-tenant or
+nonexistent `call_id` both just close the connection with the same code, mirroring
+`_get_call_or_404()`'s "never distinguishable" posture.
+
+**Handoff, not delivery confirmation.** `t_suggestion_pushed_at` is marked the
+moment `app/streaming/pipeline.py`'s `_process_turn()` calls
+`hub.publish_suggestion(...)` — not when (or whether) a browser actually receives
+it. Zero connected subscribers is a legitimate outcome (the seller's tab isn't
+open yet), not a failed handoff; the persisted Suggestion genuinely was handed to
+the live-delivery layer either way. This matches the requirement's own wording
+("übergeben an den Live-Delivery-Layer", not "empfangen").
+
+**Reconnect and no-duplicate-display.** No backlog/replay queue of everything
+missed while disconnected — a reconnecting client's very next message is a `sync`
+frame carrying only the MOST RECENT suggestion for that call (guidance is
+inherently "latest wins" once a conversation has moved on; a full backlog is
+tracked tech debt, not needed for Sprint 3A's narrow scope). The browser
+(`app/static/live.html`) dedupes by `suggestion_id`: a `sync` resending the
+suggestion already on screen is a no-op, never a re-render or a second Render-ACK.
+
+**Render-ACK is a separate, reliable HTTP POST, not a WS message.** `POST
+/api/suggestions/{id}/render-ack` carries the browser's own measurements — deliberately
+NOT sent back over the same WebSocket, so a momentarily flaky live-push connection
+can never silently swallow the one signal Sprint 3A most needs. The ACK carries
+two independent timestamp pairs, never mixed: `client_received_perf_ms`/
+`client_rendered_perf_ms` (the browser's own `performance.now()`, monotonic,
+browser-local) produce `client_render_latency_ms` — "how long did the browser take
+to paint it", a pure client-side diagnostic. `client_received_epoch_ms`/
+`client_rendered_epoch_ms` (`Date.now()`, wall-clock) are converted to
+`t_browser_received_at`/`t_ui_rendered_at` and used for `real_rsl_ms =
+t_ui_rendered_at - t_turn_end_detected_at` — a WALL-CLOCK delta, the only
+comparison possible between this server and the browser, since they are different
+processes (usually different machines) with no shared monotonic clock. This is
+explicitly allowed by the brief ("Wall-Clock kann zusätzlich für
+Korrelation/Audit vorhanden sein") and inherits ordinary NTP clock-skew risk
+between the two machines as a documented limitation, not an oversight.
+`real_rsl_ms` stays NULL until this endpoint actually fires for a given trace —
+never approximated, never backfilled from the pipeline side.
+
+`app/static/live.html` measures `client_rendered_*` via a double
+`requestAnimationFrame` after the DOM update — a standard, low-overhead
+approximation for "actually painted" without the added complexity of the Paint
+Timing API; documented as an approximation, not treated as pixel-exact.
+
+## ADR-049 — Twilio EU region/edge (`ie1`/`dublin`) never silently falls back to the SDK's own `us1` default
+Status: accepted
+
+The Twilio Python SDK's `Client(...)` defaults to the `us1` region/edge when
+`region`/`edge` are omitted from its constructor — exactly the silent US1 fallback
+the pilot's EU data-residency requirement forbids. REPLICA does not yet call
+Twilio's REST API anywhere (it only RECEIVES webhooks and Media Streams, which
+target `REPLICA_PUBLIC_BASE_URL` and have no Twilio-region concept of their own),
+so there is no existing call site to fix — but Sprint 3A prepares the seam now so
+a later feature that DOES call Twilio's REST API (e.g. originating a call) cannot
+reintroduce the mistake by omission.
+
+`app/integrations/twilio_rest.get_twilio_rest_client()` is the single factory for
+any future Twilio REST client construction; it raises `ValueError` rather than
+constructing a client if `TWILIO_REGION`/`TWILIO_EDGE` are not both explicitly
+configured (`app/config.py` defaults them to `ie1`/`dublin` already for the EU
+pilot) — the same fail-closed posture as `app/secrets.py` and
+`app/webhooks/security.py` use for credential resolution elsewhere in this
+codebase. Deepgram's own EU configuration (`api.eu.deepgram.com`, `region='eu'`
+default, ADR-045) already satisfied this same requirement from Sprint 2B onward;
+this ADR is Twilio catching up to the same standard, prepared ahead of the
+feature that will need it, per the explicit instruction not to wait for
+credentials before doing the preparation work.
+
+## ADR-050 — Audio path checked: no unnecessary transcoding exists on the ASR path
+Status: accepted (verification only, no code change)
+
+Sprint 3A asked whether the current pipeline unnecessarily transcodes audio
+before handing it to the streaming ASR provider, given that Twilio Media Streams
+already deliver G.711 mu-law at 8kHz and Deepgram's streaming API accepts raw
+mu-law directly (`encoding=mulaw&sample_rate=8000`, already how
+`app/streaming/deepgram_provider._build_url()` configures the connection).
+
+Verified by reading, not by changing anything: `app/streaming/media_stream_
+session.py`'s `consume_media()` base64-decodes the wire payload into raw mu-law
+bytes (`payload_bytes`) and does nothing else to it. `app/streaming/pipeline.py`'s
+`consume_media()` then does exactly the two things the brief describes as the
+efficient shape, in parallel, from that SAME `payload_bytes` value:
+1. Feeds it directly to `self.asr_handles[track].feed_audio(chunk_info
+   ['payload_bytes'], ...)` — `DeepgramStreamHandle.feed_audio()`
+   (`app/streaming/deepgram_provider.py`) sends these bytes over the WebSocket
+   completely unmodified (`await self._connection.send(payload)`). Raw Twilio
+   mu-law reaches Deepgram with zero transcoding in between.
+2. Separately calls `self.vads[track].process_chunk(chunk_info['payload_bytes'])`
+   — `VoiceActivityDetector.process_chunk()` (`app/streaming/vad.py`) decodes
+   that SAME mu-law payload to linear PCM (`app/streaming/mulaw.decode()`) purely
+   to compute RMS energy for local turn detection. This decode is necessary (VAD
+   needs real signal energy) and is local, in-process, negligible-cost integer
+   arithmetic — not a network-facing transcode, and it never touches what is sent
+   to Deepgram.
+
+No unnecessary transcoding exists today; no code change was made. The pipeline
+already matches the "raw mu-law → ASR, and in parallel mu-law → PCM decode →
+local VAD" shape the brief asked to verify.

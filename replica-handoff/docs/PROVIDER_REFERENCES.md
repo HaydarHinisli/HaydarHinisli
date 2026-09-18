@@ -51,6 +51,11 @@ confirm before real-provider use**:
 - Deepgram Flux (model-integrated turn detection) is explicitly NOT used as the
   primary provider path yet, per the decision to keep our own VAD as the turn-end
   authority for now — noted as a later benchmark candidate, not implemented.
+- **Audio path checked (Sprint 3A, docs/DECISIONS.md ADR-050)**: raw Twilio
+  mu-law bytes are sent to Deepgram completely unmodified — no transcoding. Our
+  own VAD separately decodes the SAME bytes to PCM locally, purely to compute
+  signal energy; this never touches what is sent to Deepgram. No code change was
+  needed — the pipeline already matched the efficient shape.
 
 ## OpenAI Realtime / Voice WebSockets
 - https://developers.openai.com/api/docs/guides/realtime

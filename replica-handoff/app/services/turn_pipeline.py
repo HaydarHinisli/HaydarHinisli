@@ -53,7 +53,15 @@ def process_final_turn(
     reprocessing). `latency_trace`, when given (the streaming pipeline always passes
     one; direct/manual callers may omit it), gets its `salesbrain_started`/
     `salesbrain_finished`/`suggestion_persisted` stages marked at the precise points
-    below — see docs/DECISIONS.md ADR-041."""
+    below — see docs/DECISIONS.md ADR-041.
+
+    When a prospect turn produces a Suggestion, the result also carries
+    `suggestion_payload` (Sprint 3A, ADR-048) — everything app/streaming/pipeline.py
+    needs to hand to app/services/live_push.LiveSuggestionHub.publish_suggestion()
+    without reaching back into this module's internals or Suggestion's DB shape.
+    This function itself never touches a WebSocket or knows the live-push layer
+    exists — that stays the streaming pipeline's job, keeping this central
+    DB-transaction path free of transport concerns."""
     decision = can_process(
         db, 'transcribe', tenant_id=call.company_id, call_id=call.id, country_code=call.jurisdiction_country,
         prospect_type=call.prospect_type, campaign_type=call.campaign_type, speaker_mode=call.speaker_mode,
@@ -110,6 +118,22 @@ def process_final_turn(
             db.add(suggestion_row)
             db.flush()
             suggestion_id = suggestion_row.id
+            # Sprint 3A (ADR-048): everything app/streaming/pipeline.py needs to
+            # build the live-push envelope, without it having to know anything
+            # about Suggestion's DB shape or SalesBrain's result dict itself.
+            suggestion_payload = {
+                'suggestion_id': suggestion_id,
+                'suggestion': result['suggestion'],
+                'strategy': result['strategy'],
+                'reason': result['reason'],
+                'do_not': result['do_not'],
+                'confidence': result['confidence'],
+                'trace_id': trace_id,
+                'conversation_phase': new_state.current_phase,
+                'objection_type': new_state.active_objection,
+                'event_type': transition.get('event_type'),
+                'trigger': transition.get('trigger'),
+            }
         # else: transcription is allowed but live-assist isn't for this call right
         # now — the transcript above still persists (that's a separately gated
         # action, ADR-031/032), but phase does not advance and no suggestion is
@@ -125,6 +149,8 @@ def process_final_turn(
         record_state_event(db, call, 'seller', transition, turn_index=new_state.turn_index)
 
     result_ref = {'turn_row_id': turn_row.id, 'suggestion_id': suggestion_id}
+    if suggestion_id is not None:
+        result_ref['suggestion_payload'] = suggestion_payload
     record_result(claim_row, result_ref)
     db.commit()
     if latency_trace:

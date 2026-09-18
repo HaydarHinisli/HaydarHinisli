@@ -36,6 +36,12 @@ Turn Detector ───────────► FAST PATH
 
 The Fast Path is allowed to be deterministic / small-model based.
 
+Sprint 3A implements the last box ("Seller UI") for real: `app/services/
+live_push.LiveSuggestionHub` pushes each persisted Suggestion to the seller's
+connected browser client over `/ws/live/{call_id}`, and `app/static/live.html` is
+a minimal (non-final) UI proving the mechanism — see `docs/DECISIONS.md` ADR-048
+and `docs/API_SPEC.md`. The full REPLICA seller frontend itself remains future work.
+
 ## 3. Smart Path
 
 For complex cases only:
@@ -129,18 +135,39 @@ to the more granular set actually implemented:
 - `t_asr_interim` (refines `t_interim_transcript`)
 - `t_asr_final` (new — separates ASR's own final-transcript signal from turn detection)
 - `t_turn_end_detected`
+- `t_provider_endpoint_detected` (Sprint 2B — the ASR provider's OWN endpointing
+  signal, e.g. Deepgram's `speech_final`, captured for comparison only; our own VAD
+  remains the sole turn-end authority, see `docs/DECISIONS.md` ADR-046)
 - `t_salesbrain_started` / `t_salesbrain_finished` (together refine `t_fast_path_ready`)
 - `t_suggestion_persisted` (refines `t_suggestion_sent`)
-- `t_suggestion_pushed` (new — not yet reached in Sprint 2; no UI push mechanism exists yet)
-- `t_ui_rendered` (Sprint 3+)
+- `t_suggestion_pushed` (Sprint 3A — now actually reached: the moment the persisted
+  Suggestion is handed to `app/services/live_push.LiveSuggestionHub`, regardless of
+  whether a browser happens to be connected at that instant, see ADR-048)
+- `t_browser_received` / `t_ui_rendered` (Sprint 3A — set ONLY by the browser's own
+  Render-ACK, `POST /api/suggestions/{id}/render-ack`; never estimated server-side)
 
 Primary metric (unchanged):
 
 `RSL = t_ui_rendered - t_turn_end_detected`
 
-`real_rsl_ms` stays `NULL` until `t_ui_rendered` exists — never approximated.
+`real_rsl_ms` stays `NULL` until a real Render-ACK sets `t_ui_rendered` — never
+approximated. Since Sprint 3A, this is a genuine, computed value whenever a
+Render-ACK has fired for that trace — but it is necessarily a WALL-CLOCK delta
+(the browser and this server share no monotonic clock), unlike every other `_ms`
+column here, which are all monotonic-derived (see `docs/DECISIONS.md` ADR-048).
 `t_salesbrain_started`→`t_salesbrain_finished` (the pre-existing internal Fast-Path
 engine latency, Sprint 1 ADR-021/022) is recorded separately and must never be
 reported as RSL. ASR delay (`t_audio_received`→`t_asr_final`) and turn-detection
 delay (`t_asr_final`→`t_turn_end_detected`) are likewise recorded as their own
 columns so bottlenecks are visible individually, per the original intent here.
+`client_render_latency_ms` (Sprint 3A — the browser's own `performance.now()`
+delta between receiving and painting the suggestion) is a further, separate
+diagnostic, never merged into `real_rsl_ms`.
+
+As of Sprint 3A, every stage through `t_suggestion_pushed` is populated by
+`app/streaming/pipeline.py` for every finalized turn (whether or not a seller
+browser is connected); `t_browser_received`/`t_ui_rendered`/`real_rsl_ms` are
+populated later, asynchronously, only when that specific browser client actually
+acknowledges rendering it — see `docs/DECISIONS.md` ADR-048 for the full design
+and its "no real Twilio/Deepgram traffic yet" caveat (`is_synthetic`/`asr_provider`
+still label every row honestly regardless of how complete its timing chain is).

@@ -1,8 +1,9 @@
-"""Media stream pipeline glue (Sprint 2/2B): wires MediaStreamSession (track-separated
-transport parsing + diagnostics) -> VoiceActivityDetector (per track) -> ASRProvider
-(per track) -> TurnDetector -> the central turn-processing path
-(app/services/turn_pipeline.process_final_turn()), instrumented end-to-end with
-app/services/latency_trace.LatencyTrace.
+"""Media stream pipeline glue (Sprint 2/2B/3A): wires MediaStreamSession
+(track-separated transport parsing + diagnostics) -> VoiceActivityDetector (per
+track) -> ASRProvider (per track) -> TurnDetector -> the central turn-processing
+path (app/services/turn_pipeline.process_final_turn()) -> Live Suggestion Push
+(app/services/live_push.LiveSuggestionHub, Sprint 3A ADR-048), instrumented
+end-to-end with app/services/latency_trace.LatencyTrace.
 
 Architectural guarantee (requirement 5 — interim transcripts must never themselves
 advance state): interim ASR events only ever reach `_on_interim` below, which does
@@ -25,10 +26,12 @@ independent WebSocket connection — see app/streaming/asr.py's module docstring
 from __future__ import annotations
 import logging
 import time
+import uuid
 
 from ..db import SessionLocal
 from ..models import Call
 from ..services.latency_trace import LatencyTrace, build_latency_trace_row
+from ..services.live_push import get_live_suggestion_hub, guidance_hint
 from ..services.turn_pipeline import process_final_turn
 from .asr import ASRProvider, ASRStreamHandle
 from .media_stream_session import MediaStreamSession, TRACKS
@@ -166,11 +169,17 @@ class MediaStreamPipeline:
         trace.mark('turn_end_detected', at_monotonic=now_monotonic)
         if turn_event is None:
             return
-        self._process_turn(turn_event, trace)
+        await self._process_turn(turn_event, trace)
 
-    def _process_turn(self, turn_event, trace: LatencyTrace) -> None:
+    async def _process_turn(self, turn_event, trace: LatencyTrace) -> None:
         """The ONLY call site of process_final_turn() in this module — the single
         central path for a genuinely final turn (requirement 6)."""
+        # Sprint 3A (ADR-048): one id per finalized turn, correlating the Suggestion
+        # row, the live-push envelope, the TurnLatencyTrace row, and (later,
+        # out-of-band) the browser's own Render-ACK — generated here rather than
+        # left None, since a real end-to-end RSL measurement needs a single id that
+        # survives across the DB commit and the async WS push both.
+        trace_id = str(uuid.uuid4())
         db = SessionLocal()
         try:
             call = db.get(Call, self.call_id)
@@ -178,22 +187,51 @@ class MediaStreamPipeline:
                 logger.error('media stream: call disappeared mid-stream', extra={'fields': {'call_id': self.call_id}})
                 return
             result = process_final_turn(
-                db, call, turn_event.speaker, turn_event.text, company_id=self.company_id, latency_trace=trace,
+                db, call, turn_event.speaker, turn_event.text, company_id=self.company_id,
+                latency_trace=trace, trace_id=trace_id,
             )
             self.processed_turns.append({
                 'speaker': turn_event.speaker, 'text': turn_event.text, 'had_overlap': turn_event.had_overlap, **result,
             })
             if result.get('denied') or result.get('duplicate'):
                 return
-            # Sprint 2 ends at "Suggestion persisted" (see docs/DECISIONS.md
-            # ADR-041 / final report) — there is no real UI push mechanism yet for
-            # this pipeline, so `suggestion_pushed`/`ui_rendered`/`real_rsl_ms`
-            # stay unmarked/NULL rather than being approximated. Marking them here
-            # would silently manufacture a fake RSL number, exactly what the
-            # explicit "never call internal latency real RSL" requirement forbids.
+            suggestion_payload = result.get('suggestion_payload')
+            if suggestion_payload is not None:
+                # Sprint 3A requirement 1: handing the persisted Suggestion to the
+                # live-delivery layer IS this call — `t_suggestion_pushed` marks
+                # the handoff itself, not confirmed delivery to a browser (there
+                # may be zero connected subscribers right now, which is a valid
+                # outcome, not a failure — see LiveSuggestionHub.publish_suggestion()).
+                hub = get_live_suggestion_hub()
+                push_payload = {
+                    'call_id': self.call_id, 'turn_id': result.get('turn_id'), **suggestion_payload,
+                    'guidance_hint': guidance_hint(suggestion_payload.get('strategy')),
+                    # Debug-only diagnostics (app/static/live.html's separate debug
+                    # panel — Sprint 3A requirement 2): internal engine timings, NEVER
+                    # to be shown as or confused with real_rsl_ms (ADR-021/022/048).
+                    'debug': {
+                        'asr_provider': self.asr_provider_name,
+                        'is_synthetic': self.is_synthetic,
+                        'latencies_ms': {
+                            'audio_to_final': trace.delta_ms('audio_received', 'asr_final'),
+                            'turn_detection': trace.delta_ms('asr_final', 'turn_end_detected'),
+                            'salesbrain': trace.delta_ms('salesbrain_started', 'salesbrain_finished'),
+                            'suggestion_persist': trace.delta_ms('salesbrain_finished', 'suggestion_persisted'),
+                        },
+                    },
+                }
+                await hub.publish_suggestion(call_id=self.call_id, company_id=self.company_id, payload=push_payload)
+                trace.mark('suggestion_pushed')
+            # Sprint 2 ended at "Suggestion persisted"; Sprint 3A adds the actual
+            # push above, but `t_ui_rendered`/`real_rsl_ms` still stay unmarked/NULL
+            # here — those are only ever set later, out of band, by the browser's
+            # own POST /api/suggestions/{id}/render-ack (docs/DECISIONS.md ADR-048).
+            # Marking them here would silently manufacture a fake RSL number,
+            # exactly what the explicit "never call internal latency real RSL"
+            # requirement forbids.
             row = build_latency_trace_row(
                 trace, company_id=self.company_id, call_id=self.call_id,
-                turn_id=result.get('turn_id', ''), trace_id=None, speaker=turn_event.speaker,
+                turn_id=result.get('turn_id', ''), trace_id=trace_id, speaker=turn_event.speaker,
                 asr_provider=self.asr_provider_name, is_synthetic=self.is_synthetic,
             )
             db.add(row)

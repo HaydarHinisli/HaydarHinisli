@@ -24,6 +24,16 @@ class Settings(BaseSettings):
 
     twilio_account_sid: str | None = None
     twilio_auth_token: str | None = None
+    # Sprint 3A: Twilio's "Regions and Edge Locations" — governs which Twilio
+    # datacenter processes REST API calls this app makes TO Twilio (not the
+    # inbound webhook/media-stream traffic FROM Twilio, which always targets
+    # REPLICA_PUBLIC_BASE_URL and has no region concept of its own). Defaults are
+    # already EU (ie1/dublin) per the explicit pilot requirement — see
+    # app/integrations/twilio_rest.py, which refuses to construct a client without
+    # both set, rather than silently falling back to the Twilio SDK's own us1
+    # default (docs/DECISIONS.md ADR-049).
+    twilio_region: str | None = 'ie1'
+    twilio_edge: str | None = 'dublin'
 
     # Sprint 2B: streaming ASR provider selection (app/streaming/asr.get_asr_provider()).
     # 'simulated' (default) is the only provider that works without credentials — see

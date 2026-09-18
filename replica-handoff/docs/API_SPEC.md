@@ -144,6 +144,29 @@ suggest_transition_now}`), `trace_id`, and (when call-scoped) `policy_decision` 
 {"rating":"good","used":true}
 ```
 
+### `POST /api/suggestions/{id}/render-ack` (Sprint 3A, `docs/DECISIONS.md` ADR-048)
+The browser's own Render-ACK, sent once a pushed suggestion has actually been
+painted on screen — the ONLY place `t_ui_rendered_at`/`real_rsl_ms` are ever set.
+```json
+{
+  "trace_id": "3f9e...",
+  "call_id": 42,
+  "client_received_epoch_ms": 1758312345123.4,
+  "client_rendered_epoch_ms": 1758312345168.9,
+  "client_received_perf_ms": 512.3,
+  "client_rendered_perf_ms": 529.8
+}
+```
+`*_epoch_ms` (`Date.now()`, wall-clock) drive `real_rsl_ms` against this server's
+own `t_turn_end_detected_at` — necessarily a cross-machine wall-clock delta, since
+browser and server share no monotonic clock. `*_perf_ms` (`performance.now()`,
+monotonic, browser-local) drive `client_render_latency_ms` only — never compared
+against anything server-side. Looked up by `trace_id` (falls back to the
+suggestion's own `trace_id`, then to the most recent trace for the same call);
+a suggestion with no matching `TurnLatencyTrace` row returns `200 {"ok": true,
+"real_rsl_ms": null, ...}` rather than an error — a safe no-op, not a failure.
+Returns `404` if the suggestion does not belong to the caller's tenant.
+
 ## Manager — `manager`, `tenant_admin`
 
 ### `GET /api/manager/overview`
@@ -291,3 +314,50 @@ This endpoint has no synchronous HTTP response; its effects are observable via
 the `TurnLatencyTrace`/`ConversationStateEvent` tables (no dedicated read endpoint
 for those two yet — direct DB/audit tooling only, matching this sprint's scope of
 proving the pipeline shape rather than adding new product-facing read APIs).
+
+### `WS /ws/live/{call_id}` (Sprint 3A, `docs/DECISIONS.md` ADR-048)
+Live Suggestion Push to a seller's connected browser client
+(`app/services/live_push.LiveSuggestionHub`). **No `Authorization` header and no
+token in the URL** — a browser WebSocket client cannot set custom handshake
+headers, and a bearer token in the query string risks capture in proxy/CDN access
+logs. Instead: connect, then send `{"type": "auth", "token": "<JWT>"}` as the
+FIRST message within 5 seconds. Anything else (timeout, wrong shape, invalid/
+expired token, disabled user, role not in `seller`/`manager`/`tenant_admin`/
+`system_admin`, or `call_id` not in this token's tenant) closes the connection
+(code 1008) — same fail-closed, non-distinguishing posture as `_get_call_or_404()`
+(a wrong-tenant call_id and a nonexistent one look identical).
+
+On successful auth, if a suggestion was already pushed for this `call_id` since
+server start, it is immediately sent as `{"type": "sync", ...}` (reconnect
+support — always the latest one only, never a backlog). Every subsequent
+suggestion for this call arrives as:
+```json
+{
+  "type": "suggestion",
+  "call_id": 42, "turn_id": "...", "suggestion_id": 123, "trace_id": "3f9e...",
+  "suggestion": "Was ist Ihnen bei Ihrer aktuellen Lösung am wichtigsten?",
+  "strategy": "discover_buying_criteria", "reason": "...", "do_not": "...",
+  "confidence": 0.88, "guidance_hint": "weiterfragen",
+  "conversation_phase": "objection", "objection_type": "existing_supplier",
+  "event_type": "objection_raised", "trigger": "existing_supplier",
+  "debug": {"asr_provider": "simulated", "is_synthetic": true, "latencies_ms": {"...": 12.3}}
+}
+```
+`guidance_hint` is an optional, presentational-only short label derived from the
+existing `strategy` (never a new SalesBrain decision — see ADR-048); `debug.*` is
+for the debug panel only (`app/static/live.html`), never to be shown as or
+confused with real RSL. The client is expected to dedupe by `suggestion_id`
+(never render/ACK the same one twice) and to reconnect with backoff on close —
+this endpoint pushes only; the client sends nothing back over it except the
+initial auth frame (Render-ACK goes over the separate, reliable
+`POST /api/suggestions/{id}/render-ack` above, precisely so a momentarily flaky
+push connection can never silently swallow an ACK).
+
+`t_suggestion_pushed_at` on the corresponding `TurnLatencyTrace` row is set the
+moment the pipeline hands the suggestion to this hub — regardless of whether any
+browser is connected at that instant (a legitimate outcome, not a failed handoff).
+
+### `GET /live/{call_id}`
+Serves `app/static/live.html` — a minimal, non-final test/debug UI for the above
+(big "SAG JETZT" suggestion text, an optional guidance badge, and a togglable
+debug panel). Not the final REPLICA seller frontend.

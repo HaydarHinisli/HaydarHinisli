@@ -367,17 +367,25 @@ class TurnLatencyTrace(Base):
     app/services/turn_pipeline.process_final_turn().
 
     Wall-clock `_at` columns are for audit/cross-system correlation only. Every
-    `_ms` duration column is computed from monotonic clock readings taken in-process
-    (see docs/DECISIONS.md ADR-041) — monotonic values themselves are never
-    persisted, only the deltas, since a monotonic clock's epoch is arbitrary and
-    meaningless outside the process that read it.
+    server-side `_ms` duration column (everything except `real_rsl_ms` and
+    `client_render_latency_ms`, see below) is computed from monotonic clock
+    readings taken in-process (see docs/DECISIONS.md ADR-041) — monotonic values
+    themselves are never persisted, only the deltas, since a monotonic clock's
+    epoch is arbitrary and meaningless outside the process that read it.
 
     `salesbrain_latency_ms` is the pre-existing internal Fast-Path engine latency
     (ADR-021/022) now measured inside a real pipeline — it is NOT, and must never be
     reported as, real RSL. `real_rsl_ms` is the actual product metric
     (`t_ui_rendered - t_turn_end_detected`, per docs/ARCHITECTURE.md §8) and stays
-    NULL until a real UI render acknowledgement exists (Sprint 3+); it is never
-    backfilled with an approximation.
+    NULL until a real Render-ACK from the browser exists (Sprint 3A, ADR-048); it is
+    never backfilled with an approximation. Unlike every other `_ms` column here,
+    `real_rsl_ms` is necessarily a WALL-CLOCK delta, not a monotonic one — the
+    browser and this server are different processes (usually different machines)
+    with no shared monotonic clock, so wall-clock is the only cross-machine
+    correlation available, exactly as docs/DATA_MODEL.md's evidence-level note and
+    the Sprint 3A brief both allow ("Wall-Clock kann zusätzlich für Korrelation/
+    Audit vorhanden sein"). This means `real_rsl_ms` inherits ordinary NTP clock-skew
+    risk between the two machines — a documented limitation, not an oversight.
 
     Sprint 2B (ADR-045/046): `asr_provider`/`is_synthetic` make it structurally
     impossible to confuse a `SimulatedASRProvider` development measurement with a
@@ -387,6 +395,15 @@ class TurnLatencyTrace(Base):
     `speech_final`), purely so it can be compared against our VAD-driven
     `t_turn_end_detected_at` after real test calls — never used to drive turn-end
     itself (our own VAD remains authoritative, see docs/DECISIONS.md ADR-039/046).
+
+    Sprint 3A (ADR-048): `t_browser_received_at`/`t_ui_rendered_at` and
+    `client_render_latency_ms` are populated later, out of band, by
+    POST /api/suggestions/{id}/render-ack — NOT by the streaming pipeline that
+    creates this row. `client_render_latency_ms` is the browser's own monotonic
+    delta (`performance.now()` at render minus at receipt) and is a distinct
+    measurement from `real_rsl_ms`: one is "how long did the browser take to paint
+    it", the other is "how long did the whole thing take from turn-end" — never
+    merged into a single number.
     """
     __tablename__ = 'turn_latency_traces'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -413,6 +430,11 @@ class TurnLatencyTrace(Base):
     t_salesbrain_finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     t_suggestion_persisted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     t_suggestion_pushed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Sprint 3A (ADR-048): set from the browser's own Render-ACK, NOT estimated
+    # server-side — the two halves of "how long did delivery to the browser take"
+    # vs. "how long did the browser take to paint it" (client_render_latency_ms
+    # below), kept separate rather than blended into one number.
+    t_browser_received_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     t_ui_rendered_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     audio_to_interim_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -424,6 +446,11 @@ class TurnLatencyTrace(Base):
     salesbrain_latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
     suggestion_persist_latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
     suggestion_push_latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Sprint 3A (ADR-048): the browser's OWN monotonic delta (performance.now() at
+    # render minus performance.now() at receipt) — how long the browser itself took
+    # to paint the suggestion after receiving it. Never mixed with any server-side
+    # or wall-clock number; it is meaningful only as a client-local duration.
+    client_render_latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
     real_rsl_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)

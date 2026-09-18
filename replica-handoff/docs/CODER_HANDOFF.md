@@ -43,11 +43,13 @@ A real consented phone conversation produces timestamped speaker turns in REPLIC
 protocol-level simulation (real WebSocket, real signature verification, real
 mu-law-encoded audio, real signal-energy VAD, real turn detection, the real central
 processing path, real measured latencies) — see `docs/DECISIONS.md` ADR-037..042 and
-`tests/test_streaming_pipeline_e2e.py`. What remains, honestly, before this "Done
-when" is met by an ACTUAL phone call: a live Twilio account/phone number wired to
-this endpoint, and a real ASR vendor implementing the `ASRProvider` seam
-(`app/streaming/asr.py`) in place of `SimulatedASRProvider`. Neither is reachable
-from this development environment.
+`tests/test_streaming_pipeline_e2e.py`. A real ASR vendor adapter also now exists
+(`app/streaming/deepgram_provider.py`, ADR-045) behind the same `ASRProvider` seam.
+What remains, honestly, before this "Done when" is met by an ACTUAL phone call: a
+live Twilio account/phone number wired to this endpoint, and a live Deepgram
+account/API key — this is Sprint 2B's own still-open scope (see the Sprint 2B
+report); `SimulatedASRProvider` remains the only implementation actually exercised
+end-to-end so far. Neither is reachable from this development environment.
 
 ## Sprint 3 — Low-latency copilot
 
@@ -64,6 +66,20 @@ Implement:
 - P95 target ≤800 ms after detected turn end
 - one primary recommendation, not a list
 - seller can rate/use suggestion with one click
+
+**Status (Sprint 3A)**: the "UI push" mechanism itself is now real —
+`app/services/live_push.LiveSuggestionHub` + `/ws/live/{call_id}` + a real
+browser Render-ACK (`POST /api/suggestions/{id}/render-ack`) — see
+`docs/DECISIONS.md` ADR-048. `real_rsl_ms` is now a genuinely computed value
+whenever a Render-ACK has fired, not merely a NULL placeholder. What is still
+missing before the P50/P95 targets above can be evaluated for real: actual
+measured values from a real Twilio/Deepgram call (blocked on the same
+credentials as Sprint 2B) — every value produced so far is against
+`SimulatedASRProvider`, honestly labelled `is_synthetic=True`. `app/static/
+live.html` is a minimal test/debug UI proving the mechanism, not the final
+seller frontend (still future work) — early intent/event classifier on interim
+transcripts and an optional Smart Path remain unimplemented, out of Sprint 3A's
+deliberately narrow scope.
 
 ## Sprint 4 — Audio features / Reaction Delta
 

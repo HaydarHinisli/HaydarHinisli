@@ -22,6 +22,22 @@ Production requirements:
 - provider tokens encrypted per tenant
 - no cross-tenant query path in ordinary application code
 
+**WebSocket auth (Sprint 3A, `docs/DECISIONS.md` ADR-048)**: `/ws/live/{call_id}`
+is a browser-facing WebSocket, which cannot set a custom `Authorization` header on
+its handshake the way an HTTP request can, and a bearer token in the URL query
+string risks capture in reverse-proxy/CDN access logs. It is therefore
+authenticated by requiring the connection's FIRST message to be `{"type": "auth",
+"token": "<JWT>"}` within a short timeout — the same fail-closed posture as every
+other endpoint in this codebase (an unauthenticated connection is never left open
+or processed), carried over the WS message channel instead of HTTP headers.
+Tenant isolation for this endpoint is checked twice, redundantly: once when the
+connection registers with `LiveSuggestionHub` (always using the company_id
+verified from that connection's OWN JWT, never client-supplied), and again inside
+`LiveSuggestionHub.publish_suggestion()` before every send. A wrong-tenant or
+nonexistent `call_id` both just close the connection identically, mirroring
+`_get_call_or_404()`'s "existence must not be distinguishable from ownership"
+posture used everywhere else in this codebase.
+
 ## 3. Private Learning by default
 
 Default:
