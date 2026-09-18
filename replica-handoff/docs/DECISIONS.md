@@ -1351,3 +1351,56 @@ None of the four points above change SalesBrain, ConversationState, or the
 turn-detection/ASR pipeline — this is entirely measurement-precision and
 transport-security hardening on top of what Sprint 3A already built, ahead of
 the first real Twilio IE1 + Deepgram EU provider test call.
+
+## ADR-052 — Follow-up review of ADR-051: Origin check moved before accept(); monotonic comparability verified, not assumed
+Status: accepted
+
+Two corrections to ADR-051's own implementation, raised on review, both fixed
+before the first real provider test call.
+
+**1. Origin check now runs before `websocket.accept()`.** ADR-051 added the
+`Origin` allowlist check on `/ws/live/{call_id}`, but the original
+implementation called `accept()` first and closed immediately afterward if the
+origin was disallowed — functionally rejecting the connection, but only after
+briefly accepting it. An ASGI WebSocket's headers (including `Origin`) are
+available from the connection `scope` immediately, before any accept/close
+call — exactly like the Twilio media stream's `X-Twilio-Signature` check, which
+already ran before `accept()` from Sprint 2 onward. The check is now ordered to
+match: reject-and-`close()` for a disallowed origin happens BEFORE `accept()`,
+so a disallowed origin never receives an accepted WebSocket connection at all.
+`websocket.close()` is valid to call pre-accept per ASGI — sending
+`websocket.close` instead of `websocket.accept` in response to the initial
+`websocket.connect` message IS the standard way a server rejects a WebSocket
+handshake. Proven by
+`tests/test_live_suggestions_ws.py::test_ws_rejects_disallowed_origin_before_accepting_the_connection`,
+which structurally distinguishes "rejected at handshake" from "accepted then
+closed" (verified to fail under the old, since-fixed ordering before being kept
+as a regression guard) — the same proof style already used for the Twilio media
+stream's own pre-accept rejection tests.
+
+**2. `server_render_ack_latency_ms` comparability is now VERIFIED, not assumed.**
+ADR-051 discarded a negative computed delta as a heuristic sign of a process
+restart between turn-end and the Render-ACK, but relied on the pilot's
+single-instance/sticky deployment topology (`docs/DEPLOYMENT.md`) as an
+*assumption* that `t_turn_end_detected_monotonic` and the Render-ACK's own
+`time.monotonic()` reading came from the same runtime — true in the common
+case, but not actually checked. `app/services/latency_trace.RUNTIME_BOOT_ID` (a
+random id generated once per process start) is now stamped alongside
+`t_turn_end_detected_monotonic` (new column
+`t_turn_end_detected_monotonic_runtime_id`, migration `d93903408234`); the
+Render-ACK endpoint compares it against its OWN process's current
+`RUNTIME_BOOT_ID` before computing `server_render_ack_latency_ms` at all. A
+mismatch — a restart, a host change, or (in a misconfigured multi-instance
+deployment) a different instance receiving the Render-ACK — means comparability
+cannot be verified, and the value is simply never computed for that row (never
+fabricated from an unverifiable comparison), logged as a warning for
+operational visibility. The pre-existing negative-delta check remains as a
+secondary defensive net for the case where the ids somehow match but the
+comparison is still nonsensical (should not happen, checked anyway). This
+directly implements the requirement that a host change, multi-instance
+deployment, or incompatible monotonic time base must never silently produce a
+latency value — verified structurally, not just documented, and covered by
+`tests/test_live_suggestions_ws.py::test_render_ack_discards_server_upper_bound_on_runtime_id_mismatch`.
+
+Neither change touches SalesBrain, ConversationState, or the ASR/turn-detection
+pipeline.

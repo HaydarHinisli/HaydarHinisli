@@ -17,9 +17,22 @@ ui_rendered (stays unmarked here — only ever set out of band by a real
 Render-ACK, see app/services/turn_pipeline and app/main.py's render-ack endpoint).
 `provider_endpoint_detected` (Sprint 2B) is an additional, comparison-only stage —
 see docs/DECISIONS.md ADR-046.
+
+`RUNTIME_BOOT_ID` (follow-up hardening after ADR-051): a random id generated once
+per process start, stamped onto `TurnLatencyTrace.t_turn_end_detected_monotonic_
+runtime_id` alongside the raw monotonic value. `time.monotonic()`'s reference
+point is documented by Python itself as undefined outside the process that read
+it; comparing a value captured in one process/host against `time.monotonic()`
+read later in a DIFFERENT process (a restart, a host change, or — in a
+misconfigured multi-instance deployment — a different instance entirely) can
+silently produce a meaningless or wildly wrong delta. Comparing `RUNTIME_BOOT_ID`
+first (see app/main.py's render-ack endpoint) is how comparability is actually
+VERIFIED rather than assumed: a mismatch means "not safely comparable", and the
+derived `server_render_ack_latency_ms` is then never computed, not estimated.
 """
 from __future__ import annotations
 import time
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -30,6 +43,10 @@ STAGES = (
     'provider_endpoint_detected', 'salesbrain_started', 'salesbrain_finished',
     'suggestion_persisted', 'push_enqueued', 'ws_send_completed', 'ui_rendered',
 )
+
+# Generated once, at first import of this module (i.e. once per process
+# lifetime) — see the module docstring above for what this guards against.
+RUNTIME_BOOT_ID = uuid.uuid4().hex
 
 
 @dataclass(frozen=True)
@@ -88,7 +105,12 @@ def build_latency_trace_row(
         # ADR-051: the one deliberately-persisted raw monotonic value — see
         # TurnLatencyTrace's class docstring — needed later to compute
         # server_render_ack_latency_ms when the Render-ACK HTTP request arrives.
+        # Stamped with RUNTIME_BOOT_ID so that later comparison can be VERIFIED
+        # rather than assumed — see this module's docstring.
         t_turn_end_detected_monotonic=trace.monotonic_at('turn_end_detected'),
+        t_turn_end_detected_monotonic_runtime_id=(
+            RUNTIME_BOOT_ID if trace.monotonic_at('turn_end_detected') is not None else None
+        ),
         t_provider_endpoint_detected_at=trace.wallclock('provider_endpoint_detected'),
         t_salesbrain_started_at=trace.wallclock('salesbrain_started'),
         t_salesbrain_finished_at=trace.wallclock('salesbrain_finished'),

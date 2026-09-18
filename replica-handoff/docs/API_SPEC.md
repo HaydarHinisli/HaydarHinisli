@@ -345,8 +345,11 @@ expired token, disabled user, role not in `seller`/`manager`/`tenant_admin`/
 (code 1008) — same fail-closed, non-distinguishing posture as `_get_call_or_404()`
 (a wrong-tenant call_id and a nonexistent one look identical).
 
-**Origin allowlist (ADR-051)**, checked immediately after accept, before even
-the auth-message wait: the `Origin` header must be on the
+**Origin allowlist (ADR-051, ordering hardened by ADR-052)**, checked BEFORE
+`websocket.accept()` — a disallowed origin never receives an accepted
+connection at all, only a handshake-level rejection (`websocket.close()`,
+which is valid to call pre-accept, exactly like the Twilio media stream's own
+signature check). The `Origin` header must be on the
 `REPLICA_ALLOWED_WS_ORIGINS` allowlist outside `REPLICA_ENV=local` (production/
 staging/any other non-local value) — a valid JWT alone is no longer sufficient
 there. An empty/unset allowlist rejects every connection outside local dev

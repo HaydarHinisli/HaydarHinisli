@@ -38,9 +38,21 @@ the same `register()`/`publish_suggestion()` interface `LiveSuggestionHub`
 already exposes — not a redesign of the calling code in
 `app/streaming/pipeline.py` or `app/main.py`.
 
-This same single-instance assumption is also relied on by
-`TurnLatencyTrace.t_turn_end_detected_monotonic` (`docs/DECISIONS.md` ADR-051):
-comparing a `time.monotonic()` reading from turn-end against one read later, when
-the Render-ACK HTTP request arrives, is only valid if both reads happen on the
-same machine's uptime clock without a restart in between — true under this same
-single-instance/sticky topology, not guaranteed otherwise.
+This same single-instance topology is also what makes
+`TurnLatencyTrace.t_turn_end_detected_monotonic` (`docs/DECISIONS.md` ADR-051)
+comparable in practice: comparing a `time.monotonic()` reading from turn-end
+against one read later, when the Render-ACK HTTP request arrives, is only valid
+if both reads happen in the same process without a restart in between — true
+under this topology, not guaranteed otherwise. As of ADR-052, this is no longer
+just an assumption relied on silently: `t_turn_end_detected_monotonic` is
+stamped with a per-process-start `RUNTIME_BOOT_ID`
+(`app/services/latency_trace.py`), and `server_render_ack_latency_ms` is only
+ever computed when the Render-ACK's own process reports the SAME id. A process
+restart, a host change, or (should this deployment constraint ever be violated)
+a Render-ACK landing on a different instance than the one that detected
+turn-end all produce a runtime-id mismatch — and the value is then simply never
+computed for that row, not fabricated from an unverifiable comparison. This
+does not relax the single-instance/sticky-routing requirement above (Live
+Suggestion Push itself still fails silently on a topology violation) — it only
+guarantees that THIS ONE derived metric fails safe rather than fails silently
+wrong when the topology constraint is violated.

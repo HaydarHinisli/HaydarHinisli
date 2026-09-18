@@ -401,14 +401,26 @@ class TurnLatencyTrace(Base):
     - **`t_turn_end_detected_monotonic`** — the one deliberate exception to "never
       persist a monotonic value": needed later, when the Render-ACK HTTP request
       arrives (a separate request, potentially much later) on the SAME machine/
-      process, to compute `server_render_ack_latency_ms` above.
-      `time.monotonic()` is `CLOCK_MONOTONIC` on Linux, which is shared
-      system-wide (not per-process) — comparing it across two requests to the same
-      server is valid PROVIDED the process/machine has not restarted in between,
-      an assumption already implied by this pilot's single-instance deployment
-      topology (see `docs/DEPLOYMENT.md`). If the computed delta comes out
-      negative (the tell-tale sign of a restart in between), it is discarded
-      (left NULL) rather than persisting a nonsensical value.
+      process, to compute `server_render_ack_latency_ms` above. `time.monotonic()`'s
+      reference point is documented by Python itself as undefined outside the
+      process that read it — comparing it across two requests is only valid when
+      BOTH were read by the same process on the same host, never assumed.
+    - **`t_turn_end_detected_monotonic_runtime_id`** — a random id
+      (`app/services/latency_trace.RUNTIME_BOOT_ID`) generated once per process
+      start, stamped alongside `t_turn_end_detected_monotonic`. The Render-ACK
+      endpoint compares this against ITS OWN process's current
+      `RUNTIME_BOOT_ID` before computing `server_render_ack_latency_ms` — a
+      mismatch (process restart, host change, or — in a misconfigured
+      multi-instance deployment, see `docs/DEPLOYMENT.md` — a different
+      instance entirely) means comparability cannot be verified, and
+      `server_render_ack_latency_ms` is simply never computed for that row
+      (left NULL), rather than risking a silently meaningless or wildly wrong
+      number. A computed delta that is still somehow negative despite a
+      matching runtime id (should not happen, but checked defensively) is
+      likewise discarded. This pilot's single-instance/sticky deployment
+      topology (`docs/DEPLOYMENT.md`) is what makes a runtime-id MATCH the
+      common case in practice — but the check itself does not trust that
+      topology; it verifies comparability directly, every time.
     - **`clock_offset_estimate_ms` / `clock_rtt_estimate_ms` / `clock_uncertainty_ms`**
       — prepared, not yet used to correct anything: a lightweight NTP-style
       offset/RTT/uncertainty estimate between the browser's and this server's
@@ -479,10 +491,11 @@ class TurnLatencyTrace(Base):
     # ADR-051: server wall-clock moment the Render-ACK HTTP request was processed —
     # distinct from t_ui_rendered_at (the BROWSER's own reported render moment).
     t_render_ack_received_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    # ADR-051: the one deliberate exception to "never persist a monotonic value" —
-    # see the class docstring for why this is safe under the pilot's single-instance
-    # deployment assumption, and how a restart-in-between is detected/discarded.
+    # The one deliberate exception to "never persist a monotonic value" — see the
+    # class docstring. Paired with a runtime-id stamp so a later comparison can be
+    # VERIFIED as safe rather than assumed (never trusted on the value alone).
     t_turn_end_detected_monotonic: Mapped[float | None] = mapped_column(Float, nullable=True)
+    t_turn_end_detected_monotonic_runtime_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
     audio_to_interim_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
     audio_to_final_ms: Mapped[float | None] = mapped_column(Float, nullable=True)

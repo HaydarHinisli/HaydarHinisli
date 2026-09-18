@@ -28,6 +28,7 @@ from .schemas import (
 from .secrets import get_secrets_provider
 from .seed import seed_demo
 from .services.clock_sync import ClockSyncSample, estimate_clock_sync
+from .services.latency_trace import RUNTIME_BOOT_ID
 from .services.conversation_state import apply_turn
 from .services.conversation_state_store import (
     apply_state_to_row, conversation_state_dict, load_or_create_conversation_state_row,
@@ -483,13 +484,28 @@ def suggestion_render_ack(suggestion_id: int, req: SuggestionRenderAckRequest, c
         # server and the browser without clock-sync correction, subject to
         # ordinary NTP clock skew. Hence "estimate", never treated as exact.
         trace_row.wallclock_rsl_estimate_ms = (rendered_at - trace_row.t_turn_end_detected_at).total_seconds() * 1000
-    if trace_row.t_turn_end_detected_monotonic is not None:
+    if (
+        trace_row.t_turn_end_detected_monotonic is not None
+        and trace_row.t_turn_end_detected_monotonic_runtime_id == RUNTIME_BOOT_ID
+    ):
+        # Runtime-id match confirms this monotonic value was captured by THIS
+        # same process — the only condition under which comparing it against a
+        # fresh time.monotonic() reading is valid (see app/models.py's docstring
+        # and app/services/latency_trace.py's RUNTIME_BOOT_ID). A negative delta
+        # despite a matching id would be a genuine anomaly (should not happen),
+        # checked defensively and discarded rather than persisted.
         upper_bound = (now_monotonic - trace_row.t_turn_end_detected_monotonic) * 1000
-        # A negative value can only mean the process/machine restarted between
-        # turn-end and this request — time.monotonic() lost its reference point,
-        # so the raw persisted value is no longer comparable. Discard rather than
-        # persist a nonsensical negative "latency" (see app/models.py's docstring).
-        trace_row.server_render_ack_latency_ms = upper_bound if upper_bound >= 0 else None
+        if upper_bound >= 0:
+            trace_row.server_render_ack_latency_ms = upper_bound
+    elif trace_row.t_turn_end_detected_monotonic is not None:
+        # A process restart, host change, or (in a misconfigured multi-instance
+        # deployment) a different instance entirely between turn-end and this
+        # request — comparability cannot be verified, so nothing is computed
+        # from it. Never fabricate a number from an unverifiable comparison.
+        logger.warning(
+            'render-ack: monotonic runtime mismatch — server_render_ack_latency_ms not computed',
+            extra={'fields': {'trace_id': trace_row.trace_id}},
+        )
     if req.clock_sync_samples:
         samples = [
             ClockSyncSample(
@@ -922,13 +938,20 @@ async def live_suggestions(websocket: WebSocket, call_id: int):
     and a nonexistent call_id both just close the connection — never distinguishable
     from each other, so a client can never probe for another tenant's call_id.
 
-    Fix-Sprint (ADR-051): on top of the JWT auth above, the `Origin` header is
-    checked against a configurable allowlist (`REPLICA_ALLOWED_WS_ORIGINS`) outside
-    local dev — a valid JWT alone no longer suffices in production/staging if the
-    connecting page isn't served from an allowed REPLICA origin. See
-    app/services/ws_origin.py.
+    Fix-Sprint (ADR-051, hardened further per follow-up review): on top of the
+    JWT auth above, the `Origin` header is checked against a configurable
+    allowlist (`REPLICA_ALLOWED_WS_ORIGINS`) outside local dev — a valid JWT
+    alone no longer suffices in production/staging if the connecting page isn't
+    served from an allowed REPLICA origin. This check now runs BEFORE
+    `websocket.accept()` — an ASGI WebSocket's headers (including `Origin`) are
+    available from the connection scope immediately, before any accept/close
+    call, exactly like the Twilio media stream's signature check above. A
+    disallowed origin is rejected at the handshake (`websocket.close()` is valid
+    pre-accept per ASGI — sending `websocket.close` instead of
+    `websocket.accept` IS how a WebSocket handshake is rejected) and never
+    receives an accepted connection at all, rather than being accepted and then
+    immediately dropped. See app/services/ws_origin.py.
     """
-    await websocket.accept()
     if not is_allowed_origin(
         websocket.headers.get('origin'), env=settings.replica_env,
         allowed_origins=parse_allowed_origins(settings.replica_allowed_ws_origins),
@@ -936,6 +959,7 @@ async def live_suggestions(websocket: WebSocket, call_id: int):
         logger.warning('live suggestions: origin not allowed', extra={'fields': {'origin': websocket.headers.get('origin')}})
         await websocket.close(code=1008)
         return
+    await websocket.accept()
     try:
         raw = await asyncio.wait_for(websocket.receive_text(), timeout=_LIVE_AUTH_TIMEOUT_S)
     except (asyncio.TimeoutError, WebSocketDisconnect):

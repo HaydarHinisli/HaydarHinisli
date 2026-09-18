@@ -144,8 +144,13 @@ taken in-process. See `docs/DECISIONS.md` ADR-041/051.
 - t_audio_received_at, t_asr_interim_at, t_asr_final_at, t_turn_end_detected_at,
   **t_turn_end_detected_monotonic** (ADR-051 — a raw monotonic float, the ONE
   deliberate exception to "never persist a monotonic value", needed later to
-  compute `server_render_ack_latency_ms`; valid only under this pilot's
-  single-instance deployment topology, see `docs/DEPLOYMENT.md`),
+  compute `server_render_ack_latency_ms`) plus
+  **t_turn_end_detected_monotonic_runtime_id** (ADR-052 — a per-process-start id
+  that must match the CURRENT process's own id before that computation happens
+  at all; a mismatch — restart, host change, or a misconfigured multi-instance
+  deployment routing the Render-ACK elsewhere — means comparability is
+  unverifiable and the value is never computed, not just discarded as an
+  after-the-fact heuristic; see `docs/DEPLOYMENT.md`),
   t_provider_endpoint_detected_at (Sprint 2B, ADR-046 — the ASR provider's OWN
   endpointing signal, comparison-only, never authoritative),
   t_salesbrain_started_at, t_salesbrain_finished_at, t_suggestion_persisted_at,

@@ -11,6 +11,7 @@ from conftest import DEMO_PASSWORD, auth_headers, login
 from app.auth.security import hash_password
 from app.db import SessionLocal
 from app.models import Call, Company, Seller, Suggestion, TurnLatencyTrace, User
+from app.services.latency_trace import RUNTIME_BOOT_ID
 
 
 def _create_call(client, headers, **overrides):
@@ -133,6 +134,25 @@ def test_ws_rejects_disallowed_origin_in_production(client, monkeypatch):
             ws.receive_text()
 
 
+def test_ws_rejects_disallowed_origin_before_accepting_the_connection(client, monkeypatch):
+    """Proves the Origin check runs BEFORE websocket.accept() (follow-up
+    hardening after the Fix-Sprint review), not merely 'closes eventually'.
+    Starlette's TestClient only fails at connect-time (`__enter__`) when the
+    server responds with `websocket.close` instead of `websocket.accept` — if
+    the server had accepted first and closed afterward, `__enter__` would
+    succeed and the `pytest.fail()` below would run, which `pytest.raises`
+    does NOT swallow (`Failed` is not an `Exception` subclass), so this test
+    would then correctly fail instead of passing."""
+    import app.main as main_module
+    monkeypatch.setattr(main_module.settings, 'replica_env', 'production')
+    monkeypatch.setattr(main_module.settings, 'replica_allowed_ws_origins', 'https://app.replica.example')
+    headers = auth_headers(client, 'haydar@replica-pilot.example')
+    call_id = _create_call(client, headers)
+    with pytest.raises(Exception):
+        with client.websocket_connect(f'/ws/live/{call_id}', headers={'origin': 'https://evil.example'}):
+            pytest.fail('connection must never be accepted for a disallowed origin')
+
+
 def test_ws_rejects_missing_origin_header_in_production(client, monkeypatch):
     import app.main as main_module
     monkeypatch.setattr(main_module.settings, 'replica_env', 'production')
@@ -206,7 +226,7 @@ def test_render_ack_updates_the_matching_trace_and_computes_wallclock_rsl_estima
     trace = TurnLatencyTrace(
         company_id=1, call_id=call_id, turn_id='t1', trace_id=trace_id, speaker='prospect',
         asr_provider='simulated', is_synthetic=True, t_turn_end_detected_at=datetime.utcnow(),
-        t_turn_end_detected_monotonic=time.monotonic(),
+        t_turn_end_detected_monotonic=time.monotonic(), t_turn_end_detected_monotonic_runtime_id=RUNTIME_BOOT_ID,
     )
     db_session.add(trace)
     suggestion = Suggestion(
@@ -269,6 +289,43 @@ def test_render_ack_without_turn_end_monotonic_leaves_server_upper_bound_null(cl
     body = r.json()
     assert body['wallclock_rsl_estimate_ms'] is not None  # still computed, wall-clock only needs t_turn_end_detected_at
     assert body['server_render_ack_latency_ms'] is None
+
+
+def test_render_ack_discards_server_upper_bound_on_runtime_id_mismatch(client, db_session):
+    """A trace row whose t_turn_end_detected_monotonic was stamped by a DIFFERENT
+    runtime (a process restart, a host change, or a misconfigured multi-instance
+    deployment routing the render-ack to a different instance) must never produce
+    a server_render_ack_latency_ms — the raw monotonic value alone is never
+    trusted, only a matching RUNTIME_BOOT_ID proves comparability."""
+    headers = auth_headers(client, 'haydar@replica-pilot.example')
+    call_id = _create_call(client, headers)
+    trace_id = 'test-trace-foreign-runtime'
+    trace = TurnLatencyTrace(
+        company_id=1, call_id=call_id, turn_id='t3', trace_id=trace_id, speaker='prospect',
+        asr_provider='simulated', is_synthetic=True, t_turn_end_detected_at=datetime.utcnow(),
+        t_turn_end_detected_monotonic=time.monotonic(),
+        t_turn_end_detected_monotonic_runtime_id='a-completely-different-process-boot-id',
+    )
+    db_session.add(trace)
+    suggestion = Suggestion(
+        company_id=1, call_id=call_id, trace_id=trace_id, prospect_text='x', suggestion='y',
+        strategy='discover_buying_criteria', latency_ms=1.0,
+    )
+    db_session.add(suggestion)
+    db_session.commit()
+    db_session.refresh(suggestion)
+
+    r = client.post(
+        f'/api/suggestions/{suggestion.id}/render-ack', headers=headers,
+        json=_ack_payload(trace_id=trace_id, call_id=call_id),
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body['wallclock_rsl_estimate_ms'] is not None  # unaffected — wall-clock only
+    assert body['server_render_ack_latency_ms'] is None  # discarded — comparability not verified
+
+    db_session.refresh(trace)
+    assert trace.server_render_ack_latency_ms is None
 
 
 def test_render_ack_is_tenant_scoped(client, other_tenant):
