@@ -4,12 +4,26 @@
 
 Goal: receive real-time call audio on a server-side WebSocket.
 
-Implemented in Sprint 2 (`app/streaming/`, `POST /ws/twilio-media` in
-`app/main.py` — see `docs/DECISIONS.md` ADR-037..042):
+Implemented in Sprint 2/2B (`app/streaming/`, `POST /ws/twilio-media` in
+`app/main.py` — see `docs/DECISIONS.md` ADR-037..047):
 1. ~~create/bridge the actual outbound or inbound call flow~~ — still requires a
    real Twilio phone number / TwiML `<Stream>` configuration; not itself REPLICA code.
-2. ~~start Media Stream for the desired tracks~~ — REPLICA expects `tracks="both_tracks"`
-   (`inbound`/`outbound`); provider-side TwiML configuration, not REPLICA code.
+2. **start Media Stream for the desired tracks — required TwiML (Sprint 2B, ADR-047)**:
+   ```xml
+   <Response>
+     <Start>
+       <Stream url="wss://<your-public-host>/ws/twilio-media" track="both_tracks">
+         <Parameter name="replica_call_id" value="<REPLICA's own Call.id>" />
+       </Stream>
+     </Start>
+     <!-- ... continue with <Dial> to bridge the seller, etc. ... -->
+   </Response>
+   ```
+   Must be `<Start><Stream>` — a parallel, listen-only side-channel while the call's
+   own audio path continues normally — **never** `<Connect><Stream>`, which replaces
+   the call's own bidirectional media path and is for voice agents that need to send
+   audio back into the call. REPLICA's current assist MVP only listens; see ADR-047
+   for the full unidirectional-mode rationale and the code-level guarantee it enforces.
 3. **verify Twilio request/signature** — done, `app/streaming/media_stream_security.py`,
    same official `RequestValidator` as the HTTP webhook (ADR-036/037). Documented
    assumption about WS handshake signing (no live Twilio account to confirm against
@@ -17,12 +31,19 @@ Implemented in Sprint 2 (`app/streaming/`, `POST /ws/twilio-media` in
 4. **decode μ-law payload** — done, `app/streaming/mulaw.py` (own implementation,
    not the deprecated stdlib `audioop`; byte-exact verified against it in tests).
 5. **split/label channels** — done, `app/streaming/media_stream_session.py` keeps
-   `inbound` (prospect) and `outbound` (seller/agent) completely separate end to end.
-6. **forward stream to ASR and audio feature extractor** — done for the seam and
-   the audio-feature (VAD) side (`app/streaming/vad.py`); the ASR side has no live
-   vendor wired in — `app/streaming/asr.py`'s `SimulatedASRProvider` is the one
-   implementation of the `ASRProvider` seam today (ADR-042), honestly labelled as
-   non-functional transcription, ready for a real vendor to drop in.
+   `inbound`/`outbound` completely separate end to end; which track is `prospect` vs.
+   `seller` is resolved via `app/streaming/speaker_mapping.py` (Sprint 2B, ADR-043),
+   NOT a hardcoded assumption — see that ADR for the explicit outbound-sales-flow
+   topology restriction this resolver is scoped to.
+6. **forward stream to ASR and audio feature extractor** — done for the seam, the
+   audio-feature (VAD) side (`app/streaming/vad.py`), and now a real vendor adapter:
+   `app/streaming/deepgram_provider.py`'s `DeepgramASRProvider` (Sprint 2B, ADR-045),
+   selected via `REPLICA_ASR_PROVIDER=deepgram` + `DEEPGRAM_API_KEY`. **Not yet
+   verified against a live Deepgram account** — implemented per documented protocol
+   and tested against a local protocol-faithful fake server only; see ADR-045 and
+   the Sprint 2B report for exactly what real-provider verification still requires.
+   `SimulatedASRProvider` remains the default and the one implementation actually
+   exercised end-to-end so far.
 7. **record Twilio call SID as `external_call_id`** — done indirectly: the stream is
    *correlated* to a `Call` via `external_call_id` (or `customParameters.replica_call_id`,
    preferred when set) rather than written by the stream itself, matching how the

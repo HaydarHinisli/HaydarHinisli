@@ -783,21 +783,22 @@ async def twilio_media(websocket: WebSocket, asr_provider: ASRProvider = Depends
                     logger.warning('media stream: could not resolve a Call for this stream — closing', extra={'fields': {'call_sid': correlation_session.call_sid}})
                     await websocket.close(code=1008)
                     return
-                pipeline = MediaStreamPipeline(call_id=call.id, company_id=call.company_id, asr_provider=asr_provider)
+                pipeline = await MediaStreamPipeline.create(call_id=call.id, company_id=call.company_id, asr_provider=asr_provider)
                 pipeline.consume_start(message)
             elif event == 'media':
                 if pipeline is None:
                     continue  # media before a resolved start is a protocol violation — ignore, don't crash
-                pipeline.consume_media(message)
+                await pipeline.consume_media(message)
             elif event == 'stop':
                 if pipeline is not None:
-                    pipeline.consume_stop(message)
+                    await pipeline.consume_stop(message)
                 break
     except WebSocketDisconnect:
         if pipeline is not None:
-            pipeline.consume_stop({'event': 'stop', 'sequenceNumber': None})
+            await pipeline.consume_stop({'event': 'stop', 'sequenceNumber': None})
     finally:
         if pipeline is not None:
+            await pipeline.close()
             logger.info('media stream diagnostics', extra={'fields': pipeline.diagnostics_summary()})
 
 

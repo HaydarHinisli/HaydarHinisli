@@ -248,20 +248,31 @@ Deterministically assigns a call to a variant.
 ## Streaming
 
 ### `WS /ws/twilio-media`
-Twilio Media Streams ingestion (Sprint 2, `docs/DECISIONS.md` ADR-037..042). **No
+Twilio Media Streams ingestion (Sprint 2/2B, `docs/DECISIONS.md` ADR-037..047). **No
 `Authorization` header** — authenticated solely by `X-Twilio-Signature` at the
 handshake (verified BEFORE accepting the connection), exactly like the call-status
 webhook, via the same official `RequestValidator`. Missing/invalid signature, or an
 unresolvable auth token → connection closed (code 1008), never accepted. Production
 connections must arrive over `wss` (`REPLICA_ENV=production` gates enforcement,
-since local/dev has no TLS-terminating proxy in front of it).
+since local/dev has no TLS-terminating proxy in front of it). **Unidirectional
+(ADR-047)**: REPLICA never sends data back over this connection — the required
+TwiML is `<Start><Stream>` (a listen-only side-channel), never `<Connect><Stream>`.
 
 Expects Twilio's standard `connected`/`start`/`media`/`stop` message sequence,
 `tracks="both_tracks"`. The `start` event's `customParameters.replica_call_id` (set
 via a `<Parameter>` on the `<Stream>` TwiML noun) is used to resolve the REPLICA
 `Call`; falling back to matching `callSid` against `Call.external_call_id` when not
 set. No resolvable call → connection closed immediately (no tenant/policy context to
-evaluate against).
+evaluate against). Which track (`inbound`/`outbound`) is `prospect`/`seller` is
+resolved via `app/streaming/speaker_mapping.py`, scoped to REPLICA's one supported
+call topology today (ADR-043) — see that ADR before using this endpoint with any
+other telephony setup.
+
+Streaming ASR provider is selected server-side via `REPLICA_ASR_PROVIDER`
+(`simulated`, the default, or `deepgram` + `DEEPGRAM_API_KEY` — ADR-045); not a
+request parameter. `SimulatedASRProvider` remains the only one exercised end-to-end
+so far — `DeepgramASRProvider` is implemented but not yet verified against a live
+account.
 
 Per-message processing: `inbound` (prospect) and `outbound` (seller/agent) tracks are
 tracked completely separately (identity/sequence diagnostics, voice-activity

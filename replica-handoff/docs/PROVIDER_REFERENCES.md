@@ -21,6 +21,37 @@ going live: the WebSocket handshake request is signed with `X-Twilio-Signature` 
 same way as an HTTP webhook, validated against the request URL and its query-string
 parameters (empty dict, since there is no POST body).
 
+## Deepgram Streaming ASR (Sprint 2B)
+- https://developers.deepgram.com/docs/getting-started-with-live-streaming-audio
+- https://developers.deepgram.com/reference/speech-to-text-api/listen-streaming
+- https://developers.deepgram.com/docs/model-nova-3
+
+Important assumed facts (`app/streaming/deepgram_provider.py`, `docs/DECISIONS.md`
+ADR-045) — **unverified against a live Deepgram account from this environment,
+confirm before real-provider use**:
+- WebSocket endpoint `wss://api.deepgram.com/v1/listen` (global) or
+  `wss://api.eu.deepgram.com/v1/listen` (EU region, used here per the explicit
+  requirement for EU data residency).
+- Auth via `Authorization: Token <API_KEY>` header on the handshake.
+- Query params used: `model=nova-3`, `language=de`, `interim_results=true`,
+  `mip_opt_out=true` (opts out of Deepgram's model-improvement program, per the
+  explicit requirement), `encoding=mulaw&sample_rate=8000&channels=1` (Twilio's
+  default media format).
+- Audio sent as raw binary WebSocket frames (not JSON) after connecting.
+- Results arrive as JSON `{"type": "Results", "is_final": bool, "speech_final":
+  bool, "channel": {"alternatives": [{"transcript": str, "words": [...]}]}}`
+  messages; word-level timestamps are included in `words` when available, no extra
+  flag required.
+- `{"type": "Finalize"}` (sent as text) prompts Deepgram to flush its buffer
+  immediately without closing the connection — used here to implement OUR
+  VAD-driven `finalize()`, not Deepgram's own endpointing.
+- `{"type": "CloseStream"}` (sent as text) requests a graceful close.
+- Keyterm prompting: a repeatable `keyterm=<term>` query parameter, supported on
+  Nova-3 — wired as a constructor parameter (`keyterms`), not populated yet.
+- Deepgram Flux (model-integrated turn detection) is explicitly NOT used as the
+  primary provider path yet, per the decision to keep our own VAD as the turn-end
+  authority for now — noted as a later benchmark candidate, not implemented.
+
 ## OpenAI Realtime / Voice WebSockets
 - https://developers.openai.com/api/docs/guides/realtime
 - https://developers.openai.com/api/docs/guides/voice-websockets

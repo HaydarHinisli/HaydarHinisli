@@ -1,4 +1,4 @@
-"""Media stream pipeline glue (Sprint 2): wires MediaStreamSession (track-separated
+"""Media stream pipeline glue (Sprint 2/2B): wires MediaStreamSession (track-separated
 transport parsing + diagnostics) -> VoiceActivityDetector (per track) -> ASRProvider
 (per track) -> TurnDetector -> the central turn-processing path
 (app/services/turn_pipeline.process_final_turn()), instrumented end-to-end with
@@ -17,6 +17,10 @@ opened and closed around exactly one `process_final_turn()` call) — never one
 long-lived session held open for the whole WebSocket connection, matching the
 one-Session-per-unit-of-work discipline used everywhere else in this codebase
 (app/db.py's `get_db()`).
+
+Async (Sprint 2B, ADR-044): consuming media/stop is now a coroutine, since a real
+ASR provider's feed/poll/finalize calls are themselves async I/O against an
+independent WebSocket connection — see app/streaming/asr.py's module docstring.
 """
 from __future__ import annotations
 import logging
@@ -26,40 +30,73 @@ from ..db import SessionLocal
 from ..models import Call
 from ..services.latency_trace import LatencyTrace, build_latency_trace_row
 from ..services.turn_pipeline import process_final_turn
-from .asr import ASRProvider
+from .asr import ASRProvider, ASRStreamHandle
 from .media_stream_session import MediaStreamSession, TRACKS
+from .speaker_mapping import SpeakerRoleResolver
 from .turn_detector import TurnDetector
 from .vad import VoiceActivityDetector
 
 logger = logging.getLogger('replica.streaming')
 
 
+def _describe_provider(asr_provider: ASRProvider) -> tuple[str, bool]:
+    """Returns (name, is_synthetic) for TurnLatencyTrace labelling (ADR-045).
+    Avoids importing SimulatedASRProvider by class identity check at module import
+    time to sidestep any future circular-import risk; a duck-typed class-name check
+    is enough for this purely-cosmetic labelling purpose."""
+    class_name = type(asr_provider).__name__
+    if class_name == 'SimulatedASRProvider':
+        return 'simulated', True
+    if class_name == 'DeepgramASRProvider':
+        return 'deepgram', False
+    return class_name.lower(), False
+
+
 class MediaStreamPipeline:
-    def __init__(self, *, call_id: int, company_id: int, asr_provider: ASRProvider):
+    def __init__(self, *, call_id: int, company_id: int, speaker_role_resolver: SpeakerRoleResolver | None = None):
         self.call_id = call_id
         self.company_id = company_id
         self.session = MediaStreamSession()
-        self.turn_detector = TurnDetector()
+        self.turn_detector = TurnDetector() if speaker_role_resolver is None else TurnDetector(speaker_role_resolver=speaker_role_resolver)
         self.vads = {t: VoiceActivityDetector() for t in TRACKS}
-        self.asr_handles = {t: asr_provider.start_stream(track=t) for t in TRACKS}
+        self.asr_handles: dict[str, ASRStreamHandle] = {}
         self.active_traces: dict[str, LatencyTrace | None] = {t: None for t in TRACKS}
         self.latest_interim: dict[str, str] = {t: '' for t in TRACKS}
+        # Sprint 2B (ADR-045): stamped onto every TurnLatencyTrace row this pipeline
+        # produces, so a real vs. synthetic measurement can never be confused later.
+        self.asr_provider_name = 'simulated'
+        self.is_synthetic = True
         # For inspection/tests — not itself part of any compliance/business record.
         self.processed_turns: list[dict] = []
+
+    @classmethod
+    async def create(
+        cls, *, call_id: int, company_id: int, asr_provider: ASRProvider,
+        speaker_role_resolver: SpeakerRoleResolver | None = None,
+    ) -> 'MediaStreamPipeline':
+        pipeline = cls(call_id=call_id, company_id=company_id, speaker_role_resolver=speaker_role_resolver)
+        pipeline.asr_provider_name, pipeline.is_synthetic = _describe_provider(asr_provider)
+        for track in TRACKS:
+            pipeline.asr_handles[track] = await asr_provider.start_stream(track=track)
+        return pipeline
 
     def consume_start(self, message: dict) -> None:
         self.session.consume_start(message)
 
-    def consume_stop(self, message: dict) -> None:
+    async def consume_stop(self, message: dict) -> None:
         self.session.consume_stop(message)
         now = time.monotonic()
         # A call hanging up mid-utterance must not silently discard whatever was
         # already spoken — finalize any track still mid-speech.
         for track in TRACKS:
             if self.vads[track].is_speaking:
-                self._handle_silence(track, now_monotonic=now)
+                await self._handle_silence(track, now_monotonic=now)
 
-    def consume_media(self, message: dict) -> dict:
+    async def close(self) -> None:
+        for handle in self.asr_handles.values():
+            await handle.close()
+
+    async def consume_media(self, message: dict) -> dict:
         now = time.monotonic()
         chunk_info = self.session.consume_media(message, now_monotonic=now)
         track = chunk_info['track']
@@ -87,13 +124,22 @@ class MediaStreamPipeline:
         is_speaking, _energy = self.vads[track].process_chunk(chunk_info['payload_bytes'])
         self.turn_detector.on_vad_update(track, is_speaking, now_monotonic=now)
 
-        interim_event = self.asr_handles[track].feed_audio(chunk_info['payload_bytes'], is_speaking=is_speaking)
-        if interim_event is not None:
-            trace.mark('asr_interim', at_monotonic=now)
-            self._on_interim(track, interim_event.text)
+        await self.asr_handles[track].feed_audio(chunk_info['payload_bytes'], is_speaking=is_speaking)
+        for event in await self.asr_handles[track].poll_events():
+            if event.kind == 'interim':
+                trace.mark('asr_interim', at_monotonic=now)
+                self._on_interim(track, event.text)
+            # A provider-native 'final'/speech_final signal here (e.g. Deepgram's
+            # is_final=true / speech_final=true) is NOT our turn-end signal — only
+            # our own VAD falling silent triggers finalize() below and drives
+            # process_final_turn(). It IS captured, with its own timestamp, purely
+            # so the two can be compared after the fact (docs/DECISIONS.md ADR-046,
+            # Sprint 2B requirement 4: measure before replacing).
+            if event.provider_speech_final:
+                trace.mark('provider_endpoint_detected', at_monotonic=event.t_monotonic)
 
         if was_speaking and not is_speaking:
-            self._handle_silence(track, now_monotonic=now)
+            await self._handle_silence(track, now_monotonic=now)
 
         return chunk_info
 
@@ -107,8 +153,8 @@ class MediaStreamPipeline:
         proving Sprint 2's pipeline shape."""
         self.latest_interim[track] = text
 
-    def _handle_silence(self, track: str, *, now_monotonic: float) -> None:
-        final_event = self.asr_handles[track].finalize()
+    async def _handle_silence(self, track: str, *, now_monotonic: float) -> None:
+        final_event = await self.asr_handles[track].finalize()
         trace = self.active_traces[track]
         self.active_traces[track] = None
         if final_event is None:
@@ -148,6 +194,7 @@ class MediaStreamPipeline:
             row = build_latency_trace_row(
                 trace, company_id=self.company_id, call_id=self.call_id,
                 turn_id=result.get('turn_id', ''), trace_id=None, speaker=turn_event.speaker,
+                asr_provider=self.asr_provider_name, is_synthetic=self.is_synthetic,
             )
             db.add(row)
             db.commit()

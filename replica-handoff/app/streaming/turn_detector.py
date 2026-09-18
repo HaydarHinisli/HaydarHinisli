@@ -11,13 +11,19 @@ each track's utterance still finalizes independently once THAT track's own VAD
 detects silence; overlap is only flagged (`had_overlap=True` on both resulting
 TurnEvents), not resolved into a single winner. A more sophisticated barge-in model
 is future work, not required to prove Sprint 2's target pipeline shape.
+
+Track-to-role mapping (Sprint 2B, docs/DECISIONS.md ADR-043): which track is the
+prospect and which is the seller is NOT hardcoded here — it is resolved via an
+injected `SpeakerRoleResolver` (app/streaming/speaker_mapping.py), since that mapping
+depends on call topology, not on the transport labels themselves. Defaults to
+`get_default_speaker_role_resolver()` (today, REPLICA's only supported topology:
+the defined outbound sales flow) when the caller doesn't supply one.
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
 
 from .media_stream_session import INBOUND, OUTBOUND
-
-TRACK_TO_SPEAKER = {INBOUND: 'prospect', OUTBOUND: 'seller'}
+from .speaker_mapping import SpeakerRoleResolver, get_default_speaker_role_resolver
 
 
 @dataclass
@@ -38,6 +44,7 @@ class VadUpdateResult:
 
 @dataclass
 class TurnDetector:
+    speaker_role_resolver: SpeakerRoleResolver = field(default_factory=get_default_speaker_role_resolver)
     speaking: dict[str, bool] = field(default_factory=lambda: {INBOUND: False, OUTBOUND: False})
     last_active_speaker: str | None = None
     _overlap_flag: dict[str, bool] = field(default_factory=lambda: {INBOUND: False, OUTBOUND: False})
@@ -58,7 +65,7 @@ class TurnDetector:
 
         speaker_changed = False
         if is_speaking:
-            speaker = TRACK_TO_SPEAKER.get(track, track)
+            speaker = self.speaker_role_resolver.resolve(track)
             if self.last_active_speaker is not None and self.last_active_speaker != speaker:
                 speaker_changed = True
             self.last_active_speaker = speaker
@@ -79,6 +86,6 @@ class TurnDetector:
         self._overlap_flag[track] = False
         self._speech_started_monotonic[track] = None
         return TurnEvent(
-            speaker=TRACK_TO_SPEAKER.get(track, track), text=text, had_overlap=had_overlap,
+            speaker=self.speaker_role_resolver.resolve(track), text=text, had_overlap=had_overlap,
             t_speech_started_monotonic=started, t_turn_end_detected_monotonic=now_monotonic,
         )

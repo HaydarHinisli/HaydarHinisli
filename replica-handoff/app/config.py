@@ -24,6 +24,17 @@ class Settings(BaseSettings):
 
     twilio_account_sid: str | None = None
     twilio_auth_token: str | None = None
+
+    # Sprint 2B: streaming ASR provider selection (app/streaming/asr.get_asr_provider()).
+    # 'simulated' (default) is the only provider that works without credentials — see
+    # docs/DECISIONS.md ADR-045. Nova-3 is Deepgram's current-generation streaming
+    # model; 'de' targets German as the first language per the product brief.
+    replica_asr_provider: str = 'simulated'
+    deepgram_api_key: str | None = None
+    deepgram_region: str = 'eu'
+    deepgram_model: str = 'nova-3'
+    deepgram_language: str = 'de'
+
     hubspot_access_token: str | None = None
     google_calendar_access_token: str | None = None
     google_calendar_id: str = 'primary'

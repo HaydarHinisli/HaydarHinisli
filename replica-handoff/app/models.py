@@ -378,6 +378,15 @@ class TurnLatencyTrace(Base):
     (`t_ui_rendered - t_turn_end_detected`, per docs/ARCHITECTURE.md §8) and stays
     NULL until a real UI render acknowledgement exists (Sprint 3+); it is never
     backfilled with an approximation.
+
+    Sprint 2B (ADR-045/046): `asr_provider`/`is_synthetic` make it structurally
+    impossible to confuse a `SimulatedASRProvider` development measurement with a
+    real-provider one when querying this table later — every row states which
+    produced it. `t_provider_endpoint_detected_at` / `provider_endpoint_vs_turn_end_ms`
+    capture the ASR provider's OWN endpointing signal (e.g. Deepgram's
+    `speech_final`), purely so it can be compared against our VAD-driven
+    `t_turn_end_detected_at` after real test calls — never used to drive turn-end
+    itself (our own VAD remains authoritative, see docs/DECISIONS.md ADR-039/046).
     """
     __tablename__ = 'turn_latency_traces'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -387,10 +396,19 @@ class TurnLatencyTrace(Base):
     trace_id: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
     speaker: Mapped[str] = mapped_column(String(20))
 
+    # Sprint 2B: which ASR provider produced this trace, and whether it is a
+    # synthetic development measurement (SimulatedASRProvider) or a real one.
+    # Defaults assume the pre-Sprint-2B/simulated case so existing call sites that
+    # don't pass these explicitly stay honestly labelled as synthetic, never
+    # silently "real" by omission.
+    asr_provider: Mapped[str] = mapped_column(String(40), default='simulated', index=True)
+    is_synthetic: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+
     t_audio_received_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     t_asr_interim_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     t_asr_final_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     t_turn_end_detected_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    t_provider_endpoint_detected_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     t_salesbrain_started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     t_salesbrain_finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     t_suggestion_persisted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -400,6 +418,9 @@ class TurnLatencyTrace(Base):
     audio_to_interim_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
     audio_to_final_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
     turn_detection_latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Positive: our VAD-driven turn-end fired AFTER the provider's own endpointing
+    # signal. Negative: ours fired first. Comparison-only (ADR-046) — see above.
+    provider_endpoint_vs_turn_end_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
     salesbrain_latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
     suggestion_persist_latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
     suggestion_push_latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)

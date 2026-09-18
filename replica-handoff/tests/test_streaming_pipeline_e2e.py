@@ -399,3 +399,41 @@ def test_latency_trace_stages_are_recorded_in_correct_monotonic_order(client, me
     assert trace.suggestion_persist_latency_ms is not None and trace.suggestion_persist_latency_ms >= 0
     # internal engine latency must never be reported as RSL
     assert trace.real_rsl_ms is None
+
+    # Sprint 2B (ADR-045): every trace must be honestly labelled as synthetic while
+    # SimulatedASRProvider is in use — never silently look like a real measurement.
+    assert trace.asr_provider == 'simulated'
+    assert trace.is_synthetic is True
+
+
+# --- unidirectional media stream (Sprint 2B requirement 2) ---------------------------
+
+def test_media_stream_never_sends_audio_back_to_twilio(client, media_stream_client, monkeypatch, db_session):
+    """REPLICA's assist MVP only listens (Sprint 2B, ADR-047) — the required TwiML
+    is <Start><Stream>, a listen-only side-channel; there must be no code path that
+    sends anything back over this WebSocket. Enforced here by making any outgoing
+    send raise, then running a full golden-path call through the real endpoint."""
+    from starlette.websockets import WebSocket
+
+    def _forbidden(*args, **kwargs):
+        raise AssertionError('media stream handler attempted to send data back to Twilio — must stay listen-only (ADR-047)')
+
+    monkeypatch.setattr(WebSocket, 'send_text', _forbidden)
+    monkeypatch.setattr(WebSocket, 'send_bytes', _forbidden)
+    monkeypatch.setattr(WebSocket, 'send_json', _forbidden)
+
+    headers = auth_headers(client, 'haydar@replica-pilot.example')
+    call_id = _create_call(client, headers)
+    _use_script(client.app, {'inbound': ['Wir haben bereits einen Anbieter.']})
+    try:
+        with _connect(media_stream_client) as ws:
+            sim = StreamSimulator(ws, call_id=call_id)
+            sim.start()
+            sim.speak('inbound', 0.3)
+            sim.silence('inbound', 0.4)
+            sim.stop()
+    finally:
+        _clear_script(client.app)
+
+    from app.models import Turn
+    assert db_session.query(Turn).filter_by(call_id=call_id).count() == 1  # the call still completed normally

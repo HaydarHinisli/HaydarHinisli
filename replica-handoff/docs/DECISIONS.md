@@ -972,3 +972,179 @@ transitions from speaking to silent. `tests/test_streaming_pipeline_e2e.py`'s
 full-stack level: a full second of continuous simulated speech (dozens of interim
 events) produces zero `Turn`/`Suggestion`/`ConversationStateEvent` rows until the
 track actually falls silent, at which point exactly one of each appears.
+
+## ADR-043 — Track-to-speaker mapping is resolved, never hardcoded, and scoped to one explicit call topology
+Status: accepted
+
+Sprint 2B closes a real gap the user flagged explicitly: Sprint 2's `TurnDetector`
+had `TRACK_TO_SPEAKER = {inbound: 'prospect', outbound: 'seller'}` baked in as a
+module constant. That is a transport-level assumption dressed up as a business
+fact — Twilio's `inbound`/`outbound` labels mean "audio arriving at Twilio from the
+far end" / "audio Twilio sends to the far end", which only maps to
+`prospect`/`seller` for ONE specific call topology (REPLICA's own defined outbound
+cold-calling flow: the seller calls the prospect via Twilio and the seller's own
+voice is bridged onto that same leg). A different topology — inbound lead response,
+a conference bridge, a warm transfer — would silently mislabel every turn under the
+old hardcoded mapping, with no error and no way to notice.
+
+`app/streaming/speaker_mapping.py` makes this an explicit, injectable step:
+`SpeakerRoleResolver` (a `Protocol`) with exactly one implementation,
+`OutboundSalesFlowResolver`, whose name and `TOPOLOGY_NAME` attribute state the
+scope restriction directly rather than leaving it implicit. `TurnDetector` now
+takes a `speaker_role_resolver` (defaulting to
+`get_default_speaker_role_resolver()`, i.e. today's only supported topology) instead
+of importing the constant — a future topology gets its own resolver class and a way
+to select it, never a second hardcoded dict competing with the first. This is a
+pure refactor for today's behavior (verified: the full pre-existing
+`tests/test_streaming_turn_detector.py` suite passes unmodified against the new
+default) whose entire purpose is to make the NEXT topology change a one-class
+addition instead of a silent mislabelling risk.
+
+**Explicit restriction, stated once here as the canonical reference**: REPLICA's
+real-time pipeline supports exactly one call topology today — one prospect leg
+(`inbound`) and one seller/agent leg (`outbound`) bridged directly onto a single
+outbound call REPLICA/the seller initiated, no additional parties. Any other
+topology is unverified and must not be assumed to work without a new resolver and
+new field testing.
+
+## ADR-044 — Streaming ASR seam goes async: real providers and the simulator do not share a synchronous request/response shape
+Status: accepted
+
+`app/streaming/asr.py`'s original (Sprint 2) `ASRStreamHandle.feed_audio()` returned
+an `ASREvent | None` synchronously, on the assumption that a result is available
+immediately after feeding one chunk — true for `SimulatedASRProvider` (no real I/O)
+but false for any real streaming vendor: Deepgram's transcripts arrive over an
+independent, asynchronous WebSocket connection, decoupled in time from when audio
+chunks are sent. Retrofitting this after building `DeepgramASRProvider` would have
+violated the explicit instruction that Sprint 2B's architecture "so vorbereitet sein
+[soll], dass wir später nur Credentials/Deployment-Konfiguration ergänzen müssen und
+keine Kernlogik mehr umbauen müssen" (prepared so only credentials/deployment config
+remain to add later, not core-logic rework) — so the protocol was redesigned now,
+before Deepgram wiring, not after.
+
+New shape: `async def feed_audio(payload, *, is_speaking)` (push, never blocks on a
+result), `async def poll_events() -> list[ASREvent]` (non-blocking drain of whatever
+arrived since the last call), `async def finalize() -> ASREvent | None` (called only
+by our own VAD-driven silence detection; for a real provider this actively prompts
+the provider to flush and waits briefly), `async def close()`. `is_speaking` stays a
+parameter for protocol-compatibility with `SimulatedASRProvider` (which has no other
+way to know when a "speaker" starts/stops) — a real provider's handle accepts and
+ignores it, since the provider does its own voice-activity handling internally.
+
+`SimulatedASRProvider`'s observable behavior is unchanged (interim events grow
+word-by-word while "speaking", finalize returns the full accumulated text) — only
+its plumbing became `async def`, verified by the full pre-existing ASR test suite
+passing against the same assertions, now driven via `asyncio.run()` (no new pytest
+plugin dependency added for this — see `tests/test_streaming_asr.py`).
+`app/streaming/pipeline.py`'s `consume_media()`/`consume_stop()` are `async def` now
+too, and `MediaStreamPipeline` gained an async `create()` factory (construction
+needs to `await asr_provider.start_stream()` per track) — `app/main.py`'s WebSocket
+loop awaits all of it.
+
+## ADR-045 — Deepgram adapter: implemented per documented protocol, never verified against a live account, fails closed to the simulator
+Status: accepted
+
+Sprint 2B's explicit, narrow goal for this item was "jetzt Code, Adapter,
+Konfiguration, Tests und Dokumentation... vorbereiten" — NOT to claim a working
+integration, since no Deepgram account/API key exists in this environment. Read this
+ADR alongside `app/streaming/deepgram_provider.py`'s own extensive docstring, which
+carries the same caveat at the point of use.
+
+`DeepgramASRProvider`/`DeepgramStreamHandle` implement the `ASRProvider`/
+`ASRStreamHandle` protocol (ADR-044) against Deepgram's publicly documented
+streaming API: `wss://api.eu.deepgram.com/v1/listen` (EU region, per the explicit
+request — `api.deepgram.com` otherwise), `model=nova-3`, `language=de`,
+`interim_results=true`, `mip_opt_out=true`, plus the audio-format parameters
+Deepgram needs to interpret Twilio's own default format correctly
+(`encoding=mulaw&sample_rate=8000&channels=1` — necessary for correctness, not
+optional). `Authorization: Token <key>` on the WebSocket handshake. Keyterm
+prompting (`keyterm=...`, repeatable) is wired as a constructor parameter
+(`keyterms`) but populated with nothing today — "technisch vorbereiten", per the
+request, for company/product/competitor terms once decided. Reconnection uses a
+short bounded backoff (`0.5s, 1.5s, 3.0s`) and degrades gracefully — a failed
+connection, or one that drops mid-stream, logs and returns empty results rather than
+raising into the pipeline; one track's ASR failing must never crash the whole call's
+turn processing or the other track.
+
+Turn-end authority is unchanged (ADR-039/042): `finalize()` is called ONLY by our
+own VAD detecting silence, never by Deepgram's own signals. When called, it sends
+Deepgram's documented `Finalize` control message (flush now, without closing the
+connection) and waits up to `1.5s` for the resulting final transcript before
+returning whatever has accumulated — bounded, because a slow/unresponsive external
+service must never block the pipeline indefinitely. `close()` sends the documented
+`CloseStream` control message.
+
+`app/streaming/asr.get_asr_provider()` selects the provider from
+`REPLICA_ASR_PROVIDER` (default `'simulated'`, needs no credentials).
+`REPLICA_ASR_PROVIDER=deepgram` without `DEEPGRAM_API_KEY` set logs a loud error and
+**falls back to `SimulatedASRProvider`** rather than attempting an unauthenticated
+connection — fail-safe, consistent with this codebase's fail-closed posture
+everywhere else, and exactly what makes it safe to merge this adapter into the
+default branch before real credentials exist: nothing changes for anyone who hasn't
+configured Deepgram.
+
+**What "tested" means here, precisely**: `tests/test_streaming_deepgram_provider.py`
+runs the adapter against a small local WebSocket server
+(`tests/test_streaming_deepgram_provider.py::FakeDeepgramServer`) that speaks the
+same documented message shapes (`Results`, `UtteranceEnd`, `Finalize`,
+`CloseStream`). This proves the ADAPTER's own logic — URL construction, message
+parsing, event mapping into `ASREvent`, the Finalize round-trip, graceful
+degradation on connect failure and mid-stream disconnect — is internally correct
+against that assumed protocol shape. **It does not prove the real Deepgram service
+behaves exactly as assumed.** That verification is explicitly open — see the Sprint
+2B report — and requires a real `DEEPGRAM_API_KEY` and a real audio stream, neither
+of which exist in this environment.
+
+`TurnLatencyTrace.asr_provider`/`.is_synthetic` (new columns, this ADR) make it
+impossible to later confuse a `SimulatedASRProvider` row with a
+`DeepgramASRProvider` row when querying historical data — every row states which
+produced it, defaulting to the honest `'simulated'`/`True` so a caller that forgets
+to pass them explicitly never accidentally mislabels a dev measurement as real.
+
+## ADR-046 — Provider-native endpointing is captured for comparison, never authoritative
+Status: accepted
+
+Deepgram (like most streaming ASR vendors) does its own voice-activity/endpointing
+and surfaces it as `speech_final: true` on a `Results` message, or via a separate
+`UtteranceEnd` message when configured. The Sprint 2B requirements are explicit that
+our existing fixed-threshold VAD (`app/streaming/vad.py`) stays the sole authority
+for turn-end decisions until real test calls justify a change — "nicht vorschnell
+ersetzen" (not replaced prematurely) — but that we should be ABLE to measure how it
+compares.
+
+`ASREvent.provider_speech_final` (new field, ADR-044) carries this signal through
+from the adapter. `app/streaming/pipeline.py`'s `consume_media()` marks a new
+`provider_endpoint_detected` stage on the turn's `LatencyTrace`
+(`app/services/latency_trace.py`, ADR-041) the first time it sees
+`provider_speech_final=True` for the in-progress utterance — using THAT event's own
+timestamp, not the moment we happened to poll for it. `TurnLatencyTrace` persists
+both `t_provider_endpoint_detected_at` (wall-clock) and
+`provider_endpoint_vs_turn_end_ms` (`t_turn_end_detected - t_provider_endpoint_detected`,
+monotonic-derived: positive means our VAD fired after Deepgram's own endpointing,
+negative means before). Nothing about turn detection itself reads this value — it
+exists purely so that, once real test calls exist, this comparison can be pulled
+straight out of the data (per requirement 4: "erst anhand dieser Messungen
+entscheiden") instead of requiring new instrumentation at that point.
+
+## ADR-047 — Unidirectional media streaming: REPLICA only listens, enforced structurally and by TwiML configuration
+Status: accepted
+
+The current REPLICA assist MVP never sends audio into a call — no autonomous or
+bidirectional voice capability exists yet, and none is in scope here. Twilio Media
+Streams has two distinct TwiML shapes: `<Connect><Stream>`, which REPLACES the
+call's own bidirectional media path (for a voice agent that needs to talk back), and
+`<Start><Stream>`, which opens a PARALLEL, listen-only side-channel while the call's
+normal audio continues untouched. REPLICA's required configuration is `<Start>
+<Stream url="wss://.../ws/twilio-media" track="both_tracks"><Parameter
+name="replica_call_id" value="..." /></Stream></Start>` — documented in
+`docs/INTEGRATIONS.md` — never `<Connect><Stream>`.
+
+This was already true of every line of code written in Sprint 2 (the WebSocket
+handler only ever calls `receive_text()`; there was never a `send_text()`/
+`send_bytes()` call anywhere in the media-stream code path), so Sprint 2B's
+contribution is making that guarantee explicit and verified rather than merely
+incidental: `tests/test_streaming_pipeline_e2e.py`'s
+`test_media_stream_never_sends_audio_back_to_twilio` monkeypatches
+`WebSocket.send_text`/`send_bytes`/`send_json` to raise, then runs a full
+golden-path simulated call through the real endpoint end to end — proving no code
+path attempts to send, rather than merely observing that none currently does.
