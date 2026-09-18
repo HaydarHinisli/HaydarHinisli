@@ -60,11 +60,24 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
     dependency (app/auth/dependencies.get_current_user) populates during the call —
     request.state is shared for the whole Request lifecycle, so it's already set by
     the time this middleware reads it after `call_next` returns.
+
+    Provider-Ready Gate (ADR-033): also assigns/propagates a `trace_id`, which is
+    NOT the same thing as `request_id`. `request_id` identifies one HTTP request;
+    `trace_id` identifies one logical turn/utterance as it flows across the (today,
+    two) separate HTTP calls that process it end-to-end — e.g. POST /calls/{id}/turns
+    and POST /copilot/suggest for the same prospect utterance — so they can be
+    correlated in logs and in Suggestion.trace_id even before Sprint 2 collapses that
+    split into one processing path. A caller that already has one (e.g. the ASR
+    pipeline) passes it via the `X-Trace-Id` request header; otherwise one is
+    generated here and echoed back via the `X-Trace-Id` response header so the caller
+    can pick it up and reuse it for the next call in the same turn's flow.
     """
 
     async def dispatch(self, request: Request, call_next):
         request_id = str(uuid.uuid4())
+        trace_id = request.headers.get('x-trace-id') or str(uuid.uuid4())
         request.state.request_id = request_id
+        request.state.trace_id = trace_id
         started = time.perf_counter()
         error_class = None
         try:
@@ -74,20 +87,22 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
             error_class = type(exc).__name__
             status_code = 500
             latency_ms = round((time.perf_counter() - started) * 1000, 2)
-            self._log(request, request_id, status_code, latency_ms, error_class)
+            self._log(request, request_id, trace_id, status_code, latency_ms, error_class)
             raise
         latency_ms = round((time.perf_counter() - started) * 1000, 2)
-        self._log(request, request_id, status_code, latency_ms, error_class)
+        self._log(request, request_id, trace_id, status_code, latency_ms, error_class)
         response.headers['X-Request-ID'] = request_id
+        response.headers['X-Trace-ID'] = trace_id
         return response
 
     @staticmethod
-    def _log(request: Request, request_id: str, status_code: int, latency_ms: float, error_class: str | None) -> None:
+    def _log(request: Request, request_id: str, trace_id: str, status_code: int, latency_ms: float, error_class: str | None) -> None:
         logger = logging.getLogger(ACCESS_LOGGER_NAME)
         logger.info(
             'request',
             extra={'fields': {
                 'request_id': request_id,
+                'trace_id': trace_id,
                 'method': request.method,
                 'path': request.url.path,
                 'status_code': status_code,

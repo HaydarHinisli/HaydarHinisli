@@ -10,6 +10,14 @@ request. `system_admin` is a cross-tenant role and is called out explicitly wher
 applies; every other role is implicitly scoped to its own tenant and can never read or
 write another tenant's data (see `docs/DECISIONS.md` Sprint 1 ADRs).
 
+### Correlation headers (Provider-Ready Gate)
+Every response carries `X-Request-ID` (unique per HTTP call) and `X-Trace-ID` (see
+`docs/DECISIONS.md` ADR-033). A caller that already has a `trace_id` for the turn it
+is about to process (e.g. because it just called a related endpoint for the same
+utterance) should send it via the `X-Trace-Id` request header, or the `trace_id`
+field on `POST /api/copilot/suggest`, so both requests' `Suggestion` rows and log
+lines can be correlated end-to-end; otherwise one is generated and echoed back.
+
 ### `POST /api/auth/login`
 Body: `{"email": "...", "password": "..."}`. Returns `{"access_token", "token_type": "bearer", "user": {"id", "email", "role", "company_id"}}`.
 `401` on wrong credentials, `403` if the account is deactivated.
@@ -55,7 +63,14 @@ speaker_mode/consent context — returns `403` with the full policy decision
 `409 Consent gate` response is gone (`docs/DECISIONS.md` ADR-020). Sprint 1.5: a
 `speaker: "seller"` turn also updates the call's `ConversationState` bookkeeping
 (`last_seller_action`, `opening_completed`, `pitch_delivered`) — it does not change
-`current_phase` (see ADR-027).
+`current_phase` (see ADR-027) — and writes one `ConversationStateEvent` history row.
+
+Provider-Ready Gate (ADR-031): optional `turn_id`, `utterance_id`, `stream_id`,
+`provider_event_id` fields identify the real ASR turn this call represents. A repeat
+delivery with the same `turn_id` (same call, same `'transcribe'` action) is **not**
+stored again — the response is the original turn's payload plus `"duplicate": true`.
+Omitting `turn_id` (today's manual/demo flows) synthesizes one from the call's
+current turn count, so nothing breaks before Sprint 2's real ASR pipeline exists.
 
 ### `POST /api/calls/{call_id}/complete`
 Stores business outcome.
@@ -85,26 +100,43 @@ Input:
   "utterance": "Wir haben bereits einen Anbieter.",
   "recent_context": [],
   "reaction_snapshot": {},
-  "turn_index": null
+  "turn_index": null,
+  "turn_id": null,
+  "utterance_id": null,
+  "stream_id": null,
+  "provider_event_id": null,
+  "trace_id": null
 }
 ```
 - `call_id` set → gated by `can_process(db, 'live_assist', ...)` for that call; `403`
   with the policy decision when not `allowed`. Sprint 1.5: also advances and persists
   the call's `ConversationState` (`docs/DECISIONS.md` ADR-026/ADR-027) — phase
-  decisions understand transitions across the whole call, not just this utterance.
+  decisions understand transitions across the whole call, not just this utterance —
+  and writes one `ConversationStateEvent` history row.
 - `call_id` omitted → **sandbox/practice mode**: no real prospect, no policy gate, no
   persisted state, only auth/RBAC apply (`docs/DECISIONS.md` ADR-015). The resulting
-  suggestion is still tenant-scoped, so feedback on it can never cross tenants.
+  suggestion is still tenant-scoped, so feedback on it can never cross tenants. No
+  turn-dedup claim applies here either — there is no real turn to deduplicate.
 - `turn_index` is only used in sandbox mode (optional; inferred as
   `len(recent_context)` when omitted). Call-scoped requests ignore it — the persisted
   `ConversationState.turn_index` is authoritative there.
+- Provider-Ready Gate (ADR-031): for call-scoped requests, `turn_id` (+ optional
+  `utterance_id`/`stream_id`/`provider_event_id`) identifies the real ASR turn. A
+  repeat delivery with the same `turn_id` (same call, `'live_assist'` action) is
+  **not** reprocessed — the response is the original suggestion plus
+  `"duplicate": true`, and the conversation state does not advance a second time.
+  Omitted `turn_id` synthesizes one from the call's current `turn_index`.
+- `trace_id` (ADR-033): reuse the `trace_id` from a related call for the same
+  utterance (e.g. this utterance's own `POST .../turns` call) to correlate them; if
+  omitted, the request's own `X-Trace-ID` is used. Always echoed back in the response
+  and stored on the resulting `Suggestion` row.
 
 Output includes `suggestion`, `strategy`, `do_not`, `reason`, `confidence`,
 `language_policy`, `latency_ms`, `evidence_level`, `phase` (one of
 `greeting, rapport_smalltalk, transition, opening, discovery, pitch, objection,
 negotiation, closing, wrap_up`), `smalltalk` (`{smalltalk_appropriate,
 prospect_wants_business, suggest_brief_reaction, suggest_follow_up_question,
-suggest_transition_now}`), and (when call-scoped) `policy_decision` and
+suggest_transition_now}`), `trace_id`, and (when call-scoped) `policy_decision` and
 `conversation_state` (same shape as `GET .../conversation-state` below).
 
 ### `POST /api/suggestions/{id}/feedback`
@@ -169,6 +201,18 @@ Records a `ComplianceReviewSignoff` (`action`, `jurisdiction`, `reason`, `refere
 Returns the most recent audit events for the tenant (consent changes, policy decisions,
 overrides, feature-flag changes, employee-analytics access, network-learning opt-in/out).
 `company_id` query param is the `system_admin` cross-tenant field.
+
+## Provider webhooks (unauthenticated — verified by provider signature instead)
+
+### `POST /webhooks/twilio/call-status`
+Twilio's call-status-callback. **No `Authorization` header** — authenticated solely by
+the `X-Twilio-Signature` header per Twilio's HMAC-SHA1 request-signing scheme
+(`docs/DECISIONS.md` ADR-029). Missing/invalid signature, or an unresolvable auth
+token, → `403`, fail-closed, never processed. Idempotent per `(CallSid, CallStatus)`
+via the `webhook_deliveries` table — a Twilio retry returns
+`{"ok": true, "duplicate": true}` instead of reprocessing. On first delivery, logs a
+`call.status.<status>` audit event against the `Call` matched by `external_call_id`
+(no match → the delivery is still claimed/idempotent, just not correlated to a call).
 
 ## Integrations — `tenant_admin`
 

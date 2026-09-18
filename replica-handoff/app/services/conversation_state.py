@@ -163,22 +163,39 @@ def apply_prospect_turn(state: ConversationState, text: str, language_policy: di
         last_seller_action=state.last_seller_action,
         last_prospect_event=event,
     )
+    # Provider-Ready Gate (ADR-030): a compact, DB-shape-ready summary of what this
+    # turn actually changed, so app/main.py can write one ConversationStateEvent row
+    # without recomputing anything the pure state machine already knows.
+    transition = {
+        'from_phase': state.current_phase,
+        'to_phase': phase,
+        'event_type': 'objection_raised' if event in OBJECTION_EVENTS else ('phase_change' if phase != state.current_phase else 'utterance'),
+        'objection_type': active_objection,
+        'sales_action': None,
+        'trigger': event,
+    }
     decision = {
         'event': event,
         'phase': phase,
         **response,
         'confidence': 0.88 if event != 'discovery' else 0.68,
         'smalltalk': smalltalk,
+        'transition': transition,
     }
     return new_state, decision
 
 
-def apply_seller_turn(state: ConversationState, text: str) -> ConversationState:
+def apply_seller_turn(state: ConversationState, text: str) -> tuple[ConversationState, dict]:
     """Coarse bookkeeping for the seller's OWN turns. This only maintains
     last_seller_action / opening_completed / pitch_delivered — it never drives the
     phase machine itself, since REPLICA reacts to what the prospect says next, not to
     the seller's own utterance (see docs/DECISIONS.md ADR-023 on why 'opening' is not
-    independently phase-classified)."""
+    independently phase-classified). Sprint 2 forward-compat (ADR-032): this is today's
+    MVP simplification, not a permanent constraint — the transition dict already
+    reports 'sales_action' precisely so a future revision can let specific seller
+    actions (e.g. a deliberate discovery->pitch handoff) drive real phase transitions
+    without changing this function's shape.
+    """
     lower = text.lower()
     if any(m in lower for m in GREETING_MARKERS):
         action = 'greeting'
@@ -192,9 +209,35 @@ def apply_seller_turn(state: ConversationState, text: str) -> ConversationState:
         action = 'discovery_question'
     else:
         action = 'pitch'
-    return replace(
+    new_state = replace(
         state,
         last_seller_action=action,
         opening_completed=state.opening_completed or action == 'opening',
         pitch_delivered=state.pitch_delivered or action == 'pitch',
     )
+    transition = {
+        'from_phase': state.current_phase,
+        'to_phase': state.current_phase,
+        'event_type': 'seller_action',
+        'objection_type': None,
+        'sales_action': action,
+        'trigger': None,
+    }
+    return new_state, transition
+
+
+def apply_turn(
+    state: ConversationState, speaker: str, text: str, language_policy: dict | None = None,
+) -> tuple[ConversationState, dict, dict | None]:
+    """Unified entry point for both speakers (Provider-Ready Gate, ADR-030): always
+    returns (new_state, transition, decision). `decision` is the SalesBrain
+    suggestion payload for a prospect turn, or None for a seller turn (bookkeeping
+    only, nothing to surface). Callers that need only the transition summary (e.g. to
+    write a ConversationStateEvent row) don't need to know which branch ran.
+    """
+    if speaker == 'prospect':
+        new_state, decision = apply_prospect_turn(state, text, language_policy or {})
+        transition = decision.pop('transition')
+        return new_state, transition, decision
+    new_state, transition = apply_seller_turn(state, text)
+    return new_state, transition, None

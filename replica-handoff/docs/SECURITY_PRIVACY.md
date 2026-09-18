@@ -78,6 +78,21 @@ Production:
 - rotate credentials
 - signed webhooks
 
+**Provider-Ready Gate status** (`docs/DECISIONS.md` ADR-028): `app/secrets.py`
+provides the resolution seam (`SecretsProvider` protocol, `get_secrets_provider()`,
+`redact_secret()`) so every *new* secret-consuming call site resolves through one
+function instead of scattering `os.environ` reads — today's only implementation reads
+env vars, and `REPLICA_SECRETS_BACKEND` set to anything else fails loudly
+(`NotImplementedError`) rather than silently. A real vault/secrets-manager backend is
+still an open gap — implementing one only requires a new class behind the same
+protocol. `app/config.py`'s `Settings` (loaded from `.env`) remains the source of
+truth for `twilio_auth_token` etc. until that backend exists — see ADR-028 for why.
+
+Webhook signatures (this gate): `POST /webhooks/twilio/call-status` is verified via
+Twilio's HMAC-SHA1 request signature (`app/webhooks/security.py`), fail-closed on any
+missing/invalid/unresolvable signature — see ADR-029. Delivery idempotency
+(`app/webhooks/idempotency.py`) prevents a retried delivery from being reprocessed.
+
 ---
 
 ## 8. Jurisdiction enforcement

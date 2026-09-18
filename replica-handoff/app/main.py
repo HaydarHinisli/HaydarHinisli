@@ -1,20 +1,21 @@
 from __future__ import annotations
 import json
+import logging
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
-from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .config import get_settings
 from .db import get_db
 from .migrate import run_migrations
 from .models import (
-    AuditEvent, Call, Company, ComplianceReviewSignoff, ConsentEvent, Experiment, ExperimentAssignment,
-    Meeting, Seller, Suggestion, TenantFeatureFlag, Turn, User,
+    AuditEvent, Call, Company, ComplianceReviewSignoff, ConsentEvent, ConversationStateEvent, Experiment,
+    ExperimentAssignment, Meeting, Seller, Suggestion, TenantFeatureFlag, Turn, User,
 )
 from .models import ConversationState as ConversationStateRow
 from .schemas import (
@@ -22,13 +23,15 @@ from .schemas import (
     CreateExperimentRequest, CreateUserRequest, FeatureFlagRequest, LoginRequest, NetworkLearningOptRequest,
     PolicyResolveRequest, SuggestRequest, SuggestionFeedbackRequest, TurnRequest,
 )
+from .secrets import get_secrets_provider
 from .seed import seed_demo
-from .services.conversation_state import ConversationState, apply_seller_turn
+from .services.conversation_state import ConversationState, apply_turn
 from .services.copilot import suggest, suggest_with_state
 from .services.experiments import assign_variant
 from .services.language_sync import analyze_language
 from .services.reaction_delta import build_baseline, reaction_delta
 from .services.review import build_call_review, manager_analysis
+from .services.turn_identity import claim_turn, record_result, synthesize_turn_id
 from .integrations import google_calendar, hubspot, salesforce
 from .integrations.openai_realtime import status as openai_status, session_blueprint
 from .integrations.twilio_stream import TwilioStreamState
@@ -39,6 +42,10 @@ from .compliance.policy_engine import Decision, can_process
 from .auth.dependencies import AuthContext, get_current_user, require_role, resolve_tenant_id
 from .auth.security import create_access_token, hash_password, verify_password
 from .logging_config import RequestContextMiddleware, configure_logging
+from .webhooks.idempotency import claim_webhook_delivery
+from .webhooks.security import verify_twilio_signature
+
+logger = logging.getLogger('replica.webhooks')
 
 BASE_DIR = Path(__file__).resolve().parent
 settings = get_settings()
@@ -116,6 +123,19 @@ def _apply_state_to_row(row: ConversationStateRow, state: ConversationState) -> 
     row.resolved_objections = state.resolved_objections
     row.last_seller_action = state.last_seller_action
     row.last_prospect_event = state.last_prospect_event
+
+
+def _record_state_event(db: Session, call: Call, speaker: str, transition: dict, turn_index: int) -> None:
+    """Provider-Ready Gate (ADR-030): append-only history row alongside the fast
+    ConversationState snapshot. A single INSERT next to the state-row UPDATE already
+    happening in the same request/transaction — this does not add a query or slow
+    the pure state machine in app/services/conversation_state.py."""
+    db.add(ConversationStateEvent(
+        company_id=call.company_id, call_id=call.id, turn_index=turn_index, speaker=speaker,
+        from_phase=transition.get('from_phase'), to_phase=transition.get('to_phase'),
+        event_type=transition.get('event_type', 'unknown'), objection_type=transition.get('objection_type'),
+        sales_action=transition.get('sales_action'), trigger=transition.get('trigger'),
+    ))
 
 
 def _conversation_state_dict(row: ConversationStateRow) -> dict:
@@ -332,24 +352,53 @@ def add_turn(call_id: int, req: TurnRequest, current_user: AuthContext = Depends
     if decision.result != Decision.ALLOWED:
         db.commit()
         raise HTTPException(403, {'message': 'Transcription is not currently permitted for this call.', **decision.as_dict()})
+
+    # Provider-Ready Gate (ADR-031): a webhook retry, reconnect, or duplicate final
+    # transcript must not store the same real turn twice. Callers without a real
+    # provider-stable id yet (manual/demo flows) get one synthesized from the call's
+    # current turn count so nothing breaks before Sprint 2's real ASR pipeline exists.
+    existing_turn_count = db.scalar(select(func.count()).select_from(Turn).where(Turn.call_id == call_id)) or 0
+    turn_id = req.turn_id or synthesize_turn_id(call_id, 'transcribe', existing_turn_count)
+    claimed, claim_row = claim_turn(
+        db, company_id=call.company_id, call_id=call_id, action='transcribe', turn_id=turn_id,
+        utterance_id=req.utterance_id, stream_id=req.stream_id, provider_event_id=req.provider_event_id,
+    )
+    if not claimed:
+        db.commit()
+        return {**claim_row.result_ref, 'duplicate': True, 'policy_decision': decision.as_dict()}
+
     style = analyze_language(req.text) if req.speaker == 'prospect' else {}
-    turn = Turn(call_id=call_id, style_snapshot=style, lexical_complexity=style.get('complexity_score') if style else None, **req.model_dump())
+    turn_fields = req.model_dump(exclude={'turn_id', 'utterance_id', 'stream_id', 'provider_event_id'})
+    turn = Turn(call_id=call_id, style_snapshot=style, lexical_complexity=style.get('complexity_score') if style else None, **turn_fields)
     db.add(turn)
+    db.flush()
     if req.speaker == 'seller':
         # Bookkeeping only (last_seller_action/opening_completed/pitch_delivered) —
         # the phase machine itself only advances on prospect turns via
-        # POST /api/copilot/suggest (see docs/DECISIONS.md ADR-027).
+        # POST /api/copilot/suggest (see docs/DECISIONS.md ADR-027). Sprint 2
+        # forward-compat (ADR-032): this is an MVP simplification, not permanent —
+        # see apply_seller_turn()'s docstring.
         state_row = _load_or_create_conversation_state_row(db, call)
-        _apply_state_to_row(state_row, apply_seller_turn(_state_from_row(state_row), req.text))
+        new_state, transition, _ = apply_turn(_state_from_row(state_row), 'seller', req.text)
+        _apply_state_to_row(state_row, new_state)
+        _record_state_event(db, call, 'seller', transition, turn_index=new_state.turn_index)
+    result_ref = {'id': turn.id, 'style_snapshot': style}
+    record_result(claim_row, result_ref)
     db.commit()
     db.refresh(turn)
-    return {'id': turn.id, 'style_snapshot': style, 'policy_decision': decision.as_dict()}
+    return {**result_ref, 'policy_decision': decision.as_dict()}
 
 
 @app.post('/api/copilot/suggest')
-def copilot(req: SuggestRequest, current_user: AuthContext = Depends(require_role('seller', 'manager', 'tenant_admin')), db: Session = Depends(get_db)):
+def copilot(req: SuggestRequest, request: Request, current_user: AuthContext = Depends(require_role('seller', 'manager', 'tenant_admin')), db: Session = Depends(get_db)):
     decision = None
     state_row = None
+    claim_row = None
+    # Provider-Ready Gate (ADR-033): reuse a trace_id the caller already has for this
+    # same utterance (e.g. from its own POST /calls/{id}/turns call) so both requests'
+    # Suggestion/log rows correlate end-to-end; otherwise fall back to this request's
+    # own middleware-assigned trace_id.
+    trace_id = req.trace_id or getattr(request.state, 'trace_id', None)
     if req.call_id is not None:
         call = _get_call_or_404(db, req.call_id, current_user.company_id)
         decision = can_process(
@@ -359,21 +408,38 @@ def copilot(req: SuggestRequest, current_user: AuthContext = Depends(require_rol
         if decision.result != Decision.ALLOWED:
             db.commit()
             raise HTTPException(403, {'message': 'Live copilot assistance is not currently permitted for this call.', **decision.as_dict()})
+
         # Sprint 1.5 (ADR-026): call-scoped suggestions advance the call's persisted
         # ConversationState instead of reclassifying the utterance in isolation, so
         # SalesBrain understands phase transitions across the whole running call.
         state_row = _load_or_create_conversation_state_row(db, call)
-        new_state, result = suggest_with_state(_state_from_row(state_row), req.utterance, req.reaction_snapshot)
+        pre_state = _state_from_row(state_row)
+
+        # Provider-Ready Gate (ADR-031): the same real utterance must trigger exactly
+        # one Copilot processing run, even across provider retries/reconnects.
+        turn_id = req.turn_id or synthesize_turn_id(call.id, 'live_assist', pre_state.turn_index)
+        claimed, claim_row = claim_turn(
+            db, company_id=call.company_id, call_id=call.id, action='live_assist', turn_id=turn_id,
+            utterance_id=req.utterance_id, stream_id=req.stream_id, provider_event_id=req.provider_event_id,
+        )
+        if not claimed:
+            db.commit()
+            return {**claim_row.result_ref, 'duplicate': True, 'policy_decision': decision.as_dict()}
+
+        new_state, result, transition = suggest_with_state(pre_state, req.utterance, req.reaction_snapshot)
         _apply_state_to_row(state_row, new_state)
+        _record_state_event(db, call, 'prospect', transition, turn_index=new_state.turn_index)
     else:
         # req.call_id is None: sandbox/practice mode. No real prospect is on the line,
         # so there is nothing to obtain consent for and no call to persist state
         # against; only tenant/role authorization applies (ADR-015). Still
         # tenant-scoped via company_id below so feedback on it can never cross tenants.
+        # Not a real ASR turn, so no dedup claim applies here either.
         result = suggest(req.utterance, req.recent_context, req.reaction_snapshot, turn_index=req.turn_index)
     row = Suggestion(
         company_id=current_user.company_id,
         call_id=req.call_id,
+        trace_id=trace_id,
         prospect_text=req.utterance,
         suggestion=result['suggestion'],
         strategy=result['strategy'],
@@ -385,9 +451,12 @@ def copilot(req: SuggestRequest, current_user: AuthContext = Depends(require_rol
         reaction_snapshot=result['reaction_snapshot'],
     )
     db.add(row)
+    db.flush()
+    if claim_row is not None:
+        record_result(claim_row, {'suggestion_id': row.id, **result})
     db.commit()
     db.refresh(row)
-    out = {**result, 'suggestion_id': row.id}
+    out = {**result, 'suggestion_id': row.id, 'trace_id': trace_id}
     if decision is not None:
         out['policy_decision'] = decision.as_dict()
     if state_row is not None:
@@ -497,6 +566,63 @@ async def sync_google(current_user: AuthContext = Depends(require_role('tenant_a
 @app.get('/api/integrations/openai-realtime/blueprint')
 def openai_realtime_blueprint(current_user: AuthContext = Depends(require_role('tenant_admin'))):
     return session_blueprint()
+
+
+# ---------------------------------------------------------------------------
+# Provider webhooks
+# ---------------------------------------------------------------------------
+
+@app.post('/webhooks/twilio/call-status')
+async def twilio_call_status(request: Request, db: Session = Depends(get_db)):
+    """Twilio's call-status-callback webhook (see docs/PROVIDER_REFERENCES.md).
+    Authenticated ONLY by the X-Twilio-Signature header (ADR-029) — Twilio cannot
+    present one of our bearer tokens, so a missing/invalid/unresolvable signature
+    fails closed with 403, never "process anyway". Idempotent per (CallSid,
+    CallStatus): Twilio retries a delivery on anything other than a fast 2xx, so a
+    retried delivery of the same status must be recognized and skipped, not
+    reprocessed (ADR-029).
+
+    Tech debt (documented, see final report): this endpoint must be `async def` to
+    read the form body via Starlette, but the SQLAlchemy calls inside it are
+    synchronous and briefly block the event loop — acceptable for Twilio's
+    low-frequency status callbacks today, revisit if webhook volume grows.
+    """
+    form = await request.form()
+    params = {key: str(value) for key, value in form.items()}
+    signature = request.headers.get('x-twilio-signature')
+
+    try:
+        auth_token = get_secrets_provider().get('TWILIO_AUTH_TOKEN', settings.twilio_auth_token)
+    except NotImplementedError as exc:
+        logger.error('secrets backend error while resolving Twilio auth token', extra={'fields': {'error': str(exc)}})
+        raise HTTPException(403, 'Webhook verification unavailable') from exc
+
+    # Twilio signs the exact URL it called. Behind a TLS-terminating reverse proxy,
+    # request.url can come back as http:// even though Twilio called https://, so the
+    # publicly configured base URL is authoritative here, not request.url (ADR-029).
+    url = f'{settings.replica_public_base_url.rstrip("/")}{request.url.path}'
+    if not verify_twilio_signature(url, params, signature, auth_token):
+        logger.warning('twilio webhook signature verification failed', extra={'fields': {'path': request.url.path}})
+        raise HTTPException(403, 'Invalid webhook signature')
+
+    call_sid = params.get('CallSid', '')
+    call_status = params.get('CallStatus', 'unknown')
+    if not call_sid:
+        raise HTTPException(400, 'Missing CallSid')
+
+    claimed = claim_webhook_delivery(
+        db, provider='twilio', event_type='call-status', external_id=f'{call_sid}:{call_status}',
+        payload_summary={'call_status': call_status},
+    )
+    if not claimed:
+        db.commit()
+        return {'ok': True, 'duplicate': True}
+
+    call = db.scalar(select(Call).where(Call.external_call_id == call_sid))
+    if call is not None:
+        log_audit(db, call.company_id, actor='twilio-webhook', action=f'call.status.{call_status}', entity_type='call', entity_id=str(call.id))
+    db.commit()
+    return {'ok': True}
 
 
 # ---------------------------------------------------------------------------

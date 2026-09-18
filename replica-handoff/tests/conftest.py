@@ -51,3 +51,18 @@ def login(client, email: str, password: str = DEMO_PASSWORD) -> str:
 
 def auth_headers(client, email: str, password: str = DEMO_PASSWORD) -> dict:
     return {'Authorization': f'Bearer {login(client, email, password)}'}
+
+
+@pytest.fixture()
+def db_session(client):
+    """A raw SQLAlchemy session against the same test database the `client` fixture's
+    app uses — for tests that need to set up rows the API has no endpoint for (e.g. a
+    fixed external_call_id) or assert directly on DB-only tables. Depends on `client`
+    so the app (and its migrations) has already run by the time this opens.
+    """
+    from app.db import SessionLocal
+    session = SessionLocal()
+    try:
+        yield session
+    finally:
+        session.close()

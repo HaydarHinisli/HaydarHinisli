@@ -1,6 +1,6 @@
 from __future__ import annotations
 import time
-from .conversation_state import ConversationState, apply_prospect_turn
+from .conversation_state import ConversationState, apply_turn
 from .language_sync import analyze_language
 from .sales_brain import decide
 
@@ -34,13 +34,16 @@ def suggest(
 
 def suggest_with_state(
     state: ConversationState, utterance: str, reaction_snapshot: dict | None = None,
-) -> tuple[ConversationState, dict]:
+) -> tuple[ConversationState, dict, dict]:
     """Call-bound counterpart to suggest(): advances the call's persisted
     ConversationState by one prospect turn instead of reclassifying the utterance in
-    isolation (Sprint 1.5, docs/DECISIONS.md ADR-026)."""
+    isolation (Sprint 1.5, docs/DECISIONS.md ADR-026). Goes through the unified
+    apply_turn() dispatcher (Provider-Ready Gate, ADR-030) so app/main.py gets a
+    `transition` summary for the ConversationStateEvent history row without
+    recomputing anything. Returns (new_state, result, transition)."""
     started = time.perf_counter()
     language_policy = analyze_language(utterance)
-    new_state, decision = apply_prospect_turn(state, utterance, language_policy)
+    new_state, transition, decision = apply_turn(state, 'prospect', utterance, language_policy)
     result = {
         **decision,
         'language_policy': language_policy,
@@ -48,4 +51,4 @@ def suggest_with_state(
         'evidence_level': 'heuristic_fast_path_stateful',
     }
     result['latency_ms'] = round((time.perf_counter() - started) * 1000, 2)
-    return new_state, result
+    return new_state, result, transition

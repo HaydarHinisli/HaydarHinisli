@@ -149,19 +149,26 @@ def test_seller_turn_updates_bookkeeping_not_phase():
     state = initial_state(call_id=10)
     state, _ = _advance(state, 'Guten Tag.')
     before_phase = state.current_phase
-    state = apply_seller_turn(state, 'Guten Tag, hier ist Ihr Ansprechpartner von REPLICA.')
+    state, transition = apply_seller_turn(state, 'Guten Tag, hier ist Ihr Ansprechpartner von REPLICA.')
     assert state.current_phase == before_phase  # unchanged — sellers don't drive phase
     assert state.last_seller_action == 'greeting'
+    assert transition == {
+        'from_phase': before_phase, 'to_phase': before_phase, 'event_type': 'seller_action',
+        'objection_type': None, 'sales_action': 'greeting', 'trigger': None,
+    }
 
-    state = apply_seller_turn(state, 'Was ist Ihnen bei Ihrer aktuellen Lösung wichtig?')
+    state, transition = apply_seller_turn(state, 'Was ist Ihnen bei Ihrer aktuellen Lösung wichtig?')
     assert state.last_seller_action == 'discovery_question'
+    assert transition['sales_action'] == 'discovery_question'
 
 
 def test_seller_pitch_action_sets_pitch_delivered():
     state = initial_state(call_id=11)
-    state = apply_seller_turn(state, 'Wir helfen Vertriebsteams, mehr qualifizierte Termine zu erzielen und Umsatz zu steigern.')
+    state, transition = apply_seller_turn(state, 'Wir helfen Vertriebsteams, mehr qualifizierte Termine zu erzielen und Umsatz zu steigern.')
     assert state.last_seller_action == 'pitch'
     assert state.pitch_delivered is True
+    assert transition['sales_action'] == 'pitch'
+    assert transition['event_type'] == 'seller_action'
 
 
 # --- HTTP-level: state actually persists across multiple API calls for one call_id --

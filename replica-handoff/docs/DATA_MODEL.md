@@ -57,6 +57,8 @@ Language:
 - latency
 - seller feedback
 - used/not used
+- `trace_id` (Provider-Ready Gate): correlates this suggestion with the request(s)
+  that produced it end-to-end — see `docs/DECISIONS.md` ADR-033.
 
 ### ConversationState (Sprint 1.5)
 One row per Call. Lets SalesBrain understand phase transitions across the whole
@@ -77,6 +79,41 @@ isolation. See `app/services/conversation_state.py` for the state machine and
 - resolved_objections
 - last_seller_action
 - last_prospect_event
+
+### ConversationStateEvent (Provider-Ready Gate)
+Append-only history — one row per *processed* turn (prospect or seller) — kept
+alongside (never instead of) the single mutable `ConversationState` row above. Lets
+post-call review, coaching, the Experiment Engine and the future Cold Call Genome
+reconstruct how a call actually developed, not just its current state. See
+`docs/DECISIONS.md` ADR-030.
+
+- company_id / call_id / turn_index / speaker (`seller` | `prospect`)
+- from_phase / to_phase
+- event_type (`phase_change`, `objection_raised`, `utterance`, `seller_action`)
+- objection_type
+- sales_action
+- trigger
+- created_at
+
+### ProcessedTurnEvent (Provider-Ready Gate)
+Exactly-once processing guard for real turns, scoped to `(call_id, action, turn_id)`
+via a unique constraint. Not a business record on its own — purely infrastructure so
+a webhook retry, reconnect, or duplicate final transcript can never trigger a second
+state transition or a second Copilot run for the same real utterance. See
+`docs/DECISIONS.md` ADR-031.
+
+- company_id / call_id / action (`transcribe` | `live_assist`) / turn_id
+- utterance_id / stream_id / provider_event_id (correlation only, not the uniqueness key)
+- result_ref (the first claim's result, returned to a later duplicate instead of reprocessing)
+- processed_at
+
+### WebhookDelivery (Provider-Ready Gate)
+Idempotency ledger for inbound provider webhooks, scoped to `(provider, event_type,
+external_id)` via a unique constraint. See `docs/DECISIONS.md` ADR-029.
+
+- provider / event_type / external_id
+- company_id (nullable — set only when the delivery could be correlated to a tenant)
+- received_at / payload_summary
 
 ### Meeting
 - external provider ID

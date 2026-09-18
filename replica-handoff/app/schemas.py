@@ -33,6 +33,14 @@ class TurnRequest(BaseModel):
     avg_loudness_dbfs: float | None = None
     avg_pitch_hz: float | None = Field(default=None, ge=0, le=1000)
     pitch_range_hz: float | None = Field(default=None, ge=0, le=1000)
+    # Provider-Ready Gate (ADR-031): optional today because current callers (manual
+    # UI, demo flows) have no provider-stable identity to give us; a real streaming
+    # ASR caller should always pass turn_id (and, when available, utterance_id/
+    # stream_id/provider_event_id) so retries/reconnects can't double-process a turn.
+    turn_id: str | None = Field(default=None, max_length=200)
+    utterance_id: str | None = Field(default=None, max_length=200)
+    stream_id: str | None = Field(default=None, max_length=200)
+    provider_event_id: str | None = Field(default=None, max_length=200)
 
 
 class SuggestRequest(BaseModel):
@@ -42,6 +50,15 @@ class SuggestRequest(BaseModel):
     recent_context: list[str] = Field(default_factory=list, max_length=12)
     reaction_snapshot: dict = Field(default_factory=dict)
     turn_index: int | None = Field(default=None, ge=0)
+    # Provider-Ready Gate: see TurnRequest above for turn_id/utterance_id/stream_id/
+    # provider_event_id. trace_id lets a caller that already has one (from its own
+    # POST /calls/{id}/turns call for the same utterance) correlate this suggestion
+    # with that turn end-to-end instead of getting a fresh, unrelated one.
+    turn_id: str | None = Field(default=None, max_length=200)
+    utterance_id: str | None = Field(default=None, max_length=200)
+    stream_id: str | None = Field(default=None, max_length=200)
+    provider_event_id: str | None = Field(default=None, max_length=200)
+    trace_id: str | None = Field(default=None, max_length=80)
 
 
 class SuggestionFeedbackRequest(BaseModel):

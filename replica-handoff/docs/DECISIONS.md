@@ -416,3 +416,178 @@ New `GET /api/calls/{call_id}/processing-permissions`-style read endpoint,
 (same RBAC as other call-scoped endpoints, same 404-not-403 tenant scoping) — mainly
 for debugging and for Sprint 2+ manager/coaching views that may want to show phase
 history, without requiring every consumer to replay `/copilot/suggest` calls.
+
+## ADR-028 — Secrets resolution goes through a seam, not scattered `os.environ` reads
+Status: accepted
+
+`app/secrets.py` introduces a `SecretsProvider` protocol and `get_secrets_provider()`
+before Sprint 2 needs any real provider credential beyond Twilio's static
+account SID/auth token (OpenAI Realtime, future STT/TTS vendors, ...). Today's only
+implementation, `EnvSecretsProvider`, reads `os.environ` — functionally identical to
+reading `os.environ` directly — but every *new* secret-consuming call site (the Twilio
+webhook signature check, ADR-029) goes through the seam from day one, so switching to
+a real secrets manager (Vault, AWS Secrets Manager, ...) later touches one function,
+not every call site. `REPLICA_SECRETS_BACKEND` selects the backend (default `'env'`);
+any other value raises `NotImplementedError` loudly at resolution time rather than
+silently falling back — a misconfigured backend must be a visible failure, not a
+quiet no-op, consistent with this project's fail-closed default everywhere else.
+
+Known deviation (documented per the standing instruction to flag any divergence from
+the spec/handoff docs): `app/config.py`'s pydantic-settings `Settings` object remains
+the source of truth for `twilio_auth_token` and friends, loaded from `.env` at
+process start — it does **not** yet route through `get_secrets_provider()`, because
+pydantic-settings reads `.env` directly into its own model rather than exporting those
+values into `os.environ`, so `EnvSecretsProvider.get()` would miss a value that is only
+ever set via `.env`. The Twilio webhook handler therefore resolves the auth token as
+`get_secrets_provider().get('TWILIO_AUTH_TOKEN', settings.twilio_auth_token)` — the
+seam is consulted first (so a real backend, or an explicitly exported env var, takes
+priority), falling back to the already-correctly-loaded `Settings` value. Fully routing
+`Settings` itself through the seam is deferred to whenever a real secrets backend is
+actually implemented, since a `Settings`-level change affects every configured value,
+not just secrets, and is out of scope for this gate. `redact_secret()` exists for the
+day log lines need to reference a secret's presence without ever printing it in full.
+
+## ADR-029 — Webhook authenticity and delivery idempotency (Twilio call-status)
+Status: accepted
+
+`POST /webhooks/twilio/call-status` is REPLICA's first inbound provider webhook.
+Twilio cannot present one of our bearer tokens, so the *only* authentication
+available is Twilio's own request-signing scheme: HMAC-SHA1 over the exact URL plus
+sorted, concatenated POST parameters, keyed with the account's auth token, compared
+via `hmac.compare_digest` (`app/webhooks/security.py`, per Twilio's documented
+algorithm — see `docs/PROVIDER_REFERENCES.md`). A missing header, a missing/
+unresolvable auth token, or a mismatched signature all fail closed with `403` —
+there is no "process anyway" fallback, matching this project's consent/policy gates
+everywhere else. The signed URL is reconstructed from
+`settings.replica_public_base_url`, not `request.url`, because a TLS-terminating
+reverse proxy in front of the app can hand Starlette an `http://` URL for a request
+Twilio actually made over `https://`, which would make every signature check fail.
+
+Idempotency is a second, independent concern layered on top: Twilio retries a
+webhook delivery on anything other than a fast `2xx`, so the same `(CallSid,
+CallStatus)` pair can legitimately arrive more than once and must not be
+double-processed (e.g. double-writing an audit event). `claim_webhook_delivery()`
+(`app/webhooks/idempotency.py`) claims `(provider, event_type, external_id)` via the
+`webhook_deliveries` table's unique constraint — insert-then-catch-`IntegrityError`,
+the same race-safe pattern used for turn deduplication (ADR-031) — rather than a
+read-then-write check, which would have a race window between two near-simultaneous
+retries. A duplicate delivery still returns `200 {"ok": true, "duplicate": true}` so
+Twilio stops retrying, per Twilio's own guidance.
+
+Known tech debt: the endpoint is `async def` (required to `await request.form()`)
+but performs synchronous SQLAlchemy calls, briefly blocking the event loop. Acceptable
+for Twilio's low-frequency status callbacks; revisit (e.g. `run_in_threadpool`, or an
+async DB driver) if webhook volume grows meaningfully before Sprint 2's real media
+streaming work supersedes this shape entirely.
+
+## ADR-030 — Conversation-state history is an append-only ledger beside the fast state; `apply_turn()` unifies both speakers
+Status: accepted
+
+`ConversationStateEvent` (new table `conversation_state_events`) records one row per
+*processed* turn — prospect or seller — alongside (never instead of) the single
+mutable `ConversationState` row from Sprint 1.5. The fast row answers "what is the
+call's state right now"; the history answers "how did it get here", which post-call
+review, coaching, the Experiment Engine and the eventual Cold Call Genome all need and
+which a single overwritten row structurally cannot provide. Writing it costs exactly
+one extra `INSERT` in the DB-aware endpoint layer (`app/main.py`'s
+`_record_state_event()`) — the pure state machine in
+`app/services/conversation_state.py` is completely unaware the history table exists,
+so it stays exactly as fast (and exactly as unit-testable in isolation) as before this
+gate, per the explicit instruction that this history must not slow the live state
+machine.
+
+To make that possible without recomputing anything, `apply_prospect_turn()` and
+`apply_seller_turn()` now each return a `transition` dict (`from_phase`, `to_phase`,
+`event_type`, `objection_type`, `sales_action`, `trigger`) shaped exactly like a
+`ConversationStateEvent` row, computed as a byproduct of logic the state machine
+already runs — no new classification work. A new `apply_turn(state, speaker, text,
+language_policy)` dispatcher unifies both speakers behind one call: it returns
+`(new_state, transition, decision)`, where `decision` is the SalesBrain suggestion
+payload for a prospect turn or `None` for a seller turn (bookkeeping only, nothing to
+surface). `suggest_with_state()` (`app/services/copilot.py`) now calls `apply_turn()`
+instead of `apply_prospect_turn()` directly, and `POST /api/calls/{id}/turns`'
+seller-turn branch calls it instead of the old bare `apply_seller_turn()` — both call
+sites get a `transition` for history-writing "for free" from the same call that
+already computed everything else.
+
+## ADR-031 — Event/Turn Identity & Deduplication: exactly-once processing per real turn
+Status: accepted
+
+Once Sprint 2 introduces streaming ASR, the same real spoken turn can legitimately
+reach REPLICA's endpoints more than once: a webhook/provider retry, a websocket
+reconnect mid-utterance, a provider re-sending a "final" transcript it already sent,
+or an interim revision that looks like a new event. None of these may trigger a
+second state transition or a second Copilot suggestion for the same turn — that would
+double-count `turn_index`, corrupt phase progression, and show the seller two
+suggestions for one thing the prospect said once.
+
+`ProcessedTurnEvent` (new table `processed_turn_events`) is the single choke point
+enforcing "exactly once", scoped to `(call_id, action, turn_id)` via a unique
+constraint — the same insert-then-catch-`IntegrityError` claim pattern as webhook
+idempotency (ADR-029), reused because it is the identical problem ("have I already
+claimed this token") under concurrent access. `app/services/turn_identity.py`
+exposes `claim_turn()` (returns `(claimed, row)`) and `record_result()` (stores what
+the claim produced, so a later duplicate can return the *original* result instead of
+reprocessing or erroring). `turn_id` is REPLICA's own idempotency key; `utterance_id`
+/ `stream_id` / `provider_event_id` are carried through for correlation and debugging
+but are deliberately **not** part of the uniqueness boundary, since a provider may
+legitimately reuse or omit them across interim/final ASR revisions — only `turn_id`
+is required to be provider-stable.
+
+Both `POST /api/calls/{id}/turns` (action `'transcribe'`) and `POST
+/api/copilot/suggest` (action `'live_assist'`) now call `claim_turn()` before doing
+any work; a duplicate claim short-circuits to the cached `result_ref` with
+`"duplicate": true` in the response instead of reprocessing. Uniqueness is
+deliberately scoped *per action*, not globally per turn: today's two-endpoint MVP
+split means the same real utterance is legitimately claimed once for `'transcribe'`
+and once for `'live_assist'` — see ADR-032 for why that split still exists and how it
+is expected to disappear. Callers that don't yet have a real provider-stable
+`turn_id` (today's manual UI and demo flows) get one synthesized from `(call_id,
+action, current turn count)` via `synthesize_turn_id()`, so nothing breaks before a
+real ASR pipeline exists to supply a better one.
+
+## ADR-032 — Sprint 2 forward-compatibility: seller bookkeeping and the two-endpoint split are MVP simplifications, not architecture
+Status: accepted
+
+Two shortcuts remain deliberately in place after this gate, both flagged explicitly
+so Sprint 2 does not have to rediscover them the hard way:
+
+1. **Seller turns only affect bookkeeping.** `apply_seller_turn()` (via `apply_turn()`,
+   ADR-030) updates `last_seller_action` / `opening_completed` / `pitch_delivered` and
+   returns a `transition` whose `from_phase` always equals `to_phase` — it never
+   drives `current_phase` itself (ADR-023, ADR-027). This is today's MVP
+   simplification, not a permanent constraint: the `transition` dict already reports
+   `sales_action` precisely (e.g. `'pitch'`, `'closing'`, `'discovery_question'`), so a
+   future revision can let a specific seller action legitimately drive a real phase
+   transition (e.g. a deliberate discovery→pitch handoff) by branching on
+   `sales_action` inside `apply_seller_turn()` — without changing its signature, its
+   callers, or the `ConversationStateEvent` schema that already has a column for it.
+2. **`/turns` and `/copilot/suggest` remain two independent state-writers.** Both
+   claim turns via `ProcessedTurnEvent` under different `action` values (ADR-031) and
+   both can independently call into `apply_turn()`, which is exactly the "two
+   endpoints reclassifying the same utterance" risk ADR-027 already named. This gate
+   does not collapse that split — doing so requires the real ASR pipeline's turn-end
+   detection, which is Sprint 2's job — but it ensures nothing about today's design
+   depends on the split persisting: once Sprint 2 has one real "final turn" event, it
+   should call `apply_turn()` exactly once through a single processing path, and nothing
+   in `app/services/conversation_state.py` needs to change for that to happen.
+
+## ADR-033 — `trace_id` correlates a turn across requests; it is not `request_id`
+Status: accepted
+
+`RequestContextMiddleware` already assigned a `request_id` per HTTP request (Sprint
+1). That is insufficient for Sprint 2: a single real prospect turn is processed by
+*two* separate HTTP calls under today's split (`POST /calls/{id}/turns`, then `POST
+/copilot/suggest` — see ADR-032), each of which would get its own unrelated
+`request_id`, making it impossible to correlate them in logs or in the `Suggestion`
+row that resulted. `trace_id` is the answer: a caller that already has one (e.g. the
+ASR pipeline, or a first call's own response) passes it via the `X-Trace-Id` request
+header or the `trace_id` field on `TurnRequest`/`SuggestRequest`; otherwise
+`RequestContextMiddleware` generates one and echoes it back via the `X-Trace-Id`
+response header so the caller can pick it up and reuse it for the next call in the
+same turn's flow. `Suggestion.trace_id` (new column) persists whichever trace_id
+produced that suggestion, so a later real end-to-end RSL measurement (`t_turn_end` ->
+`t_ui_rendered`, still explicitly NOT implemented — see ADR-021/022's latency-baseline
+caveats) has a join key across the pipeline once Sprint 2 exists. This is deliberately
+a thin, additive mechanism: it does not change what gets logged beyond adding one
+field, and it does not yet drive any behavior — it is purely for correlation.

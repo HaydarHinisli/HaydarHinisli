@@ -1,6 +1,6 @@
 from __future__ import annotations
 from datetime import datetime
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .db import Base
 
@@ -97,6 +97,10 @@ class Suggestion(Base):
     # on a sandbox suggestion (no call_id to derive a tenant from) could not be tenant-scoped.
     company_id: Mapped[int | None] = mapped_column(ForeignKey('companies.id'), nullable=True, index=True)
     call_id: Mapped[int | None] = mapped_column(ForeignKey('calls.id'), nullable=True, index=True)
+    # Provider-Ready Gate: correlates this suggestion end-to-end with the ASR/turn
+    # pipeline event that produced it, for later real RSL measurement (t_turn_end ->
+    # t_ui_rendered) once Sprint 2 exists — see docs/DECISIONS.md ADR-030/031.
+    trace_id: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
     prospect_text: Mapped[str] = mapped_column(Text)
     suggestion: Mapped[str] = mapped_column(Text)
@@ -254,3 +258,74 @@ class ConversationState(Base):
     last_seller_action: Mapped[str | None] = mapped_column(String(40), nullable=True)
     last_prospect_event: Mapped[str | None] = mapped_column(String(40), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class ConversationStateEvent(Base):
+    """Provider-Ready Gate: append-only history of conversation-state transitions,
+    alongside (not instead of) the fast `ConversationState` snapshot above. One row
+    per processed turn (prospect or seller), so post-call review, coaching, the
+    Experiment Engine and the Cold Call Genome can reconstruct how a call actually
+    developed, not just its current state. Writing this row is a single extra INSERT
+    in the DB-aware endpoint layer (app/main.py) — the pure state machine in
+    app/services/conversation_state.py stays exactly as fast as before (see
+    docs/DECISIONS.md ADR-030).
+    """
+    __tablename__ = 'conversation_state_events'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey('companies.id'), index=True)
+    call_id: Mapped[int] = mapped_column(ForeignKey('calls.id'), index=True)
+    turn_index: Mapped[int] = mapped_column(Integer, default=0)
+    speaker: Mapped[str] = mapped_column(String(20), index=True)
+    from_phase: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    to_phase: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    event_type: Mapped[str] = mapped_column(String(40), index=True)
+    objection_type: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    sales_action: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    trigger: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    event_metadata: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class ProcessedTurnEvent(Base):
+    """Provider-Ready Gate: exactly-once processing guard for real turns. Uniqueness
+    is scoped to (call_id, action, turn_id): the same real utterance is legitimately
+    claimed once for 'transcribe' (via POST /calls/{id}/turns) and once for
+    'live_assist' (via POST /copilot/suggest) under today's two-endpoint MVP split —
+    see docs/DECISIONS.md ADR-031/ADR-032. `turn_id` is REPLICA's own idempotency key;
+    `utterance_id`/`stream_id`/`provider_event_id` are carried through for
+    correlation/debugging but are not themselves the uniqueness boundary, since a
+    provider may legitimately reuse or omit them across interim/final ASR revisions.
+    `result_ref` points at the row produced by the first (successful) claim, so a
+    duplicate can return the original result instead of reprocessing.
+    """
+    __tablename__ = 'processed_turn_events'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey('companies.id'), index=True)
+    call_id: Mapped[int] = mapped_column(ForeignKey('calls.id'), index=True)
+    action: Mapped[str] = mapped_column(String(40), index=True)
+    turn_id: Mapped[str] = mapped_column(String(200), index=True)
+    utterance_id: Mapped[str | None] = mapped_column(String(200), nullable=True, index=True)
+    stream_id: Mapped[str | None] = mapped_column(String(200), nullable=True, index=True)
+    provider_event_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    result_ref: Mapped[dict] = mapped_column(JSON, default=dict)
+    processed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (UniqueConstraint('call_id', 'action', 'turn_id', name='uq_processed_turn_event'),)
+
+
+class WebhookDelivery(Base):
+    """Provider-Ready Gate: idempotency ledger for inbound provider webhooks.
+    Uniqueness on (provider, event_type, external_id) — a retried delivery of the
+    same provider event is recognized and skipped rather than reprocessed (see
+    docs/DECISIONS.md ADR-029).
+    """
+    __tablename__ = 'webhook_deliveries'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    provider: Mapped[str] = mapped_column(String(60), index=True)
+    event_type: Mapped[str] = mapped_column(String(80), index=True)
+    external_id: Mapped[str] = mapped_column(String(220), index=True)
+    company_id: Mapped[int | None] = mapped_column(ForeignKey('companies.id'), nullable=True, index=True)
+    received_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    payload_summary: Mapped[dict] = mapped_column(JSON, default=dict)
+
+    __table_args__ = (UniqueConstraint('provider', 'event_type', 'external_id', name='uq_webhook_delivery'),)
