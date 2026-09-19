@@ -136,23 +136,75 @@ Simplest robust shape meeting EU/HTTPS/WSS/Postgres/single-instance:
 - **Secrets**: set via your host/PaaS's own secret store, never committed —
   this repo's `.gitignore` already excludes `.env`.
 
+**Validated alternative for a single supervised test (no deployment at all):**
+a local server (`./run.sh`) exposed via a `cloudflared tunnel --url http://localhost:8000`
+quick tunnel (no Cloudflare account needed) gives Twilio a real public
+`https://*.trycloudflare.com` URL that forwards straight to the developer's own
+machine — no server to provision, no DNS, no TLS setup. Confirmed working
+end-to-end for `/api/health` over the tunnel. Trade-offs, stated plainly: the
+URL is random and changes every time the tunnel restarts (the TwiML Bin and
+`REPLICA_PUBLIC_BASE_URL` must be updated together whenever that happens), and
+the tunnel process itself must stay running in its own terminal for the
+duration of the test. Fine for one supervised session; not a substitute for
+the real deployment above for anything beyond that.
+
 ## 4. Dashboard steps
 
 ### Twilio (https://console.twilio.com)
 
 1. Öffne https://console.twilio.com und melde dich an.
 2. **Trial → Pay-as-you-go upgraden (zwingend vor dem echten Test)**: im Free
-   Trial sind sowohl `<Stream>` als auch `<Dial><Number>` blockiert — ohne
-   Upgrade läuft der Test gar nicht erst an. Console-Startseite oder
-   Account-Menü → "Upgrade" bzw. "Add funds"/"Billing" → Zahlungsmethode
-   hinterlegen → Account wird dadurch auf Pay-as-you-go umgestellt.
+   Trial sind sowohl `<Stream>` (in eigenem/Custom-TwiML — die eingebaute
+   "Try out Voice"-Demo läuft über eine Twilio-eigene Demo-Nummer und ist davon
+   unabhängig) als auch `<Dial><Number>` blockiert — ohne Upgrade läuft der
+   Test gar nicht erst an. Console-Startseite oder Account-Menü → "Upgrade"
+   bzw. "Add funds"/"Billing" → Zahlungsmethode hinterlegen → Account wird
+   dadurch auf Pay-as-you-go umgestellt.
+
+   **Zusätzlich gefunden, real am Account geprüft (19.09.2026):** das Upgrade
+   ist nicht nur für `<Stream>`/`<Dial>` selbst nötig, sondern auch jede
+   *eigene* Telefonnummer erfordert es — unabhängig vom Land. EU-Nummern
+   (Deutschland, Irland) verlangen zusätzlich ein "Regulatory Bundle"
+   (Compliance-Nachweis mit Adress-/Identitätsangaben), selbst für den
+   "Individual"-Profiltyp; eine **US-Nummer mit ausschließlich Voice-Fähigkeit
+   (SMS/MMS bei der Suche abgewählt)** verlangt dieses Bundle dagegen nicht.
+   Der Upgrade-Vorgang selbst (Zahlungsmethode + Compliance-Profil anlegen)
+   brach bei diesem Test wiederholt mit Navigations-Schleifen bzw. internen
+   Serverfehlern auf Twilio-Seite ab — vermutlich eine automatische
+   Risikoprüfung für neue Accounts, kein Bedienfehler; einfach nach einiger
+   Zeit erneut versuchen, oder Twilio-Support kontaktieren, falls es anhält.
 3. **Account SID / Auth Token**: Öffne die Console-Startseite (oder
    Account → API keys & tokens) → dort stehen "Account SID" und "Auth Token"
    (Auth Token ggf. über "View"/Augen-Symbol sichtbar machen) → in deinen
    Passwort-Manager kopieren, niemals in eine Datei in diesem Repo.
 4. **Telefonnummer**: Phone Numbers → Manage → Buy a number (falls noch keine
    vorhanden) → eine Nummer mit aktivierter Voice-Funktion wählen.
-5. **TwiML Bin erstellen**: Develop → TwiML Bins → "Create new TwiML Bin" →
+5. **TwiML Bin erstellen**: Develop → TwiML Bins → "Create new TwiML Bin".
+
+   **Zwischenschritt, empfohlen bevor eine zweite Testperson feststeht — Solo-
+   Verifikation ohne `<Dial>`:** prüft Media Stream, Signaturprüfung und
+   echte Deepgram-Erkennung, ohne dass ein Prospect-Gegenüber nötig ist (es
+   entsteht dabei bewusst keine Suggestion, da nur Prospect-Turns eine
+   auslösen — siehe ADR-053). Nur `<PUBLIC_HOST>` und `<REPLICA_CALL_ID>`
+   ausfüllen:
+   ```xml
+   <?xml version="1.0" encoding="UTF-8"?>
+   <Response>
+       <Start>
+           <Stream
+               url="wss://<PUBLIC_HOST>/ws/twilio-media"
+               track="both_tracks">
+               <Parameter
+                   name="replica_call_id"
+                   value="<REPLICA_CALL_ID>" />
+           </Stream>
+       </Start>
+       <Say language="de-DE">Verbindung zu REPLICA hergestellt. Bitte sprechen Sie jetzt.</Say>
+       <Pause length="30"/>
+   </Response>
+   ```
+
+   **Vollständige Variante mit Prospect (sobald eine zweite Person feststeht).**
    Name z. B. `replica-first-test` → folgenden Inhalt einfügen. **Nur diese
    vier Stellen müssen noch ausgefüllt werden**: die öffentliche REPLICA-WSS-URL
    (`<PUBLIC_HOST>`, zweimal — WebSocket und Status-Callback teilen sich denselben
@@ -274,3 +326,34 @@ real — everything before this remains `is_synthetic=True`). Consenting test
 persons only, never a real external prospect. This single test closes both
 Sprint 2B (Real Provider Verification) and Sprint 3A (Real-RSL Verification)
 at once, per the existing plan.
+
+## 7. Resume point (19.09.2026) — everything below is done, only the Twilio number purchase is blocked
+
+No code or architecture was changed to work around the Trial limitation in
+§4 — see ADR-055. What is already configured and verified on the operator's
+machine, so the next session can resume directly at "buy a number" without
+repeating any of it:
+
+- Local server running (`./run.sh`), reachable publicly via a Cloudflare
+  quick tunnel (§3) — confirmed via `/api/health` through the tunnel URL.
+  **The tunnel URL is random per run** — `REPLICA_PUBLIC_BASE_URL` in `.env`
+  and the TwiML Bin's `<PUBLIC_HOST>` placeholders must be updated together
+  the next time the tunnel is restarted.
+- `.env` already holds a real `TWILIO_AUTH_TOKEN`, a real `DEEPGRAM_API_KEY`,
+  and `REPLICA_ASR_PROVIDER=deepgram` — verified loaded correctly via
+  `app.config.get_settings()` (length-only checks, values never logged).
+- A TwiML Bin exists with the solo-verification content from §4 (no `<Dial>`
+  yet, since no second test person was available this session).
+- A test `Call` row exists with consent granted, ready for `<REPLICA_CALL_ID>`
+  in the TwiML Bin once a number is linked to it. (The specific numeric ID
+  used this session is local demo data, not meaningful to keep across a fresh
+  clone/DB — create a new one via the existing preflight steps if it's gone.)
+- **Blocked**: buying any Twilio phone number requires the Pay-as-you-go
+  upgrade (§4, point 2) — attempted, not yet completed, due to a Twilio-side
+  error during the upgrade flow itself (not a REPLICA issue).
+
+Next session, in order: (1) finish the Twilio upgrade, (2) buy a US number
+with Voice-only capability (avoids the EU regulatory-bundle requirement),
+(3) link it to the existing TwiML Bin, (4) run the solo verification call,
+(5) once a consenting Prospect test person is available, switch the TwiML Bin
+to the full two-person variant and run the complete end-to-end test.

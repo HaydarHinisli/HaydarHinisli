@@ -1534,3 +1534,83 @@ unchanged). Full regression: 272/272 (SQLite and PostgreSQL 16).
 already-existing endpoint and a doc/TwiML correction — no new endpoint, no new
 model, no new webhook event type, per the explicit instruction not to
 introduce further features or architecture changes during preflight.
+
+## ADR-055 — First real-provider attempt: genuine Twilio Trial findings, no code changes, session paused at "buy a number"
+
+Status: accepted (informational — records findings and a resume point, not a design decision)
+
+This session attempted the actual first real-provider test (Twilio + Deepgram,
+per `docs/REAL_TEST_SETUP.md`) for the first time, live against real Twilio
+and Deepgram accounts. It surfaced several genuine, previously-undocumented
+or incorrectly-assumed facts about Twilio's Trial account behavior. None of
+them required or received a code change — they are dashboard/account-level
+facts, recorded here exactly because this project's discipline (see ADR-043,
+ADR-053) is to never let a provider assumption stand unverified once reality
+disagrees with it.
+
+**What was confirmed, live, correcting this session's own earlier guidance:**
+
+1. **`<Start><Stream>` in custom TwiML IS blocked on a Trial account**, not
+   just `<Dial><Number>`. An earlier point in this session had walked this
+   back in chat (based on a web search that didn't distinguish "the Media
+   Streams API exists" from "the `<Stream>` TwiML verb works in a Trial
+   account's own custom TwiML") — that walk-back was never committed to
+   `docs/REAL_TEST_SETUP.md` (its §4 already stated the stricter, correct
+   claim) and is superseded by this direct account-level confirmation.
+   Twilio's own built-in "Try out Voice" trial demo uses a Twilio-owned demo
+   number/flow and is unaffected by this — it proves nothing about custom
+   TwiML.
+2. **Buying ANY phone number requires the Pay-as-you-go upgrade**, regardless
+   of destination country — confirmed by repeated, consistent errors ("This
+   feature is not available on a Trial account. Please upgrade.") across
+   Germany, Ireland, and US number searches.
+3. **EU local numbers (Germany, Ireland) additionally require a "Regulatory
+   Bundle"** — a compliance/KYC profile with address and identity information
+   — even for the "Individual" profile type, even before the account is
+   otherwise upgraded. A **US number restricted to Voice capability only**
+   (SMS/MMS deselected in the number search) does not trigger this
+   requirement, making it the simpler path for a Voice-only pilot test like
+   this one's Media Stream use case.
+4. **The upgrade flow itself was unreliable during this session**: the
+   compliance-profile step repeatedly looped back to its own first screen,
+   and a number-purchase attempt returned "An internal server error has
+   occurred" from Twilio directly. Both look like Twilio-side account-review
+   friction for a brand-new account attempting its first upgrade, not
+   anything wrong with REPLICA's configuration — but this is genuinely
+   unverified; it could not be resolved within this session.
+
+**What did NOT change.** No source file was edited to work around any of
+this — no simulated fallback, no bypass, no new environment variable to
+route around the Trial restriction. The explicit instruction for this session
+was to configure only, never to build a workaround for a provider account
+limitation, and that held throughout.
+
+**What WAS prepared and verified, and remains ready for the next session**
+(see `docs/REAL_TEST_SETUP.md` §7 for the full resume checklist): a local
+REPLICA server exposed via a Cloudflare quick tunnel (a lighter alternative
+to full deployment for a single supervised test, confirmed reachable);
+`.env` holding a real `TWILIO_AUTH_TOKEN` and `DEEPGRAM_API_KEY` with
+`REPLICA_ASR_PROVIDER=deepgram` (verified loaded via `get_settings()`,
+length-only checks — no value ever logged or committed); a TwiML Bin with a
+new **solo-verification variant** — `<Start><Stream>` plus a `<Say>`/`<Pause>`,
+deliberately without `<Dial>` — that lets the Media Stream, signature
+verification, and real Deepgram transcription be verified end-to-end by one
+person alone, before a second consenting test person is needed for the full
+topology; a `Call` row with consent granted, ready for a `call_id` once a
+number exists to attach.
+
+**Secrets handling, stated plainly.** During this session's credential setup,
+two Twilio Auth Token values and one Deepgram API key were briefly exposed in
+the chat transcript with the operator (via terminal screenshots/copy-paste,
+despite explicit guidance to avoid this) — never committed to this
+repository or any file in it. The operator was advised each time to rotate
+the exposed credential in the respective provider console once the session's
+configuration work was confirmed working. This is an operator-side
+credential-hygiene note, not a code or architecture finding, recorded here
+only so it isn't lost before the rotation happens.
+
+**Next session picks up exactly at**: complete the Twilio Pay-as-you-go
+upgrade, buy a Voice-only US number, link it to the existing TwiML Bin, run
+the solo verification call, then arrange a consenting Prospect test person
+for the full two-person real test — closing Sprint 2B and Sprint 3A together,
+per the existing plan.
