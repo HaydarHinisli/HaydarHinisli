@@ -1614,3 +1614,61 @@ upgrade, buy a Voice-only US number, link it to the existing TwiML Bin, run
 the solo verification call, then arrange a consenting Prospect test person
 for the full two-person real test — closing Sprint 2B and Sprint 3A together,
 per the existing plan.
+
+## ADR-056 — `/live/{call_id}` reclassified as Sprint 3A testharness/debug view; main demo UI is the binding visual direction for the real Seller Frontend
+
+Status: accepted (product/UX decision — no code change in this ADR)
+
+After the Seller Frontend v1 restyle of `app/static/live.html` (previous
+session) was reviewed live by the product owner on their own machine, a
+product decision was made and is recorded here as binding for future work:
+
+**Decision.** `app/static/live.html` (served at `/live/{call_id}`) is
+reclassified from "first real Seller-Frontend" to what it always technically
+was underneath the restyle: the Sprint 3A live-push/Render-ACK
+**testharness and debug view**. It stays fully in place and keeps receiving
+whatever this line of work still needs (it is the one page proving the real
+WebSocket push + Render-ACK + clock-sync path end-to-end), but it is
+explicitly **not** the design direction for the eventual Seller Frontend.
+
+The product owner finds `app/static/index.html` (the existing full MVP
+demo — Dashboard/Live-Copilot/Call-Review/Manager/Integrations tabs)
+visually stronger and structurally more appropriate as a product surface.
+**The real Seller Frontend, when it is built, should take its visual
+language and structure from `index.html`**, combined with the actual
+real-time mechanics already proven in Sprint 3A: the `/ws/live/{call_id}`
+push, the Render-ACK round trip, and the clock-sync latency measurement
+(ADR-048, ADR-051). Concretely, that means the eventual real Live-Copilot
+view should look and feel like `index.html`'s "Live Copilot" tab (same
+visual system: topbar, `.card`, `.suggestion`, tag row, dark theme), but be
+*driven* by the live WebSocket push instead of a synchronous
+`POST /api/copilot/suggest` call typed into a textarea.
+
+**What this ADR does NOT do.** No redesign is built here. `live.html` is
+unchanged by this ADR; `index.html` is unchanged. This is a documented
+direction for a future sprint, not an implementation.
+
+**Consequences for future work:**
+- Sprint 3A follow-up work (real live-push, Render-ACK, clock sync) keeps
+  targeting `live.html` as its proving ground — that architecture is not in
+  question, only its current visual presentation.
+- When the real Seller Frontend sprint starts, its starting point is a copy
+  of `index.html`'s visual system, not an iteration on `live.html`'s layout.
+- `live.html` should from this point on be described to non-developers as
+  "the technical debug view", not as a preview of the final product, to
+  avoid the exact expectation mismatch this ADR resolves.
+
+**Unrelated finding from the same local test session, recorded for
+completeness.** While debugging a failed local connection to
+`/live/{call_id}`, the operator asked whether the endpoint intentionally
+requires the *specific* seller assigned to the call to connect (as opposed
+to any authenticated tenant user). It does not, and never has: the
+`/ws/live/{call_id}` handler (`app/main.py`) only checks that the token's
+user is active, has a role in `('seller', 'manager', 'tenant_admin',
+'system_admin')`, and belongs to the same tenant as the call
+(`call.company_id == user.company_id`) — there is no check that
+`user.id == call.seller_id` or similar. A `tenant_admin` token for the same
+tenant as the call is therefore expected to work exactly like a `seller`
+token here; it was never the cause of that session's "Verbindung
+unterbrochen" symptom. No code change resulted from this — it's a read of
+already-correct, already-tested behavior, not a bug.
