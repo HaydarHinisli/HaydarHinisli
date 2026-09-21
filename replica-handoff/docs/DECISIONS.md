@@ -2230,3 +2230,116 @@ exact wording (`www.twilio.com` was blocked by network egress policy here,
 same as during ADR-058's original Console-steps write-up) — the steps
 follow Twilio's own documented procedure, with an explicit instruction to
 verify the Region indicator actually reads IE1 before proceeding.
+
+## ADR-062 — Twilio Console unreachable; fail-closed preflight check, full browser-call-flow rehearsal, and a real prospect-number-not-cleared bug caught by live testing, all prepared before a single new Console resource exists
+
+Status: accepted (preparation ahead of a blocked step, not a correction of
+a previous ADR — though it did surface and fix one real UI bug along the
+way)
+
+The operator's Twilio Console was unreachable, blocking the two remaining
+Console resources ADR-060/061 depend on (the API Key and the TwiML App).
+Rather than wait, the request was to prepare everything else so that once
+the Console is reachable again, only creating those two resources and
+entering their values remains. Four things were built/verified for this,
+none of them new product features:
+
+**1. `GET /api/voice/preflight` (`app/main.py`), status-only, never a
+secret value.** Reads the bound `settings` object (this endpoint is
+naturally re-evaluated per request, so unlike `create_voice_access_token()`
+there is no reason to call `get_settings()` fresh) and reports, per item, a
+label, whether it's satisfied, and — only for the three genuinely
+non-secret settings (`TWILIO_REGION`, `TWILIO_EDGE`,
+`REPLICA_PUBLIC_BASE_URL`) — its actual value, so the operator can visually
+confirm `ie1`/`dublin` rather than just trust a checkmark. Every credential
+(`TWILIO_ACCOUNT_SID`, `TWILIO_API_KEY_SID`, `TWILIO_API_KEY_SECRET`,
+`TWILIO_TWIML_APP_SID`, `TWILIO_VERIFIED_CALLER_ID`, `DEEPGRAM_API_KEY`) is
+reported as present/absent only. The WS-origin check reuses the existing
+`is_allowed_origin()`/`parse_allowed_origins()` (`app/services/ws_origin.py`,
+ADR-051/052) rather than re-implementing origin matching — it reports
+satisfied unconditionally when `REPLICA_ENV=local` (matching that
+function's own bypass), otherwise checks `REPLICA_PUBLIC_BASE_URL`'s origin
+against `REPLICA_ALLOWED_WS_ORIGINS`. The overall `ready` boolean is true
+only if every item is satisfied. Auth-gated identically to the other voice
+endpoints (`require_role('seller', 'manager', 'tenant_admin')`).
+
+**2. `/live/{call_id}`'s voice-test section now calls this automatically
+and fails closed.** `refreshVoicePreflight()` runs on `auth_ok` and renders
+a ✓/✗ checklist (`renderPreflight()`); the `voiceCallBtn` click handler
+now checks `ready` before doing anything else and, if false, shows the
+missing items' plain-language labels and returns — `device.connect()` is
+never reached. Verified live, not just read: a real Playwright run against
+a real running server (not pytest's ASGI TestClient) confirmed the
+checklist renders the correct ✓/✗ per item, shows exactly the three
+non-secret values and nothing else, and that the fail-closed path
+genuinely prevents the call from starting when configuration is
+incomplete.
+
+**3. Real bug found and fixed by that same live run, not by pytest:** the
+first version of the click handler read and cleared the prospect-number
+field only after the preflight check. When preflight failed and the
+handler returned early, the field was left populated with whatever the
+operator had typed — confirmed by a Playwright run showing
+`prospectFieldAfterClick: "+491701234567"` after a fail-closed click.
+Fixed by moving the read+clear to the first two lines of the handler,
+before any other check, so the field is guaranteed empty after every
+outcome — re-verified with the identical script showing
+`prospectFieldAfterClick: ""` afterward. This is a real instance of the
+project's standing prospect-number-never-lingers requirement, not a
+hypothetical: the number now never reaches `localStorage`/`sessionStorage`
+(never assigned to either), never reaches `console.*` (never logged),
+never persists server-side beyond the one-time TwiML response Twilio
+consumes once (no code path writes it to the database or a file), and no
+error text anywhere embeds it (`renderPreflight()`'s messages only ever
+name a config label or the endpoint's own generic text) — nor does it ever
+reach `git`: the only file in this repo that ever names a real-looking
+test number is `place_test_call.py`'s own docstring template from ADR-059,
+which itself is written to live outside this repository and reads its
+number from an environment variable or a non-echoed prompt.
+
+**4. `tests/test_voice_call_flow_e2e.py` (new file), one continuous
+end-to-end test proving the whole browser-call flow without a real Twilio
+account, a real Deepgram account, or a real phone:** Voice Access Token
+region/edge (`region='ie1'`, `Device` edge `'dublin'`, the JWT `twr`
+header decoded and asserted directly) → `POST
+/webhooks/twilio/voice-outbound` with a real Twilio signature → the
+resulting TwiML asserted for shape (`<Start>` before `<Dial>`,
+`track="both_tracks"`, the `replica_call_id` parameter, the escaped
+`callerId`) → that exact `call_id` driven through the real Media Stream
+pipeline (`StreamSimulator`, reusing `tests/test_streaming_pipeline_e2e.py`'s
+fixtures rather than duplicating them) with a real `/ws/live/{call_id}`
+client attached → a real `Suggestion` push received → the `Turn` table
+queried directly to confirm `outbound` resolved to `prospect`
+(`OutboundSalesFlowResolver`, ADR-053/060) → a real Render-ACK posted and
+`wallclock_rsl_estimate_ms` confirmed non-null. As documented in the file's
+own module docstring: audio content and the ASR transcript are still
+simulated (`SimulatedASRProvider`) — everything else exercised is real,
+unmocked REPLICA code. What this test does NOT and cannot prove: a real
+Twilio account, a real phone ringing, or real Deepgram transcription —
+that is exactly what the first real call itself is for.
+
+**Regression coverage:** eight new tests added to
+`tests/test_voice_outbound.py` for the preflight endpoint (auth
+requirement, full-ready reporting, secret-value-leak prevention — asserted
+by checking realistic-looking fake secret values do not appear anywhere in
+the raw response text — missing-item reporting by label, wrong-region/edge
+still showing its actual value, and all three WS-origin-allowlist
+scenarios), plus the one new end-to-end test above. **Full suite run three
+times consecutively: 320/320 every time** (up from the pre-existing
+312/312 baseline — the +8 are exactly the new preflight tests). No prior
+test needed changing, confirming this turn introduced no regression to any
+previously-existing behavior, including the rest of the live-copilot UI
+(re-confirmed working via the same live Playwright session used to find
+the bug in point 3).
+
+**What did NOT change:** no new product feature, no new frontend, no new
+dialer — this ADR adds one read-only status endpoint, wires an existing UI
+section to call it and fail closed, fixes one real bug that wiring
+exposed, and adds test coverage; `OutboundSalesFlowResolver`,
+`create_voice_access_token()`, the TwiML generation logic, and every other
+previously-existing endpoint are unchanged. `docs/REAL_TEST_SETUP.md` §7
+was rewritten from a stale, already-twice-superseded 19.09 resume note
+into a short, current, four-part checklist (what's fully ready / what
+remains Console-only / which values to enter locally / the exact start
+sequence) reflecting this ADR's state — §1–6 are unchanged reference
+material.

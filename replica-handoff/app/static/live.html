@@ -114,6 +114,7 @@ pre{background:#0f141d;border:1px solid var(--border);border-radius:10px;padding
           <button id="voiceCallBtn" class="btn">Testcall starten</button>
         </div>
         <div id="voiceStatus" class="notice">Noch nicht initialisiert.</div>
+        <div id="voicePreflight" class="notice"></div>
       </div>
     </div>
   </details>
@@ -141,6 +142,7 @@ pre{background:#0f141d;border:1px solid var(--border);border-radius:10px;padding
     prospectNumber: document.getElementById('prospectNumber'),
     voiceCallBtn: document.getElementById('voiceCallBtn'),
     voiceStatus: document.getElementById('voiceStatus'),
+    voicePreflight: document.getElementById('voicePreflight'),
   };
 
   var SAG_PLACEHOLDER = 'Bereit für den nächsten Hinweis';
@@ -264,6 +266,12 @@ pre{background:#0f141d;border:1px solid var(--border);border-radius:10px;padding
       try { msg = JSON.parse(evt.data); } catch (e) { return; }
       if (msg.type === 'auth_ok') {
         setConnectionState('ready');
+        // ADR-062: show real-call readiness proactively, not only when the
+        // operator clicks "Testcall starten" — reuses the same bearer token
+        // already used to authenticate the main WS connection.
+        refreshVoicePreflight(sanitizeToken(els.token.value)).catch(function (e) {
+          els.voicePreflight.textContent = e && e.message ? e.message : 'Preflight-Check fehlgeschlagen.';
+        });
       } else if (msg.type === 'suggestion' || msg.type === 'sync') {
         setConnectionState('ready');
         handleSuggestion(msg, receivedAtPerf, receivedAtEpoch);
@@ -454,6 +462,28 @@ pre{background:#0f141d;border:1px solid var(--border);border-radius:10px;padding
     els.voiceStatus.textContent = text;
   }
 
+  // Fix (docs/DECISIONS.md ADR-062): fail closed — a real call must never
+  // start with incomplete configuration, and the operator should be able to
+  // SEE readiness, not just discover it when a call refuses to start.
+  // Renders per-item ✓/✗ by label only — never a secret value; the server
+  // itself (`GET /api/voice/preflight`) never returns one either.
+  function renderPreflight(checks) {
+    els.voicePreflight.innerHTML = checks.map(function (c) {
+      var extra = c.value ? ' (' + escapeHtml(c.value) + ')' : (c.detail ? ' (' + escapeHtml(c.detail) + ')' : '');
+      return '<div>' + (c.ok ? '✓' : '✗') + ' ' + escapeHtml(c.label) + extra + '</div>';
+    }).join('');
+  }
+
+  async function refreshVoicePreflight(bearer) {
+    var resp = await fetch('/api/voice/preflight', { headers: { Authorization: 'Bearer ' + bearer } });
+    if (!resp.ok) {
+      throw new Error('Preflight-Check fehlgeschlagen (HTTP ' + resp.status + ').');
+    }
+    var preflight = await resp.json();
+    renderPreflight(preflight.checks);
+    return preflight;
+  }
+
   async function ensureVoiceDevice() {
     if (voiceDevice) return voiceDevice;
     if (typeof Twilio === 'undefined' || !Twilio.Device) {
@@ -484,9 +514,11 @@ pre{background:#0f141d;border:1px solid var(--border);border-radius:10px;padding
   }
 
   els.voiceCallBtn.addEventListener('click', async function () {
-    // Read once, then clear the field immediately — the number is used for
-    // exactly this one call and never persisted, logged, or left sitting in
-    // the DOM longer than necessary (docs/DECISIONS.md ADR-059/060).
+    // Read once, then clear the field IMMEDIATELY on click — before any
+    // async check, so it never lingers in the DOM one tick longer than
+    // necessary no matter which validation below fails or succeeds
+    // (docs/DECISIONS.md ADR-059/060/062). The value is only ever used
+    // further down if every check up to that point actually passes.
     var prospectNumber = els.prospectNumber.value.trim();
     els.prospectNumber.value = '';
 
@@ -494,12 +526,35 @@ pre{background:#0f141d;border:1px solid var(--border);border-radius:10px;padding
       setVoiceStatus('Erst oben mit Call-ID/Token verbinden (liefert replica_call_id).');
       return;
     }
-    if (!E164_RE.test(prospectNumber)) {
-      setVoiceStatus('Ungültiges Format — bitte E.164 verwenden (z. B. +49…).');
+    var bearer = sanitizeToken(els.token.value);
+    if (!bearer) {
+      setVoiceStatus('Kein Bearer-Token — oben zuerst verbinden.');
       return;
     }
 
     els.voiceCallBtn.disabled = true;
+    setVoiceStatus('Prüfe Konfiguration …');
+    try {
+      // Fail closed (ADR-062): checked before ever fetching an Access Token
+      // or touching device.connect().
+      var preflight = await refreshVoicePreflight(bearer);
+      if (!preflight.ready) {
+        var missing = preflight.checks.filter(function (c) { return !c.ok; }).map(function (c) { return c.label; });
+        setVoiceStatus('Konfiguration unvollständig — fehlt: ' + missing.join(', '));
+        els.voiceCallBtn.disabled = false;
+        return;
+      }
+    } catch (e) {
+      setVoiceStatus(e && e.message ? e.message : 'Preflight-Check fehlgeschlagen.');
+      els.voiceCallBtn.disabled = false;
+      return;
+    }
+    if (!E164_RE.test(prospectNumber)) {
+      setVoiceStatus('Ungültiges Format — bitte E.164 verwenden (z. B. +49…).');
+      els.voiceCallBtn.disabled = false;
+      return;
+    }
+
     try {
       var device = await ensureVoiceDevice();
       setVoiceStatus('Verbinde …');

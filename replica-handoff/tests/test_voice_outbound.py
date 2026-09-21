@@ -199,3 +199,132 @@ def test_voice_outbound_xml_escapes_replica_call_id_in_the_actual_response(clien
     assert r.status_code == 200, r.text
     assert '<Evil/>' not in r.text
     assert '42&quot;&gt;&lt;Evil/&gt;' in r.text
+
+
+# --- GET /api/voice/preflight (ADR-062) -----------------------------------------------
+#
+# voice_preflight() reads app.main's module-level `settings` directly (no fresh
+# get_settings() call), so — unlike create_voice_access_token() — patching
+# attributes on `app.main.settings` is sufficient and correct here; no
+# env-var/cache_clear dance needed.
+
+PREFLIGHT_PATH = '/api/voice/preflight'
+
+_REAL_LOOKING_SECRETS = {
+    'twilio_account_sid': 'ACabcdefabcdefabcdefabcdefabcdef01',
+    'twilio_api_key_sid': 'SKabcdefabcdefabcdefabcdefabcdef01',
+    'twilio_api_key_secret': 'sooper-sekrit-api-key-value-xyz987',
+    'twilio_twiml_app_sid': 'APabcdefabcdefabcdefabcdefabcdef01',
+    'twilio_verified_caller_id': '+491701234567',
+    'deepgram_api_key': 'dg-sooper-sekrit-deepgram-key-abc123',
+}
+
+
+def _configure_preflight_settings(monkeypatch, **overrides):
+    import app.main as main_module
+    values = dict(
+        _REAL_LOOKING_SECRETS,
+        twilio_region='ie1', twilio_edge='dublin',
+        replica_public_base_url='http://127.0.0.1:8000',
+        replica_env='local', replica_allowed_ws_origins=None,
+    )
+    values.update(overrides)
+    for key, value in values.items():
+        monkeypatch.setattr(main_module.settings, key, value)
+
+
+def test_preflight_requires_auth(client):
+    r = client.get(PREFLIGHT_PATH)
+    assert r.status_code == 401
+
+
+def test_preflight_reports_ready_when_everything_is_configured_correctly(client, monkeypatch):
+    _configure_preflight_settings(monkeypatch)
+    headers = auth_headers(client, 'haydar@replica-pilot.example')
+    r = client.get(PREFLIGHT_PATH, headers=headers)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body['ready'] is True
+    assert all(c['ok'] for c in body['checks'])
+
+
+def test_preflight_never_leaks_any_secret_value_in_the_response(client, monkeypatch):
+    """The whole point of this endpoint: status only, never the underlying
+    value — checked here against every configured secret-shaped value at
+    once, not just spot-checked one field."""
+    _configure_preflight_settings(monkeypatch)
+    headers = auth_headers(client, 'haydar@replica-pilot.example')
+    r = client.get(PREFLIGHT_PATH, headers=headers)
+    assert r.status_code == 200, r.text
+    raw_body = r.text
+    for secret_value in _REAL_LOOKING_SECRETS.values():
+        assert secret_value not in raw_body, f'secret-shaped value leaked into preflight response: {secret_value!r}'
+
+
+def test_preflight_reports_missing_items_by_label_when_unconfigured(client, monkeypatch):
+    _configure_preflight_settings(
+        monkeypatch, twilio_api_key_secret=None, twilio_verified_caller_id=None, deepgram_api_key=None,
+    )
+    headers = auth_headers(client, 'haydar@replica-pilot.example')
+    r = client.get(PREFLIGHT_PATH, headers=headers)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body['ready'] is False
+    by_key = {c['key']: c for c in body['checks']}
+    assert by_key['twilio_api_key_secret']['ok'] is False
+    assert by_key['twilio_verified_caller_id']['ok'] is False
+    assert by_key['deepgram_api_key']['ok'] is False
+    # unaffected fields still report ok
+    assert by_key['twilio_account_sid']['ok'] is True
+    assert by_key['twilio_region']['ok'] is True
+
+
+def test_preflight_flags_wrong_region_or_edge_and_still_shows_the_actual_value(client, monkeypatch):
+    """Region/edge are not secrets — showing the actual (wrong) value is the
+    point, so the operator can see exactly what's misconfigured."""
+    _configure_preflight_settings(monkeypatch, twilio_region='us1', twilio_edge='ashburn')
+    headers = auth_headers(client, 'haydar@replica-pilot.example')
+    r = client.get(PREFLIGHT_PATH, headers=headers)
+    body = r.json()
+    assert body['ready'] is False
+    by_key = {c['key']: c for c in body['checks']}
+    assert by_key['twilio_region'] == {'key': 'twilio_region', 'label': 'TWILIO_REGION', 'ok': False, 'value': 'us1'}
+    assert by_key['twilio_edge'] == {'key': 'twilio_edge', 'label': 'TWILIO_EDGE', 'ok': False, 'value': 'ashburn'}
+
+
+def test_preflight_ws_origin_check_is_satisfied_in_local_env_regardless_of_allowlist(client, monkeypatch):
+    _configure_preflight_settings(monkeypatch, replica_env='local', replica_allowed_ws_origins=None)
+    headers = auth_headers(client, 'haydar@replica-pilot.example')
+    r = client.get(PREFLIGHT_PATH, headers=headers)
+    body = r.json()
+    origin_check = next(c for c in body['checks'] if c['key'] == 'ws_origin_allowlist')
+    assert origin_check['ok'] is True
+    assert body['ready'] is True
+
+
+def test_preflight_ws_origin_check_matches_against_replica_public_base_url_outside_local(client, monkeypatch):
+    _configure_preflight_settings(
+        monkeypatch, replica_env='production',
+        replica_public_base_url='https://replica-test.example.com',
+        replica_allowed_ws_origins='https://replica-test.example.com',
+    )
+    headers = auth_headers(client, 'haydar@replica-pilot.example')
+    r = client.get(PREFLIGHT_PATH, headers=headers)
+    body = r.json()
+    origin_check = next(c for c in body['checks'] if c['key'] == 'ws_origin_allowlist')
+    assert origin_check['ok'] is True
+    assert body['ready'] is True
+
+
+def test_preflight_ws_origin_check_fails_when_allowlist_does_not_match_outside_local(client, monkeypatch):
+    _configure_preflight_settings(
+        monkeypatch, replica_env='production',
+        replica_public_base_url='https://replica-test.example.com',
+        replica_allowed_ws_origins='https://some-other-host.example.com',
+    )
+    headers = auth_headers(client, 'haydar@replica-pilot.example')
+    r = client.get(PREFLIGHT_PATH, headers=headers)
+    body = r.json()
+    origin_check = next(c for c in body['checks'] if c['key'] == 'ws_origin_allowlist')
+    assert origin_check['ok'] is False
+    assert body['ready'] is False

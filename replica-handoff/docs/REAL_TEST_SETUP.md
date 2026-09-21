@@ -605,40 +605,100 @@ persons only, never a real external prospect. This single test closes both
 Sprint 2B (Real Provider Verification) and Sprint 3A (Real-RSL Verification)
 at once, per the existing plan.
 
-## 7. Resume point (19.09.2026) — superseded by ADR-058 (21.09.2026)
+## 7. Status (21.09.2026, ADR-062) — everything code-side is done; only the Console steps below remain
 
-**Update:** the Pay-as-you-go upgrade referenced as blocked below has since
-completed, and the operator has deliberately decided NOT to buy a number —
-a Verified Caller ID plus REST-placed call (§4a) replaces "buy a number" in
-the plan below. The rest of this section is kept as the historical record of
-what this session actually found; do not follow its closing "next session"
-list literally — follow §4a instead.
+Everything above (§1–6) stays as reference material for *why* each piece
+exists. This section is the short, current, actually-followable sequence —
+superseding §7's old 19.09 resume-point entirely (that note's own "buy a
+number" plan was already abandoned in favor of §4a/§4b; it is not repeated
+here).
 
-No code or architecture was changed to work around the Trial limitation in
-§4 — see ADR-055. What is already configured and verified on the operator's
-machine, so the next session can resume directly at "buy a number" without
-repeating any of it:
+### A) Already fully ready (code, tests, UI — nothing left to build)
 
-- Local server running (`./run.sh`), reachable publicly via a Cloudflare
-  quick tunnel (§3) — confirmed via `/api/health` through the tunnel URL.
-  **The tunnel URL is random per run** — `REPLICA_PUBLIC_BASE_URL` in `.env`
-  and the TwiML Bin's `<PUBLIC_HOST>` placeholders must be updated together
-  the next time the tunnel is restarted.
-- `.env` already holds a real `TWILIO_AUTH_TOKEN`, a real `DEEPGRAM_API_KEY`,
-  and `REPLICA_ASR_PROVIDER=deepgram` — verified loaded correctly via
-  `app.config.get_settings()` (length-only checks, values never logged).
-- A TwiML Bin exists with the solo-verification content from §4 (no `<Dial>`
-  yet, since no second test person was available this session).
-- A test `Call` row exists with consent granted, ready for `<REPLICA_CALL_ID>`
-  in the TwiML Bin once a number is linked to it. (The specific numeric ID
-  used this session is local demo data, not meaningful to keep across a fresh
-  clone/DB — create a new one via the existing preflight steps if it's gone.)
-- **Blocked**: buying any Twilio phone number requires the Pay-as-you-go
-  upgrade (§4, point 2) — attempted, not yet completed, due to a Twilio-side
-  error during the upgrade flow itself (not a REPLICA issue).
+- Browser calling path complete end-to-end (ADR-060/061): Access Token
+  minting pinned to `region=ie1` (`twr` JWT claim, verified by decoding a
+  real token), `Device` pinned to `edge=dublin`, TwiML generation
+  (`Start/Stream` before `Dial`, `both_tracks`, `replica_call_id`,
+  `callerId`), all XML-attribute values escaped safely.
+- `GET /api/voice/preflight` (ADR-062): one status-only check covering every
+  item this test needs — both Twilio credentials, the TwiML App SID, the
+  Verified Caller ID, region/edge, Deepgram key, public base URL, and the
+  WS-origin allowlist. Never returns a secret value, only booleans/labels
+  and the three genuinely non-secret settings (region, edge, base URL).
+- `/live/{call_id}`'s voice-test section now calls that preflight
+  automatically and renders it as a checklist; **"Testcall starten" fails
+  closed** — greyed out / refuses with the missing item's plain-language
+  label whenever any required setting is missing, and never calls
+  `device.connect()` in that case.
+- Prospect-number handling audited end-to-end: the field is read and
+  cleared as the very first action of the click handler (before any other
+  check), so it never lingers in the DOM on any code path — confirmed by a
+  real Playwright run showing the field empty immediately after both a
+  successful and a fail-closed click. It is never written to
+  `localStorage`/`sessionStorage`, never passed to `console.*`, never
+  persisted server-side beyond the one-time TwiML response Twilio consumes
+  once, and no error text anywhere embeds it — only config-item labels or
+  generic messages. It also never appears in this repo or in `git`
+  history — the only source file that ever mentions a real-looking test
+  number is `place_test_call.py` from §4a, which is explicitly written to
+  live outside the repo (ADR-059) and reads its number from an
+  environment variable or a non-echoed prompt, never a literal.
+- New end-to-end test (`tests/test_voice_call_flow_e2e.py`, ADR-062) proves
+  the entire flow without a real Twilio/Deepgram account or phone: token
+  region/edge → webhook TwiML → the same `call_id` driven through the real
+  Media Stream pipeline → real Turn Detection/SalesBrain → a real
+  `Suggestion` pushed to a real `/ws/live/{id}` client → speaker mapping
+  (`outbound` → `prospect`, confirmed via the `Turn` table) → a real
+  Render-ACK with a computed `wallclock_rsl_estimate_ms`.
+- Full regression confirmed clean after all of the above: **320/320
+  passing, run three times consecutively** (up from the pre-existing
+  312/312 baseline — the +8 are the new preflight tests). Zero changes to
+  any previously-existing behavior; `/live/{call_id}` and the rest of the
+  live-copilot UI verified working via real Playwright browser runs, not
+  just pytest.
 
-Next session, in order: (1) finish the Twilio upgrade, (2) buy a US number
-with Voice-only capability (avoids the EU regulatory-bundle requirement),
-(3) link it to the existing TwiML Bin, (4) run the solo verification call,
-(5) once a consenting Prospect test person is available, switch the TwiML Bin
-to the full two-person variant and run the complete end-to-end test.
+### B) Only remaining before the first real call — Twilio Console, once
+
+Do this only once the Console is reachable again. Full detail (with exact
+menu paths) is in §4b steps 0–2 above; short form:
+
+1. Console → switch the **Region selector to IE1** (step 0 — do this
+   before either resource below, or they're created in the wrong region).
+2. **Create an API Key** (Standard) while still on IE1 → copy its SID and
+   Secret.
+3. **Create a TwiML Application** while still on IE1 → set its "A call
+   comes in" webhook to `POST https://<PUBLIC_HOST>/webhooks/twilio/voice-outbound`
+   → copy its Application SID.
+
+Nothing else needs creating in the Console for this test — no phone number
+(a Verified Caller ID is used instead, §4), no TwiML Bin (only used by the
+alternative REST path, §4a).
+
+### C) Values to enter locally afterward (`.env`, then restart the server)
+
+From step B: `TWILIO_API_KEY_SID`, `TWILIO_API_KEY_SECRET`,
+`TWILIO_TWIML_APP_SID`. Already known beforehand:
+`TWILIO_VERIFIED_CALLER_ID` (your existing Verified Caller ID),
+`TWILIO_ACCOUNT_SID`/`TWILIO_AUTH_TOKEN` (Console home), `TWILIO_REGION=ie1`/
+`TWILIO_EDGE=dublin`, `DEEPGRAM_API_KEY`, `REPLICA_PUBLIC_BASE_URL`,
+`REPLICA_ALLOWED_WS_ORIGINS`. Restart the server after editing `.env`, then
+open `/live/{id}`'s Debug-Ansicht and confirm the new preflight checklist
+shows every item green before doing anything else — it is the fail-closed
+gate that guarantees nothing below can silently run half-configured.
+
+### D) Exact start sequence for the first real call
+
+1. Login → create the call → grant consent (preflight checklist steps 1–3,
+   §5).
+2. Open `https://<PUBLIC_HOST>/live/{id}`, paste a bearer token, click
+   **"Verbinden"**.
+3. Open the Debug-Ansicht → confirm the preflight checklist is fully green
+   (if not, fix whatever it names — it will not let you proceed silently).
+4. Type the consenting Prospect test person's number into the field.
+5. Click **"Testcall starten"**, allow microphone access.
+6. Speak as the seller; the Prospect's phone rings showing your Verified
+   Caller ID. Once they answer, the full pipeline runs for real.
+7. Afterward: check `GET /api/calls/{id}/review` to confirm speaker
+   mapping matched reality, and confirm the resulting `TurnLatencyTrace`
+   row shows `is_synthetic=False`, `asr_provider='deepgram'` — this is
+   what closes out Sprint 2B/3A's real-provider verification (§6).

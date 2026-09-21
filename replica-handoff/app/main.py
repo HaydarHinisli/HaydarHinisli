@@ -832,6 +832,44 @@ async def twilio_voice_outbound(request: Request):
     return Response(content=twiml, media_type='application/xml')
 
 
+@app.get('/api/voice/preflight')
+def voice_preflight(current_user: AuthContext = Depends(require_role('seller', 'manager', 'tenant_admin'))):
+    """ADR-062: status-only readiness check for the first real browser call.
+    Reports presence/absence per required setting and, for the two
+    non-secret ones (`TWILIO_REGION`/`TWILIO_EDGE`), their actual value —
+    everything else is a boolean only, NEVER the underlying value, even
+    though several of these (e.g. `TWILIO_ACCOUNT_SID`) are not acutely
+    sensitive on their own; treated uniformly here rather than drawing that
+    line per-field. `app/static/live.html` calls this before ever attempting
+    to fetch an Access Token and refuses to start a real call if `ready` is
+    false, showing exactly which checks failed (by label, never a value).
+    """
+    def present(value) -> bool:
+        return bool(value)
+
+    expected_origin = settings.replica_public_base_url.rstrip('/')
+    origin_allowed = is_allowed_origin(
+        expected_origin, env=settings.replica_env,
+        allowed_origins=parse_allowed_origins(settings.replica_allowed_ws_origins),
+    )
+    checks = [
+        {'key': 'twilio_account_sid', 'label': 'TWILIO_ACCOUNT_SID', 'ok': present(settings.twilio_account_sid)},
+        {'key': 'twilio_api_key_sid', 'label': 'TWILIO_API_KEY_SID', 'ok': present(settings.twilio_api_key_sid)},
+        {'key': 'twilio_api_key_secret', 'label': 'TWILIO_API_KEY_SECRET', 'ok': present(settings.twilio_api_key_secret)},
+        {'key': 'twilio_twiml_app_sid', 'label': 'TWILIO_TWIML_APP_SID', 'ok': present(settings.twilio_twiml_app_sid)},
+        {'key': 'twilio_verified_caller_id', 'label': 'TWILIO_VERIFIED_CALLER_ID', 'ok': present(settings.twilio_verified_caller_id)},
+        {'key': 'twilio_region', 'label': 'TWILIO_REGION', 'ok': settings.twilio_region == 'ie1', 'value': settings.twilio_region},
+        {'key': 'twilio_edge', 'label': 'TWILIO_EDGE', 'ok': settings.twilio_edge == 'dublin', 'value': settings.twilio_edge},
+        {'key': 'deepgram_api_key', 'label': 'DEEPGRAM_API_KEY', 'ok': present(settings.deepgram_api_key)},
+        {'key': 'replica_public_base_url', 'label': 'REPLICA_PUBLIC_BASE_URL', 'ok': present(settings.replica_public_base_url), 'value': settings.replica_public_base_url},
+        {
+            'key': 'ws_origin_allowlist', 'label': 'Erlaubte WS-Origin', 'ok': origin_allowed,
+            'detail': 'lokal — Origin-Prüfung nicht aktiv' if settings.replica_env == 'local' else f'erwartet: {expected_origin}',
+        },
+    ]
+    return {'ready': all(c['ok'] for c in checks), 'checks': checks}
+
+
 # ---------------------------------------------------------------------------
 # Experiments
 # ---------------------------------------------------------------------------
