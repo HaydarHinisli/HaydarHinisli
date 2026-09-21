@@ -52,6 +52,20 @@ class ASRStreamHandle(Protocol):
     async def poll_events(self) -> list[ASREvent]: ...
     async def finalize(self) -> ASREvent | None: ...
     async def close(self) -> None: ...
+    def is_connected(self) -> bool:
+        """Red-team hardening (docs/DECISIONS.md ADR-063, item 3/4): a real
+        provider's underlying connection can drop mid-call without ever raising
+        an exception anywhere in this protocol (see DeepgramStreamHandle's own
+        `feed_audio()` — it degrades silently by design, "never crash the
+        pipeline over one track's ASR connection failing"). That silence is
+        exactly the blind spot the operator must not have: the pipeline polls
+        this after every `feed_audio()` call to detect a connect/disconnect
+        transition and surface it as a live `pipeline_status` push, never left
+        for the seller to discover only by an analysis that quietly stopped
+        working. `SimulatedASRProvider` has no real connection to lose — always
+        `True` — so simulated-provider tests/demos never see a synthetic
+        `Deepgram nicht verfügbar`."""
+        ...
 
 
 class ASRProvider(Protocol):
@@ -102,6 +116,9 @@ class _SimulatedASRStreamHandle:
 
     async def close(self) -> None:
         pass
+
+    def is_connected(self) -> bool:
+        return True  # no real connection to lose — see ASRStreamHandle.is_connected() docstring
 
 
 class SimulatedASRProvider:

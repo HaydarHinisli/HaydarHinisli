@@ -79,17 +79,19 @@ def test_full_browser_call_flow_without_a_real_pstn_call(client, media_stream_cl
     call_id = _create_call(client, headers)
     live_token = login(client, 'haydar@replica-pilot.example')
 
-    # --- 1) Voice Access Token -> IE1 -------------------------------------------------
-    token_resp = client.post(TOKEN_PATH, headers=headers)
+    # --- 1) Voice Access Token -> IE1, tenant/consent-checked, ticket minted (ADR-063) --
+    token_resp = client.post(TOKEN_PATH, headers=headers, params={'call_id': call_id})
     assert token_resp.status_code == 200, token_resp.text
     token_body = token_resp.json()
     assert token_body['region'] == 'ie1'
     assert token_body['edge'] == 'dublin'
     jwt_header = pyjwt.get_unverified_header(token_body['token'])
     assert jwt_header['twr'] == 'ie1'  # the actual signal Twilio's signaling infra reads
+    assert token_body['voice_ticket']  # ADR-063: what the browser actually sends to device.connect()
 
     # --- 2) device.connect() -> POST /webhooks/twilio/voice-outbound -> TwiML --------
-    voice_params = {'To': '+491701234567', 'replica_call_id': str(call_id)}
+    # ADR-063: only the ticket travels from the browser — never a raw call_id.
+    voice_params = {'To': '+491701234567', 'replica_voice_ticket': token_body['voice_ticket']}
     sig = _sig(BASE + VOICE_PATH, voice_params, MEDIA_STREAM_TOKEN)
     voice_resp = client.post(VOICE_PATH, data=voice_params, headers={'X-Twilio-Signature': sig})
     assert voice_resp.status_code == 200, voice_resp.text
@@ -116,7 +118,14 @@ def test_full_browser_call_flow_without_a_real_pstn_call(client, media_stream_cl
                 sim.speak('outbound', 0.4)
                 sim.silence('outbound', 0.4)  # > 300ms hangover -> finalize/turn-end
                 sim.stop()
+            # ADR-063 (item 3): drain the interleaved pipeline_status milestones
+            # (media_stream_connected/audio_received/transcript_active/
+            # suggestion_pipeline_ready) pushed over this same connection ahead
+            # of the eventual suggestion — see test_streaming_pipeline_e2e.py's
+            # identical fix for the same reason.
             pushed = live_ws.receive_json()
+            while pushed['type'] == 'pipeline_status':
+                pushed = live_ws.receive_json()
     finally:
         _clear_script(client.app)
 

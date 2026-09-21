@@ -492,9 +492,24 @@ def test_sprint_3a_full_synthetic_path_through_live_push_and_render_ack(client, 
                 sim.speak('outbound', 0.4)
                 sim.silence('outbound', 0.4)  # > 300ms hangover -> finalize/turn-end
                 sim.stop()
+            # ADR-063 (item 3): the Media Stream side now also pushes its own
+            # pipeline_status milestones over this exact same /ws/live/{call_id}
+            # connection, interleaved ahead of the eventual suggestion — drain
+            # those first rather than assuming the very next message is it.
+            pipeline_statuses = []
             pushed = live_ws.receive_json()
+            while pushed['type'] == 'pipeline_status':
+                pipeline_statuses.append(pushed['status'])
+                pushed = live_ws.receive_json()
     finally:
         _clear_script(client.app)
+
+    # --- ADR-063 (item 3): the analysis pipeline reported real, sequential
+    # progress independently of the phone call itself — never something the
+    # seller has to take on faith. ---
+    assert pipeline_statuses == [
+        'media_stream_connected', 'audio_received', 'transcript_active', 'suggestion_pipeline_ready',
+    ]
 
     # --- Live Suggestion Push (requirement 1) ---
     assert pushed['type'] == 'suggestion'

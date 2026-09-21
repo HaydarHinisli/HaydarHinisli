@@ -2343,3 +2343,265 @@ into a short, current, four-part checklist (what's fully ready / what
 remains Console-only / which values to enter locally / the exact start
 sequence) reflecting this ADR's state — §1–6 are unchanged reference
 material.
+
+## ADR-063 — Red-team hardening pass before the first real call: double-start prevention, an explicit call/analysis state split, runtime fail-closed behavior, and a real cross-tenant call-hijack vulnerability found and closed
+
+Status: accepted (hardening pass explicitly requested ahead of the first
+real call, including one genuine security fix — not a cosmetic change)
+
+The operator asked for nine concrete red-team risks to be closed before
+placing the first real call, explicitly ruling out new product features or
+a larger refactor. Nine numbered items below; the most consequential is
+item 8, a real vulnerability found while implementing item 7, not merely a
+defensive add-on.
+
+**1/2. Double-start prevention + explicit call state
+(`app/static/live.html`).** Replaced the previous single `voiceStatus`
+string with two independent state variables: `callState` (`ready` |
+`connecting` | `ringing` | `connected` | `ending` | `ended` | `failed`,
+set ONLY from real `Twilio.Device`/`Call` SDK events — `call.on('ringing'/
+'accept'/'disconnect'/'cancel'/'reject'/'error', ...)`, never assumed) and
+`analysisState` (item 3, below). The entire call-starting logic was
+extracted into one named function, `startVoiceTestCall()`, whose FIRST
+statement — before reading the prospect number, before the preflight
+check, before any `await` — is the guard `if (callState !== 'ready' &&
+callState !== 'ended' && callState !== 'failed') return;`. Both the
+button's click handler and a new Enter-key handler on the prospect-number
+field call this exact same function, so neither can drift out of sync with
+the other or bypass the guard. `renderVoiceStatus()` is the one place that
+derives the button's `disabled`/hangup-button's `hidden` state from
+`callState`, kept disabled for the entire connecting/ringing/connected/
+ending duration as a second, independent layer (a disabled button never
+dispatches a `click` event at all).
+
+Verified live, not just read (a double-start guard is exactly the kind of
+claim this project does not accept on faith): a real Playwright run against
+a real running server, with a fake `Twilio.Device`/`Call` injected via
+`page.addInitScript()` (no real Twilio account exists for this), confirmed
+— genuinely, not by construction — that firing two near-simultaneous clicks
+on the button produces exactly ONE `device.connect()` call, that Enter on
+the number field while a call is already in flight is also a no-op, that
+the full Ready→Connecting→Ringing→Connected→Ended cycle renders the
+correct text and button states at every step (including "Call verbunden –
+Media Stream wartet" once connected, before any real pipeline_status has
+arrived), that the Hangup button disconnects and correctly re-enables a new
+call only after a clean end, and that a second call afterward carries a
+fresh ticket and never a raw `replica_call_id` (item 8, below) — zero
+console errors throughout.
+
+**5. Hangup button.** Added `#voiceHangupBtn`, confined to the same debug
+test area (no new product UI). Its click handler calls `activeCall.
+disconnect()` and shows `'ending'` as honest in-flight feedback that a
+hangup was requested — the actual `'ended'` transition still only ever
+comes from the real `call.on('disconnect')` handler, matching item 2's
+"state comes from the SDK, never assumed" rule even for the one action the
+operator themselves initiates. `disconnect`/`cancel`/`reject` all funnel
+through one `onCallEnded()` helper (the one place `activeCall` is cleared),
+so no abort path can independently forget to reset it and leave the Hangup
+button silently pointed at a dead `Call` object (item 6).
+
+**3. Independent analysis/pipeline state, decoupled from the phone call
+(the item the operator called "ganz wichtig").** A new `PipelineStatus`
+push channel (`app/streaming/pipeline.py`'s `PipelineStatus` constants;
+`app/services/live_push.LiveSuggestionHub.push_status()`/`push_suggestion_
+stale()`), delivered as `{'type': 'pipeline_status', 'status': ...,
+'detail': ...}` over the SAME `/ws/live/{call_id}` connection the
+suggestion push already uses (no new endpoint) — resynced on reconnect
+exactly like the existing suggestion sync-on-connect (`hub.last_status()`).
+Milestones, each pushed exactly once per transition (never spammed):
+`media_stream_connected` (the instant the Media Stream attaches, in
+`app/main.py`'s `/ws/twilio-media` `start`-event handling), `deepgram_
+connecting`/`deepgram_ready` (only when the real `DeepgramASRProvider` is
+configured — a simulated-provider demo never shows a synthetic Deepgram
+status), `audio_received`/`transcript_active` (first chunk / first ASR
+event, in `MediaStreamPipeline.consume_media()`), `suggestion_pipeline_
+ready` (the first successfully processed turn, in `_process_turn()`), and
+`disrupted` with a specific `detail` otherwise.
+
+`app/static/live.html`'s `renderVoiceStatus()` shows the analysis label
+ALONGSIDE — never instead of — "Call verbunden" whenever `callState` is
+`connected`/`ending`, producing exactly the wording the operator asked for:
+`"Call verbunden – Analyse nicht verfügbar"` (generic) or `"Call verbunden
+– Deepgram nicht verfügbar"` (the specific case). Structurally guarded
+(`tests/test_seller_frontend_structure.py`): `setAnalysisState()` is called
+from exactly one place inside the call-starting function (a reset to
+`'waiting'` for a fresh attempt) and otherwise ONLY from the `pipeline_
+status` WS-message handler — no call-state event handler may set it,
+keeping the two states genuinely independent as designed rather than just
+by convention.
+
+**4. Runtime fail-closed during an active call**, covering every failure
+mode the operator listed by name:
+- **Media-Stream-Abbruch**: `/ws/twilio-media`'s `WebSocketDisconnect`
+  handler (Twilio's transport dropping without first sending a clean
+  `'stop'` event — documented as the normal end-of-stream signal) now
+  pushes `disrupted`/`media_stream_disconnected` after finalizing any
+  mid-speech utterance, so a genuinely still-connected phone call is never
+  silently analysis-less.
+- **Deepgram-Disconnect**: the real blind spot found while implementing
+  this — `DeepgramStreamHandle._ensure_connected()`/`feed_audio()` already
+  degrade completely silently on a drop ("never crash the pipeline over one
+  track's ASR connection failing"), meaning NOTHING in the existing code
+  could ever detect this happening. Added `is_connected()` to the
+  `ASRStreamHandle` protocol (`app/streaming/asr.py`) — `True` always for
+  `SimulatedASRProvider` (nothing real to lose), the real, current
+  connection state for `DeepgramStreamHandle`. `MediaStreamPipeline.
+  consume_media()` polls it after every `feed_audio()` call and pushes
+  `disrupted`/`deepgram_unavailable` (and `deepgram_ready` again on
+  recovery) only on an actual TRANSITION, never repeatedly while already
+  down. Verified against a real transient drop AND a real sustained one
+  (`tests/test_streaming_deepgram_provider.py`, against the existing fake
+  Deepgram-protocol server) — a momentary blip that `_ensure_connected()`'s
+  own retry logic self-heals within one `feed_audio()` call is deliberately
+  NOT reported (not a seller-visible event); only a drop that survives past
+  that self-healing is.
+- **Pipeline-Exception / fehlendem Prospect-/Seller-Track**: `/ws/twilio-
+  media`'s `start`-event handling now wraps `MediaStreamPipeline.create()`
+  in `try/except` (pushes `disrupted` with `deepgram_unavailable` when the
+  configured provider is `DeepgramASRProvider`, `pipeline_error` otherwise,
+  then closes the socket with 1011) and the whole per-message loop gained a
+  matching `except Exception:` for anything unhandled during `consume_
+  media`/`consume_stop`. A per-track "zero audio chunks ever received" case
+  (a literally missing track) is deliberately NOT live-pushed — doing so
+  correctly needs a timeout/watchdog that would be a real addition to this
+  pipeline's shape, out of scope for a hardening pass — but stays visible
+  retrospectively via the existing `diagnostics_summary()`/structured logs.
+- **Nicht vertrauenswürdiges Speaker-Mapping**: `_process_turn()` now checks
+  `turn_event.speaker in ('seller', 'prospect')` before persisting — the
+  resolver's own fallback branch (`OutboundSalesFlowResolver.resolve()`)
+  only returns those two values for the two tracks Twilio's Media Streams
+  ever produce, so this is currently unreachable in production; kept as
+  fail-closed defense-in-depth rather than trusting that invariant forever,
+  and directly testable by injecting an alternate resolver
+  (`tests/test_pipeline_status_hardening.py`).
+- Every one of the above ALSO calls the new `push_suggestion_stale()`
+  (`LiveSuggestionHub`) — sends `{'type': 'suggestion_stale', 'reason':
+  ...}` and marks the remembered `last_payload`'s `stale` flag (so a
+  reconnecting client is resynced to the correct staleness too), satisfying
+  "eine bestehende letzte Suggestion klar als nicht mehr aktuell markieren"
+  without retracting or deleting it — `app/static/live.html` dims the "Sag
+  jetzt" text and shows an explicit badge whenever this fires, cleared
+  automatically the moment a genuinely new suggestion arrives.
+
+**7/8. `/api/voice/access-token` tenant/consent binding, and a real
+cross-tenant call-hijack vulnerability closed.** Auditing item 7's
+checklist against the existing endpoint surfaced a real gap: it accepted
+NO `call_id` at all — any authenticated seller/manager/tenant_admin could
+mint a working Access Token regardless of which call (if any) they
+intended it for, with no tenant check and no consent/policy check
+whatsoever. Fixed: `call_id` is now a required query parameter, resolved
+via the same `_get_call_or_404()` every other call-scoped endpoint uses
+(cross-tenant is a 404, indistinguishable from nonexistent — never a
+distinguishable 403 a client could probe with), and gated on the same
+`can_process(..., 'live_assist', ...)` check `/api/calls/{id}/turns`
+already enforces — a call whose consent isn't currently granted cannot
+even fetch a working token for it.
+
+That alone was not enough — auditing item 8 (`replica_call_id` tenant
+safety) surfaced a genuinely exploitable vulnerability the fix above does
+NOT close by itself, present since ADR-060: `POST /webhooks/twilio/voice-
+outbound` is authenticated ONLY by Twilio's signature (it cannot see the
+seller's bearer token — Twilio itself is the caller), and it embedded
+WHATEVER `replica_call_id` value the BROWSER'S `device.connect({params:
+{...}})` call supplied, completely unchecked, directly into the `<Stream>`
+Parameter. `_resolve_call_for_media_stream()` then trusts that value with
+no tenant check of its own (by design — it has no bearer token to check
+against either). **Concretely, before this fix**: a compromised or
+malicious browser session for Tenant A's seller could set `replica_call_id`
+to ANY other tenant's real call id at `device.connect()` time. The webhook
+would embed it unchanged; the Media Stream would attach Tenant A's REAL
+audio to Tenant B's `Call` row; every `Turn`/`Suggestion`/audit record
+produced would be written against Tenant B's call, populated with Tenant
+A's actual spoken content; and — the most damaging part —
+`LiveSuggestionHub.publish_suggestion()`'s own tenant check would let this
+through cleanly, since the pipeline's `company_id` is read from the
+(attacker-chosen) `Call` row itself: Tenant B's own legitimate seller,
+genuinely watching that call live, would receive fabricated suggestions
+manufactured from a completely unrelated conversation, mixed permanently
+into their own call's real record. This is exactly the "Audio an einen
+fremden Call binden" / "einen fremden Live-Suggestion-Stream verwenden"
+risk the operator named — not hypothetical, a real, working exploit path
+in the shipped ADR-060 code, found by deliberately trying to break it
+rather than assuming the existing design was safe.
+
+**Fix, self-contained, no dependency on any Twilio-specific behavior**:
+`create_voice_call_ticket()`/`decode_voice_call_ticket()`
+(`app/auth/security.py`) — a short-lived (5 min default), REPLICA-signed
+(`REPLICA_JWT_SECRET`, distinct `purpose: 'voice_call_ticket'` claim so a
+login session token could never be replayed here) JWT carrying the
+already-tenant-and-consent-verified `call_id`/`company_id`/`user_id` from
+`/api/voice/access-token`. The browser now sends `replica_voice_ticket`
+instead of a raw call_id; `/webhooks/twilio/voice-outbound` decodes and
+verifies it (fails closed — missing/invalid/expired/wrong-signature/wrong-
+purpose all rejected before any TwiML is generated) and uses ONLY the
+call_id/company_id it contains — there is no code path left that reads a
+call_id from anywhere else. Even a validly-issued ticket is re-checked
+against the CURRENT `Call`/consent state at call-placement time (not just
+trusted because it was valid moments earlier when minted), closing the
+window where consent could be withdrawn in between. `<Parameter
+name="replica_call_id" value="...">` still exists in the generated TwiML —
+now always the ticket-verified integer, never anything the browser could
+have influenced.
+
+Regression-tested exhaustively (`tests/test_voice_outbound.py`): a forged
+ticket (wrong secret) rejected, an expired ticket rejected, a login token
+presented as a ticket rejected (wrong `purpose`), a ticket whose company_id
+doesn't match the real call's rejected, a ticket valid at mint-time but
+whose consent was withdrawn before the call was placed rejected — and,
+the direct proof of the fix (`test_voice_outbound_ignores_a_raw_replica_
+call_id_and_trusts_only_the_ticket`): a request carrying a legitimate
+ticket for the caller's OWN call PLUS a raw `replica_call_id` pointing at
+an entirely different tenant's real call — asserts the resulting TwiML
+embeds only the ticket's own call_id, never the attacker-supplied one.
+
+**9. Speaker-mapping instrumentation for the real call.** `MediaStreamPipeline.
+create()` now logs once per call (INFO, structured, zero transcript/audio
+content): the resolved topology name, the full `{track: role}` mapping,
+and a newly-generated per-track `asr_session_id` (a correlation id, not a
+provider concept) — directly answering "inbound_track → seller?" /
+"outbound_track → prospect?" after the real call without guessing, and
+correlating to whichever ASR session and `Turn` rows resulted. No change to
+where the mapping itself lives — `SpeakerRoleResolver`
+(`app/streaming/speaker_mapping.py`) remains the ONE place a topology
+correction would ever be made. Found and fixed one small but real drift
+risk while auditing this: `app/streaming/media_stream_session.py`'s own
+module docstring/comments asserted a fixed `inbound=prospect`/
+`outbound=seller` identity for the transport-level track labels — already
+wrong even before this ADR (ADR-053 established the opposite for REPLICA's
+actual topology) and exactly the kind of second, uncoordinated place this
+requirement warns about. Corrected to describe those constants as opaque
+transport labels only, pointing to `speaker_mapping.py` as the sole source
+of truth — doc-only, no logic change.
+
+**What did NOT change**: no new product feature, no new dialer, no new
+frontend beyond the debug-only Hangup button and the stale-suggestion
+badge; `OutboundSalesFlowResolver`'s actual mapping logic, `TurnDetector`,
+`SalesBrain`, `ConversationState`, and every previously-existing endpoint's
+core behavior are unchanged. The Twilio Access Token's own TTL (1 hour) was
+deliberately left as-is — reducing it risked cutting off an in-progress
+real call for no real security gain, since the new voice-call ticket (5
+minutes, call/tenant/consent-bound) is what actually closes the exposure
+"kurzlebig" was asking about.
+
+**Regression coverage**: 20 new tests across `tests/test_live_push.py`
+(pipeline-status/suggestion-stale push + tenant isolation),
+`tests/test_seller_frontend_structure.py` (double-start guard ordering,
+call-state-only-from-SDK-events, analysis-state independence, hangup
+button, cleanup convergence — all structural, matching this project's
+established no-JS-test-tooling approach), `tests/test_streaming_deepgram_
+provider.py` (`is_connected()` across a real transient and a real
+sustained drop), `tests/test_voice_outbound.py` (the full ticket-based
+access-token/webhook rewrite, including the cross-tenant-hijack
+regression test), and a new `tests/test_pipeline_status_hardening.py`
+(direct pipeline-level Deepgram-flap/untrusted-speaker-mapping/
+instrumentation-logging tests, plus full `/ws/twilio-media`-level tests for
+pipeline-construction failure and an unclean media-stream disconnect).
+`tests/test_streaming_pipeline_e2e.py` and `tests/test_voice_call_flow_
+e2e.py` updated to drain the now-interleaved `pipeline_status` milestones
+before asserting on the eventual suggestion, and to use the ticket rather
+than a raw call_id — both re-verified passing end-to-end. Full suite:
+357/357, run three times consecutively, no regression to any previously-
+existing behavior. Also live-browser-verified (Playwright, fake `Twilio.
+Device`/`Call`, real server, zero console errors) per item 1/2's own
+section above — not just read, exactly this project's standing discipline
+for any UI-behavior claim.

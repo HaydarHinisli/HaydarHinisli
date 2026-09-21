@@ -49,14 +49,17 @@ from .integrations.openai_realtime import status as openai_status, session_bluep
 from .streaming.asr import ASRProvider, get_asr_provider
 from .streaming.media_stream_security import is_secure_transport, verify_media_stream_signature
 from .streaming.media_stream_session import MediaStreamSession
-from .streaming.pipeline import MediaStreamPipeline
+from .streaming.pipeline import MediaStreamPipeline, PipelineStatus
 from .services.ws_origin import is_allowed_origin, parse_allowed_origins
 from .compliance.admin import record_review_signoff, set_feature_flag, set_network_learning_opt_in
 from .compliance.audit import log_audit
 from .compliance.jurisdiction_policy import resolve_country_policy
 from .compliance.policy_engine import Decision, can_process
 from .auth.dependencies import AuthContext, get_current_user, require_role, resolve_tenant_id
-from .auth.security import create_access_token, decode_access_token, hash_password, verify_password
+from .auth.security import (
+    create_access_token, create_voice_call_ticket, decode_access_token, decode_voice_call_ticket,
+    hash_password, verify_password,
+)
 from .logging_config import RequestContextMiddleware, configure_logging
 from .webhooks.call_status import get_or_create_provider_status, is_newer_event, parse_sequence_number
 from .webhooks.idempotency import claim_webhook_delivery
@@ -730,7 +733,11 @@ _E164_RE = re.compile(r'\+[1-9]\d{6,14}')
 
 
 @app.post('/api/voice/access-token')
-def voice_access_token(current_user: AuthContext = Depends(require_role('seller', 'manager', 'tenant_admin'))):
+def voice_access_token(
+    call_id: int = Query(..., description='The REPLICA call this Access Token/ticket will be used for.'),
+    current_user: AuthContext = Depends(require_role('seller', 'manager', 'tenant_admin')),
+    db: Session = Depends(get_db),
+):
     """ADR-060: mints a short-lived Twilio Access Token so the seller's browser
     (Twilio Voice JS SDK, app/static/live.html) can register a `Device` and place
     an outbound call via `device.connect()` — the first real test's call path when
@@ -744,19 +751,48 @@ def voice_access_token(current_user: AuthContext = Depends(require_role('seller'
     option, not something embeddable in the Access Token itself, so the
     browser needs it explicitly rather than hardcoding a second copy of
     `TWILIO_EDGE` in JavaScript.
+
+    Red-team hardening (docs/DECISIONS.md ADR-063, item 7/8): a Twilio Access
+    Token by itself grants the ability to REGISTER a Device and place SOME call
+    through the configured TwiML App — it says nothing about which REPLICA
+    call/tenant that's for, and `/webhooks/twilio/voice-outbound` (the ONLY
+    place that ever turns a browser's `device.connect()` into TwiML) cannot see
+    this bearer token at all (Twilio, not the browser, calls that webhook).
+    `call_id` is therefore now REQUIRED here, tenant-checked exactly like every
+    other call-scoped endpoint (`_get_call_or_404` — cross-tenant is a 404, never
+    a distinguishable 403), and gated on the same consent/policy check
+    (`can_process(..., 'live_assist', ...)`) `/api/calls/{id}/turns` already
+    enforces — a real call must not even be able to fetch a working token if
+    live-assist processing isn't currently permitted for it. On success, mints a
+    short-lived, REPLICA-signed `voice_ticket` (`create_voice_call_ticket()`,
+    app/auth/security.py) binding exactly this `call_id`/tenant/user — this,
+    not the raw call_id, is what the browser must pass to `device.connect()`
+    and what `/webhooks/twilio/voice-outbound` actually trusts (see that
+    endpoint below); the browser never receives, and the webhook never accepts,
+    any other Twilio account credential/secret.
     """
+    call = _get_call_or_404(db, call_id, current_user.company_id)
+    decision = can_process(
+        db, 'live_assist', tenant_id=call.company_id, call_id=call.id, country_code=call.jurisdiction_country,
+        prospect_type=call.prospect_type, campaign_type=call.campaign_type, speaker_mode=call.speaker_mode,
+    )
+    db.commit()
+    if decision.result != Decision.ALLOWED:
+        raise HTTPException(403, {'message': 'Live-Assist-Verarbeitung ist für diesen Call aktuell nicht zulässig.', **decision.as_dict()})
     try:
         result = twilio_rest.create_voice_access_token(identity=f'user-{current_user.user_id}')
     except ValueError as exc:
         raise HTTPException(500, str(exc)) from exc
+    ticket = create_voice_call_ticket(call_id=call.id, company_id=call.company_id, user_id=current_user.user_id)
     return {
         'token': result['token'], 'identity': f'user-{current_user.user_id}', 'ttl_seconds': 3600,
         'region': result['region'], 'edge': result['edge'],
+        'voice_ticket': ticket['ticket'], 'voice_ticket_ttl_seconds': ticket['ttl_seconds'],
     }
 
 
 @app.post('/webhooks/twilio/voice-outbound')
-async def twilio_voice_outbound(request: Request):
+async def twilio_voice_outbound(request: Request, db: Session = Depends(get_db)):
     """ADR-060: the Voice Request URL configured on the TwiML Application that
     `TWILIO_TWIML_APP_SID` points to — Twilio calls this the moment the browser's
     `device.connect({params: {...}})` places the outbound leg. Same
@@ -768,9 +804,30 @@ async def twilio_voice_outbound(request: Request):
     `device.connect()` time — see app/static/live.html) is validated against a
     plain E.164 shape and never logged: a rejection warning names the failure
     reason, never the rejected value, matching this project's existing token-
-    rejection logging discipline (ADR-057). `replica_call_id` travels the same
-    way it always has for this topology (as a `<Stream>` custom Parameter, ADR-053
-    onward) — nothing about how the parent leg was established changes that.
+    rejection logging discipline (ADR-057).
+
+    Red-team hardening (docs/DECISIONS.md ADR-063, item 8): `replica_call_id` is
+    no longer accepted as a raw parameter from the browser at all — Twilio
+    signing this REQUEST only proves the request genuinely came from Twilio, it
+    proves nothing about which REPLICA tenant/call the BROWSER that called
+    `device.connect()` was actually authorized for. A compromised/malicious
+    browser client could otherwise set `replica_call_id` to any other tenant's
+    call, causing this webhook to bind a real Media Stream (and this call's real
+    audio) to that unrelated call/tenant's record — `_resolve_call_for_media_
+    stream()` has no independent tenant check of its own, by design (it cannot:
+    Twilio's media-stream WebSocket handshake is signature-authenticated only,
+    same as this webhook, never bearer-token-authenticated). Instead, the
+    browser sends `replica_voice_ticket` — the short-lived, REPLICA-signed
+    ticket `/api/voice/access-token` minted only after independently verifying
+    tenant ownership and consent/policy for a specific call_id
+    (`create_voice_call_ticket()`). This webhook decodes and verifies THAT
+    (`decode_voice_call_ticket()`) and uses ONLY the call_id/company_id it
+    contains — there is no code path here that ever reads a call_id from
+    anywhere else. A missing/invalid/expired/tampered ticket is rejected before
+    any TwiML is ever generated (fail closed), and even a validly-issued ticket
+    is re-checked against the CURRENT `Call`/consent state (not just what it was
+    moments earlier when the ticket was minted) — closing the window where
+    consent could have been withdrawn between minting and placing the call.
 
     The generated TwiML mirrors the already-confirmed, already-tested shape from
     docs/REAL_TEST_SETUP.md exactly: `<Start><Stream track="both_tracks">` first
@@ -797,12 +854,37 @@ async def twilio_voice_outbound(request: Request):
         raise HTTPException(403, 'Invalid webhook signature')
 
     to_number = params.get('To', '').strip()
-    replica_call_id = params.get('replica_call_id', '').strip()
     if not _E164_RE.fullmatch(to_number):
         logger.warning('twilio voice webhook: rejected malformed To parameter', extra={'fields': {'path': request.url.path}})
         raise HTTPException(400, 'Invalid destination number')
-    if not replica_call_id:
-        raise HTTPException(400, 'Missing replica_call_id parameter')
+
+    ticket_raw = params.get('replica_voice_ticket', '').strip()
+    if not ticket_raw:
+        logger.warning('twilio voice webhook: missing replica_voice_ticket parameter', extra={'fields': {'path': request.url.path}})
+        raise HTTPException(400, 'Missing replica_voice_ticket parameter')
+    try:
+        ticket_payload = decode_voice_call_ticket(ticket_raw)
+    except jwt.InvalidTokenError as exc:
+        logger.warning('twilio voice webhook: rejected invalid/expired voice ticket', extra={'fields': {'exception': type(exc).__name__}})
+        raise HTTPException(403, 'Invalid or expired voice ticket') from exc
+
+    replica_call_id = ticket_payload['call_id']
+    ticket_company_id = ticket_payload['company_id']
+    call = db.get(Call, replica_call_id)
+    if call is None or call.company_id != ticket_company_id:
+        # Cannot happen for a ticket this server itself signed moments earlier
+        # unless the Call was deleted/reassigned in between — fail closed rather
+        # than trust a ticket whose claims no longer match reality.
+        logger.warning('twilio voice webhook: ticket call_id no longer valid', extra={'fields': {'path': request.url.path}})
+        raise HTTPException(403, 'Call is no longer valid for this ticket')
+    decision = can_process(
+        db, 'live_assist', tenant_id=call.company_id, call_id=call.id, country_code=call.jurisdiction_country,
+        prospect_type=call.prospect_type, campaign_type=call.campaign_type, speaker_mode=call.speaker_mode,
+    )
+    db.commit()
+    if decision.result != Decision.ALLOWED:
+        logger.warning('twilio voice webhook: live-assist processing no longer permitted for this call', extra={'fields': {'call_id': call.id}})
+        raise HTTPException(403, 'Processing is not currently permitted for this call')
     if not settings.twilio_verified_caller_id:
         raise HTTPException(500, 'TWILIO_VERIFIED_CALLER_ID is not configured')
 
@@ -821,7 +903,7 @@ async def twilio_voice_outbound(request: Request):
         '<Response>'
         '<Start>'
         f'<Stream url="wss://{public_host}/ws/twilio-media" track="both_tracks">'
-        f'<Parameter name="replica_call_id" value="{xml_attr_escape(replica_call_id)}" />'
+        f'<Parameter name="replica_call_id" value="{xml_attr_escape(str(replica_call_id))}" />'
         '</Stream>'
         '</Start>'
         f'<Dial callerId="{xml_attr_escape(settings.twilio_verified_caller_id)}">'
@@ -1040,6 +1122,8 @@ async def twilio_media(websocket: WebSocket, asr_provider: ASRProvider = Depends
     await websocket.accept()
     correlation_session = MediaStreamSession()
     pipeline: MediaStreamPipeline | None = None
+    hub = get_live_suggestion_hub()
+    is_real_asr = type(asr_provider).__name__ == 'DeepgramASRProvider'
     try:
         while True:
             message = json.loads(await websocket.receive_text())
@@ -1057,7 +1141,27 @@ async def twilio_media(websocket: WebSocket, asr_provider: ASRProvider = Depends
                     logger.warning('media stream: could not resolve a Call for this stream — closing', extra={'fields': {'call_sid': correlation_session.call_sid}})
                     await websocket.close(code=1008)
                     return
-                pipeline = await MediaStreamPipeline.create(call_id=call.id, company_id=call.company_id, asr_provider=asr_provider)
+                # Red-team hardening (docs/DECISIONS.md ADR-063, item 3): a phone
+                # call connecting is NOT the same fact as REPLICA's own analysis
+                # pipeline working — pushed as its own, independent signal the
+                # instant the Media Stream itself attaches to this call, before
+                # ASR/turn-detection/SalesBrain have done anything at all yet.
+                await hub.push_status(call_id=call.id, company_id=call.company_id, status=PipelineStatus.MEDIA_STREAM_CONNECTED)
+                if is_real_asr:
+                    await hub.push_status(call_id=call.id, company_id=call.company_id, status=PipelineStatus.DEEPGRAM_CONNECTING)
+                try:
+                    pipeline = await MediaStreamPipeline.create(call_id=call.id, company_id=call.company_id, asr_provider=asr_provider)
+                except Exception:
+                    # Fail closed (item 3/4): pipeline construction failing (most
+                    # likely a real ASR provider refusing to construct/connect)
+                    # must never leave the seller believing analysis is running
+                    # just because the phone call itself connected fine.
+                    logger.exception('media stream: pipeline creation failed', extra={'fields': {'call_id': call.id}})
+                    detail = PipelineStatus.DETAIL_DEEPGRAM_UNAVAILABLE if is_real_asr else PipelineStatus.DETAIL_PIPELINE_ERROR
+                    await hub.push_status(call_id=call.id, company_id=call.company_id, status=PipelineStatus.DISRUPTED, detail=detail)
+                    await hub.push_suggestion_stale(call_id=call.id, company_id=call.company_id, reason=detail)
+                    await websocket.close(code=1011)
+                    return
                 pipeline.consume_start(message)
             elif event == 'media':
                 if pipeline is None:
@@ -1070,6 +1174,37 @@ async def twilio_media(websocket: WebSocket, asr_provider: ASRProvider = Depends
     except WebSocketDisconnect:
         if pipeline is not None:
             await pipeline.consume_stop({'event': 'stop', 'sequenceNumber': None})
+            # item 4/6: the Media Stream WebSocket dropping without Twilio ever
+            # sending a clean 'stop' event first is itself an abnormal transport
+            # event (docs/PROVIDER_REFERENCES.md documents 'stop' as the clean
+            # end-of-stream signal) — surfaced so a genuinely still-connected
+            # phone call never silently loses analysis without the seller's UI
+            # reflecting it. A call that ends normally with a proper 'stop'
+            # event never reaches this branch at all (see the `break` above).
+            await hub.push_status(
+                call_id=pipeline.call_id, company_id=pipeline.company_id, status=PipelineStatus.DISRUPTED,
+                detail=PipelineStatus.DETAIL_MEDIA_STREAM_DISCONNECTED,
+            )
+            await hub.push_suggestion_stale(
+                call_id=pipeline.call_id, company_id=pipeline.company_id, reason=PipelineStatus.DETAIL_MEDIA_STREAM_DISCONNECTED,
+            )
+    except Exception:
+        # item 4: an unhandled exception anywhere in per-message pipeline
+        # processing (consume_media/consume_stop) must never fail silently —
+        # the Twilio side of the call may well still be connected and proceeding
+        # fine, which is exactly the dangerous case: analysis has stopped but
+        # nothing said so.
+        logger.exception('media stream: unexpected pipeline failure', extra={'fields': {
+            'call_id': pipeline.call_id if pipeline is not None else None,
+        }})
+        if pipeline is not None:
+            await hub.push_status(
+                call_id=pipeline.call_id, company_id=pipeline.company_id, status=PipelineStatus.DISRUPTED,
+                detail=PipelineStatus.DETAIL_PIPELINE_ERROR,
+            )
+            await hub.push_suggestion_stale(
+                call_id=pipeline.call_id, company_id=pipeline.company_id, reason=PipelineStatus.DETAIL_PIPELINE_ERROR,
+            )
     finally:
         if pipeline is not None:
             await pipeline.close()
@@ -1209,6 +1344,13 @@ async def live_suggestions(websocket: WebSocket, call_id: int):
             # for this call. The client is expected to dedupe on `suggestion_id`
             # (it may already have rendered this exact one) — see app/static/live.html.
             await websocket.send_json({'type': 'sync', **last})
+        # Red-team hardening (docs/DECISIONS.md ADR-063, item 3): resync the last
+        # known pipeline/analysis status too, on the exact same reconnect logic —
+        # a seller reconnecting mid-call must never fall back to a default
+        # "wartet" display when the real state might already be "gestört".
+        last_status = hub.last_status(call_id)
+        if last_status is not None:
+            await websocket.send_json({'type': 'pipeline_status', **last_status})
         while True:
             # This connection is push-only for SUGGESTION delivery (the
             # Render-ACK goes over a separate, reliable HTTP POST — see

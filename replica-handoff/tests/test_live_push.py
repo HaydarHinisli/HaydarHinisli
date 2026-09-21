@@ -78,9 +78,12 @@ def test_last_payload_is_available_for_sync_on_connect_and_updates_per_call():
     hub = LiveSuggestionHub()
     assert hub.last_payload(1) is None
     run(hub.publish_suggestion(call_id=1, company_id=10, payload={'suggestion_id': 1}))
-    assert hub.last_payload(1) == {'suggestion_id': 1}
+    # ADR-063: a freshly published suggestion is always recorded not-stale
+    # (`stale: False`) — see test_push_suggestion_stale_marks_last_payload_stale
+    # below for the flag actually flipping.
+    assert hub.last_payload(1) == {'suggestion_id': 1, 'stale': False}
     run(hub.publish_suggestion(call_id=1, company_id=10, payload={'suggestion_id': 2}))
-    assert hub.last_payload(1) == {'suggestion_id': 2}  # latest wins, no backlog
+    assert hub.last_payload(1) == {'suggestion_id': 2, 'stale': False}  # latest wins, no backlog
     assert hub.last_payload(2) is None  # a different call_id is unaffected
 
 
@@ -92,3 +95,53 @@ def test_unregister_removes_subscriber_and_empty_call_entry():
     hub.unregister(sub)
     assert hub.subscriber_count(1) == 0
     hub.unregister(sub)  # idempotent — unregistering twice must not raise
+
+
+# --- ADR-063 (red-team hardening, item 3/4): pipeline_status / suggestion_stale ---
+
+def test_push_status_delivers_to_subscribers_and_records_last_status():
+    hub = LiveSuggestionHub()
+    ws = _FakeWebSocket()
+    hub.register(call_id=1, company_id=10, user_id=1, websocket=ws)
+    assert hub.last_status(1) is None
+
+    result = run(hub.push_status(call_id=1, company_id=10, status='media_stream_connected'))
+
+    assert result == {'delivered_to': 1}
+    assert ws.sent == [{'type': 'pipeline_status', 'status': 'media_stream_connected', 'detail': None}]
+    assert hub.last_status(1) == {'status': 'media_stream_connected', 'detail': None}
+
+
+def test_push_status_never_delivers_across_tenants():
+    hub = LiveSuggestionHub()
+    ws = _FakeWebSocket()
+    hub.register(call_id=1, company_id=10, user_id=1, websocket=ws)
+
+    result = run(hub.push_status(call_id=1, company_id=999, status='disrupted', detail='deepgram_unavailable'))
+
+    assert result == {'delivered_to': 0}
+    assert ws.sent == []
+    # Still recorded for a future SAME-tenant reconnect, exactly like last_payload.
+    assert hub.last_status(1) == {'status': 'disrupted', 'detail': 'deepgram_unavailable'}
+
+
+def test_push_suggestion_stale_delivers_and_marks_last_payload_stale():
+    hub = LiveSuggestionHub()
+    ws = _FakeWebSocket()
+    hub.register(call_id=1, company_id=10, user_id=1, websocket=ws)
+    run(hub.publish_suggestion(call_id=1, company_id=10, payload={'suggestion_id': 1}))
+    assert hub.last_payload(1)['stale'] is False
+
+    result = run(hub.push_suggestion_stale(call_id=1, company_id=10, reason='deepgram_unavailable'))
+
+    assert result == {'delivered_to': 1}
+    assert ws.sent[-1] == {'type': 'suggestion_stale', 'reason': 'deepgram_unavailable'}
+    assert hub.last_payload(1) == {'suggestion_id': 1, 'stale': True}
+
+
+def test_push_suggestion_stale_is_a_no_op_on_last_payload_when_none_exists_yet():
+    """No suggestion has ever been published for this call — nothing to mark
+    stale, and this must not manufacture a fake payload record."""
+    hub = LiveSuggestionHub()
+    run(hub.push_suggestion_stale(call_id=1, company_id=10, reason='pipeline_error'))
+    assert hub.last_payload(1) is None

@@ -473,30 +473,44 @@ re-check if it doesn't match what's described.
 1. Complete preflight checklist steps 1–4 below (login, create the call,
    grant consent, confirm permissions) — unchanged.
 2. Open `https://<PUBLIC_HOST>/live/{id}` in Chrome, paste a fresh bearer
-   token, click **"Verbinden"** (this is what makes `replica_call_id`
-   available to the page — required before the next step will do anything).
+   token, click **"Verbinden"** (this is what makes the call available to
+   the page — required before the next step will do anything).
 3. Open the **Debug-Ansicht** (closed by default, ADR-056) → scroll to
-   **"Echter Testcall (Twilio Voice SDK, ADR-060)"**.
+   **"Echter Testcall (Twilio Voice SDK, ADR-060)"**. If the preflight
+   checklist there isn't fully green, fix whatever it names before
+   continuing — it will refuse to let the call start otherwise (ADR-062).
 4. Type the Prospect test person's number into the field (E.164, e.g.
    `+49...`) — this value is never sent anywhere except this one call, never
    logged, and the field clears itself the instant you click the button.
-5. Click **"Testcall starten"**. The browser will ask for microphone
-   permission (required by WebRTC/getUserMedia; HTTPS is already a
-   prerequisite for this whole setup) — allow it. The page fetches a fresh
-   Access Token from `POST /api/voice/access-token`, registers a Voice SDK
-   `Device`, and calls `device.connect()` with the number and
-   `replica_call_id` as custom parameters.
+5. Click **"Testcall starten"** (or press Enter in the field — both are the
+   same guarded action, ADR-063, and both refuse to start a second call
+   while one is already connecting/ringing/connected). The browser will ask
+   for microphone permission (required by WebRTC/getUserMedia; HTTPS is
+   already a prerequisite for this whole setup) — allow it. The page fetches
+   a fresh Access Token AND a short-lived, call-bound `voice_ticket` from
+   `POST /api/voice/access-token?call_id=<id>` (ADR-063: tenant- and
+   consent-checked server-side before either is issued), registers a Voice
+   SDK `Device`, and calls `device.connect()` with the number and that
+   ticket as custom parameters — never a raw call_id.
 6. Twilio POSTs those parameters to `/webhooks/twilio/voice-outbound`
    (signature-verified, same posture as the existing call-status webhook),
-   which returns the TwiML: `<Start><Stream track="both_tracks">` first (so
-   the Media Stream is already running), then `<Dial callerId="<your
-   Verified Caller ID>">` to the Prospect's number.
+   which decodes and re-verifies the ticket (ADR-063 — a forged, expired, or
+   no-longer-valid ticket is rejected before any TwiML is generated) and
+   returns the TwiML: `<Start><Stream track="both_tracks">` first (so the
+   Media Stream is already running), then `<Dial callerId="<your Verified
+   Caller ID>">` to the Prospect's number.
 7. The Prospect's normal mobile phone rings, showing your Verified Caller ID
    as the caller. Once they answer, speak as the seller directly into your
    MacBook's microphone — REPLICA processes it through the same pipeline as
    every other real-provider test (Deepgram EU → Turn Detection → Speaker
    Mapping → Conversation State → SalesBrain → Live Suggestion → browser
-   render → Render-ACK).
+   render → Render-ACK). Watch the same debug section's analysis-state line
+   (ADR-063) — it reports Media Stream/Deepgram/transcript/suggestion-
+   pipeline progress independently of the call itself; "Call verbunden" by
+   itself does NOT mean REPLICA is analyzing anything yet.
+8. When done, click **"Auflegen"** (ADR-063) rather than just closing the
+   tab — it cleanly disconnects the Voice SDK call and resets local state so
+   a next test call starts from a clean slate.
 
 **IE1/Dublin confirmation (ADR-061 — checked and fixed before step 1 above
 was ever run for real):** the Access Token minted in step 5 carries `region:
@@ -643,6 +657,21 @@ here).
   number is `place_test_call.py` from §4a, which is explicitly written to
   live outside the repo (ADR-059) and reads its number from an
   environment variable or a non-echoed prompt, never a literal.
+- Red-team hardening pass complete (ADR-063): double-start/double-call
+  prevention (live-browser-verified), an explicit Twilio call state
+  (Ready/Connecting/Ringing/Connected/Ending/Ended/Failed) shown separately
+  from an independent analysis/pipeline state (Media Stream/Deepgram/
+  Transcript/Suggestion-Pipeline — "Call verbunden" never implies REPLICA is
+  analyzing), runtime fail-closed handling for a mid-call Media-Stream or
+  Deepgram disconnect or an unhandled pipeline exception (marks the last
+  suggestion stale rather than leaving it looking current), a Hangup button,
+  and — the one real vulnerability this pass found and fixed — the browser
+  call path can no longer bind a real call's audio/Media Stream to another
+  tenant's call by manipulating `device.connect()` parameters
+  (`/api/voice/access-token` now requires and tenant/consent-checks
+  `call_id`, and issues a short-lived signed ticket that
+  `/webhooks/twilio/voice-outbound` alone verifies and trusts, never a raw
+  browser-supplied value).
 - New end-to-end test (`tests/test_voice_call_flow_e2e.py`, ADR-062) proves
   the entire flow without a real Twilio/Deepgram account or phone: token
   region/edge → webhook TwiML → the same `call_id` driven through the real

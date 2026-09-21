@@ -44,6 +44,13 @@ pre{background:#0f141d;border:1px solid var(--border);border-radius:10px;padding
    Sprung, keine Bewegung, keine Größenänderung — soll während eines
    laufenden Gesprächs nicht ablenken. */
 .sag.flash{background:rgba(111,140,255,.14);box-shadow:0 0 0 1px rgba(111,140,255,.35) inset}
+/* Red-team hardening (docs/DECISIONS.md ADR-063, item 4): a suggestion must
+   never look as current/trustworthy once the analysis pipeline behind it is
+   known to be disrupted — dimmed, with an explicit label, never silently left
+   looking exactly as it did before the failure. */
+.sag.stale{opacity:.4}
+.stale-badge{display:none;margin-top:8px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--warn)}
+.stale-badge.show{display:block}
 
 .hint-badge-row{margin-top:16px;min-height:26px}
 .badge{display:inline-block;font-size:12.5px;font-weight:650;border:1px solid var(--warn);color:var(--warn);border-radius:999px;padding:4px 12px}
@@ -92,6 +99,7 @@ pre{background:#0f141d;border:1px solid var(--border);border-radius:10px;padding
   <main class="copilot">
     <div class="sag-label">Sag jetzt</div>
     <div id="sag" class="sag empty">Bereit für den nächsten Hinweis</div>
+    <div id="staleBadge" class="stale-badge">Analyse unterbrochen — diese Empfehlung ist evtl. nicht mehr aktuell</div>
     <div id="hintBadge" class="hint-badge-row"></div>
     <div id="phaseLabel" class="phase-label"></div>
   </main>
@@ -112,6 +120,7 @@ pre{background:#0f141d;border:1px solid var(--border);border-radius:10px;padding
         <div class="row" style="margin-top:8px">
           <input id="prospectNumber" type="tel" placeholder="+49… (Testperson, wird nicht gespeichert)" autocomplete="off" autocorrect="off" spellcheck="false" />
           <button id="voiceCallBtn" class="btn">Testcall starten</button>
+          <button id="voiceHangupBtn" class="btn" hidden>Auflegen</button>
         </div>
         <div id="voiceStatus" class="notice">Noch nicht initialisiert.</div>
         <div id="voicePreflight" class="notice"></div>
@@ -133,6 +142,7 @@ pre{background:#0f141d;border:1px solid var(--border);border-radius:10px;padding
     statusDot: document.getElementById('statusDot'),
     statusText: document.getElementById('statusText'),
     sag: document.getElementById('sag'),
+    staleBadge: document.getElementById('staleBadge'),
     hintBadge: document.getElementById('hintBadge'),
     phaseLabel: document.getElementById('phaseLabel'),
     historySection: document.getElementById('historySection'),
@@ -141,6 +151,7 @@ pre{background:#0f141d;border:1px solid var(--border);border-radius:10px;padding
     debugNotice: document.getElementById('debugNotice'),
     prospectNumber: document.getElementById('prospectNumber'),
     voiceCallBtn: document.getElementById('voiceCallBtn'),
+    voiceHangupBtn: document.getElementById('voiceHangupBtn'),
     voiceStatus: document.getElementById('voiceStatus'),
     voicePreflight: document.getElementById('voicePreflight'),
   };
@@ -275,6 +286,14 @@ pre{background:#0f141d;border:1px solid var(--border);border-radius:10px;padding
       } else if (msg.type === 'suggestion' || msg.type === 'sync') {
         setConnectionState('ready');
         handleSuggestion(msg, receivedAtPerf, receivedAtEpoch);
+      } else if (msg.type === 'pipeline_status') {
+        // Red-team hardening (docs/DECISIONS.md ADR-063, item 3): pushed
+        // independently of the Twilio call's own state — see setAnalysisState().
+        setAnalysisState(msg.status, msg.detail);
+      } else if (msg.type === 'suggestion_stale') {
+        // item 4: an already-shown suggestion is no longer backed by a
+        // confirmed-working analysis — mark it, never retract it silently.
+        setSuggestionStale(true);
       } else if (msg.type === 'pong') {
         clockSyncSamples.push({
           t1_client_send_ms: msg.t1_client_send_ms,
@@ -336,6 +355,13 @@ pre{background:#0f141d;border:1px solid var(--border);border-radius:10px;padding
     if (payload.suggestion_id != null && payload.suggestion_id === lastRenderedSuggestionId) {
       return;
     }
+
+    // item 4: a genuinely new suggestion is, by construction, backed by an
+    // analysis pipeline that just ran successfully end-to-end — clears any
+    // earlier staleness mark. `payload.stale` (set on the `sync`-on-reconnect
+    // resend, ADR-063) still overrides this below if the hub itself recorded
+    // this exact payload as stale.
+    setSuggestionStale(!!payload.stale);
 
     // Genau eine vorherige Empfehlung als dezenter Verlauf — nur, wenn schon
     // eine echte (nicht der Platzhalter) angezeigt wurde.
@@ -456,10 +482,98 @@ pre{background:#0f141d;border:1px solid var(--border);border-radius:10px;padding
   // Deliberately confined to the debug view — this drives one real call for
   // the first real-provider test, it is not a seller-facing dialer feature.
   var voiceDevice = null;
+  var activeCall = null;
   var E164_RE = /^\+[1-9]\d{6,14}$/;
 
-  function setVoiceStatus(text) {
+  function setSuggestionStale(stale) {
+    els.sag.classList.toggle('stale', !!stale);
+    els.staleBadge.classList.toggle('show', !!stale);
+  }
+
+  // Red-team hardening (docs/DECISIONS.md ADR-063, item 2): the TELEPHONY call
+  // state, observed exclusively from real Twilio Device/Call SDK events below —
+  // never assumed/optimistically set. Distinct on purpose from `analysisState`
+  // (item 3): a connected phone call proves nothing about whether REPLICA's own
+  // pipeline is actually working.
+  var callState = 'ready'; // ready|connecting|ringing|connected|ending|ended|failed
+  var lastCallError = null;
+  var CALL_STATE_LABELS = {
+    ready: 'Bereit für Testcall.',
+    connecting: 'Verbinde …',
+    ringing: 'Klingelt …',
+    connected: 'Im Gespräch.',
+    ending: 'Wird beendet …',
+    ended: 'Call beendet.',
+    failed: 'Call fehlgeschlagen.',
+  };
+
+  // item 3: the analysis/pipeline state, driven ONLY by `pipeline_status`
+  // pushes from the server (app/streaming/pipeline.PipelineStatus) — never
+  // inferred client-side from the call state.
+  var analysisState = 'waiting';
+  var analysisDetail = null;
+  var ANALYSIS_STATE_LABELS = {
+    waiting: 'Media Stream wartet',
+    media_stream_connected: 'Media Stream verbunden',
+    deepgram_connecting: 'Deepgram verbindet',
+    deepgram_ready: 'Deepgram bereit',
+    audio_received: 'Audio wird empfangen',
+    transcript_active: 'Transcript aktiv',
+    suggestion_pipeline_ready: 'Suggestion-Pipeline bereit',
+    disrupted: 'Analyse nicht verfügbar',
+  };
+  var ANALYSIS_DISRUPTION_DETAIL_LABELS = {
+    deepgram_unavailable: 'Deepgram nicht verfügbar',
+    media_stream_disconnected: 'Media Stream getrennt',
+    untrusted_speaker_mapping: 'Speaker-Mapping unsicher',
+    pipeline_error: 'Analyse nicht verfügbar',
+  };
+
+  function analysisLabel() {
+    if (analysisState === 'disrupted') {
+      return (analysisDetail && ANALYSIS_DISRUPTION_DETAIL_LABELS[analysisDetail]) || ANALYSIS_STATE_LABELS.disrupted;
+    }
+    return ANALYSIS_STATE_LABELS[analysisState] || analysisState;
+  }
+
+  // The one place callState/analysisState are combined into visible text and
+  // into the call/hangup buttons' enabled state (item 1: double-start
+  // prevention lives here, not scattered across every place that could change
+  // callState) — the requirement that the seller can never mistake "call
+  // connected" for "REPLICA is analyzing" is met by ALWAYS showing the
+  // analysis state alongside "Call verbunden", never the call state alone,
+  // whenever a call is actually connected/ending.
+  function renderVoiceStatus() {
+    if (callState === 'connected' || callState === 'ending') {
+      setVoiceStatusText('Call verbunden – ' + analysisLabel());
+    } else {
+      var suffix = lastCallError ? ' (' + lastCallError + ')' : '';
+      setVoiceStatusText((CALL_STATE_LABELS[callState] || callState) + suffix);
+    }
+    // Item 1: a second call can only ever start from ready/ended/failed — no
+    // other code path re-enables this button, so connecting/ringing/connected/
+    // ending all stay hard-blocked regardless of how many times the (disabled)
+    // button is clicked or Enter is pressed on the number field.
+    var canStartNewCall = (callState === 'ready' || callState === 'ended' || callState === 'failed');
+    els.voiceCallBtn.disabled = !canStartNewCall;
+    els.voiceHangupBtn.hidden = canStartNewCall;
+  }
+
+  function setVoiceStatusText(text) {
     els.voiceStatus.textContent = text;
+  }
+
+  function setCallState(state, opts) {
+    callState = state;
+    if (opts && opts.error) lastCallError = opts.error;
+    if (state === 'ready' || state === 'connecting') lastCallError = null;
+    renderVoiceStatus();
+  }
+
+  function setAnalysisState(state, detail) {
+    analysisState = state;
+    analysisDetail = detail || null;
+    renderVoiceStatus();
   }
 
   // Fix (docs/DECISIONS.md ADR-062): fail closed — a real call must never
@@ -484,95 +598,157 @@ pre{background:#0f141d;border:1px solid var(--border);border-radius:10px;padding
     return preflight;
   }
 
-  async function ensureVoiceDevice() {
+  // Red-team hardening (docs/DECISIONS.md ADR-063, item 7/8): call_id is now
+  // REQUIRED (the server rejects a request without it, and independently
+  // verifies tenant ownership + consent/policy for it before minting
+  // anything) and the response now also carries `voice_ticket` — a short-lived,
+  // REPLICA-signed artifact binding exactly this call/tenant/user, which
+  // `device.connect()` sends INSTEAD of a raw call_id (see the click handler
+  // below). Fetched fresh on every attempt (never cached like the Device
+  // registration token below) — a ticket is meant to authorize exactly one
+  // upcoming call placement, not be reused indefinitely.
+  async function fetchVoiceAccessToken(bearer) {
+    var resp = await fetch('/api/voice/access-token?call_id=' + encodeURIComponent(currentCallId), {
+      method: 'POST', headers: { Authorization: 'Bearer ' + bearer },
+    });
+    if (!resp.ok) {
+      var detail = '';
+      try {
+        var errBody = await resp.json();
+        var msg = errBody && errBody.detail && errBody.detail.message;
+        if (msg) detail = ': ' + msg;
+      } catch (e) { /* non-JSON error body — ignore, HTTP status alone still shown */ }
+      throw new Error('Access-Token-Anfrage fehlgeschlagen (HTTP ' + resp.status + ')' + detail + '.');
+    }
+    return resp.json();
+  }
+
+  async function ensureVoiceDevice(tokenBody) {
     if (voiceDevice) return voiceDevice;
     if (typeof Twilio === 'undefined' || !Twilio.Device) {
       throw new Error('Twilio Voice SDK nicht geladen (app/static/vendor/twilio-voice-sdk.min.js fehlt?).');
     }
-    var bearer = sanitizeToken(els.token.value);
-    if (!bearer) {
-      throw new Error('Kein Bearer-Token — oben zuerst verbinden.');
-    }
-    setVoiceStatus('Hole Access Token …');
-    var resp = await fetch('/api/voice/access-token', { method: 'POST', headers: { Authorization: 'Bearer ' + bearer } });
-    if (!resp.ok) {
-      throw new Error('Access-Token-Anfrage fehlgeschlagen (HTTP ' + resp.status + ').');
-    }
-    var body = await resp.json();
-    setVoiceStatus('Registriere Device (Region: ' + body.region + ', Edge: ' + body.edge + ') …');
     // Fix (docs/DECISIONS.md ADR-061): edge must be set explicitly — the
     // Voice SDK's own default is 'roaming' (nearest-latency auto-selection),
     // not necessarily the EU edge this account is pinned to everywhere else
     // (TWILIO_EDGE). Read from the token response rather than hardcoded here,
     // so this file can never drift out of sync with the server's own config.
-    voiceDevice = new Twilio.Device(body.token, { edge: body.edge });
+    voiceDevice = new Twilio.Device(tokenBody.token, { edge: tokenBody.edge });
     voiceDevice.on('error', function (err) {
-      setVoiceStatus('Voice-SDK-Fehler: ' + (err && err.message ? err.message : 'unbekannt'));
-      els.voiceCallBtn.disabled = false;
+      setCallState('failed', { error: err && err.message ? err.message : 'unbekannt' });
     });
     return voiceDevice;
   }
 
-  els.voiceCallBtn.addEventListener('click', async function () {
-    // Read once, then clear the field IMMEDIATELY on click — before any
-    // async check, so it never lingers in the DOM one tick longer than
-    // necessary no matter which validation below fails or succeeds
-    // (docs/DECISIONS.md ADR-059/060/062). The value is only ever used
-    // further down if every check up to that point actually passes.
+  // Red-team hardening (docs/DECISIONS.md ADR-063, item 5): a real Voice SDK
+  // call disconnected the same, explicit way regardless of who/what ended it —
+  // used both by the Hangup button below and, implicitly, whenever the call
+  // object itself reports it is already gone (disconnect/cancel/reject/error
+  // all converge on the SAME state transition, never a separate one each).
+  function onCallEnded(state, opts) {
+    activeCall = null;
+    setCallState(state, opts);
+  }
+
+  els.voiceHangupBtn.addEventListener('click', function () {
+    // item 5: disconnects the CURRENT Twilio call, if any, and otherwise does
+    // nothing — the actual state transition to 'ended' only ever happens from
+    // the real call.on('disconnect') handler below (item 2: state comes from
+    // the SDK, never assumed here), this just requests it. 'ending' is shown
+    // immediately as honest feedback that a hangup was requested, not as a
+    // claim that the call has actually ended yet.
+    if (activeCall) {
+      setCallState('ending');
+      try { activeCall.disconnect(); } catch (e) { /* already gone */ }
+    }
+  });
+
+  // item 1: double-start / double-call prevention. This function is the ONLY
+  // path that can ever start a real call, and its very first statement is the
+  // state guard — before reading the prospect number, before clearing it,
+  // before any async work. Both a second physical click on the button AND
+  // Enter on the number field (wired below to invoke this same handler) go
+  // through this identical guard; the button itself is also kept `disabled`
+  // for the whole connecting/ringing/connected/ending duration
+  // (renderVoiceStatus()) as a second, independent layer — a disabled button
+  // never dispatches a click event at all, so even a very fast double-click
+  // cannot reach this function a second time while a call is in flight.
+  async function startVoiceTestCall() {
+    if (callState !== 'ready' && callState !== 'ended' && callState !== 'failed') return;
+    setCallState('connecting');
+    setAnalysisState('waiting');
+    setSuggestionStale(false);
+
+    // Read once, then clear the field IMMEDIATELY — before any further check,
+    // so it never lingers in the DOM one tick longer than necessary no matter
+    // which validation below fails or succeeds (docs/DECISIONS.md
+    // ADR-059/060/062). The value is only ever used further down if every
+    // check up to that point actually passes.
     var prospectNumber = els.prospectNumber.value.trim();
     els.prospectNumber.value = '';
 
     if (!currentCallId) {
-      setVoiceStatus('Erst oben mit Call-ID/Token verbinden (liefert replica_call_id).');
+      setCallState('failed', { error: 'Erst oben mit Call-ID/Token verbinden.' });
       return;
     }
     var bearer = sanitizeToken(els.token.value);
     if (!bearer) {
-      setVoiceStatus('Kein Bearer-Token — oben zuerst verbinden.');
+      setCallState('failed', { error: 'Kein Bearer-Token — oben zuerst verbinden.' });
       return;
     }
 
-    els.voiceCallBtn.disabled = true;
-    setVoiceStatus('Prüfe Konfiguration …');
     try {
       // Fail closed (ADR-062): checked before ever fetching an Access Token
       // or touching device.connect().
       var preflight = await refreshVoicePreflight(bearer);
       if (!preflight.ready) {
         var missing = preflight.checks.filter(function (c) { return !c.ok; }).map(function (c) { return c.label; });
-        setVoiceStatus('Konfiguration unvollständig — fehlt: ' + missing.join(', '));
-        els.voiceCallBtn.disabled = false;
+        setCallState('failed', { error: 'Konfiguration unvollständig — fehlt: ' + missing.join(', ') });
         return;
       }
     } catch (e) {
-      setVoiceStatus(e && e.message ? e.message : 'Preflight-Check fehlgeschlagen.');
-      els.voiceCallBtn.disabled = false;
+      setCallState('failed', { error: e && e.message ? e.message : 'Preflight-Check fehlgeschlagen.' });
       return;
     }
     if (!E164_RE.test(prospectNumber)) {
-      setVoiceStatus('Ungültiges Format — bitte E.164 verwenden (z. B. +49…).');
-      els.voiceCallBtn.disabled = false;
+      setCallState('failed', { error: 'Ungültiges Format — bitte E.164 verwenden (z. B. +49…).' });
       return;
     }
 
     try {
-      var device = await ensureVoiceDevice();
-      setVoiceStatus('Verbinde …');
-      var call = await device.connect({ params: { To: prospectNumber, replica_call_id: String(currentCallId) } });
-      call.on('ringing', function () { setVoiceStatus('Klingelt …'); });
-      call.on('accept', function () { setVoiceStatus('Im Gespräch.'); });
-      call.on('disconnect', function () { setVoiceStatus('Beendet.'); els.voiceCallBtn.disabled = false; });
-      call.on('cancel', function () { setVoiceStatus('Abgebrochen.'); els.voiceCallBtn.disabled = false; });
-      call.on('reject', function () { setVoiceStatus('Abgelehnt.'); els.voiceCallBtn.disabled = false; });
+      var tokenBody = await fetchVoiceAccessToken(bearer);
+      var device = await ensureVoiceDevice(tokenBody);
+      // item 7/8: `replica_voice_ticket`, never a raw call_id — see
+      // fetchVoiceAccessToken()'s comment and docs/DECISIONS.md ADR-063.
+      var call = await device.connect({ params: { To: prospectNumber, replica_voice_ticket: tokenBody.voice_ticket } });
+      activeCall = call;
+      // item 2: every state transition below comes from a real Twilio Call
+      // SDK event — never assumed/set optimistically from this code's own
+      // control flow.
+      call.on('ringing', function () { setCallState('ringing'); });
+      call.on('accept', function () { setCallState('connected'); });
+      call.on('disconnect', function () { onCallEnded('ended'); });
+      call.on('cancel', function () { onCallEnded('ended'); });
+      call.on('reject', function () { onCallEnded('ended'); });
       call.on('error', function (err) {
-        setVoiceStatus('Fehler: ' + (err && err.message ? err.message : 'unbekannt'));
-        els.voiceCallBtn.disabled = false;
+        onCallEnded('failed', { error: err && err.message ? err.message : 'unbekannt' });
       });
     } catch (e) {
-      setVoiceStatus(e && e.message ? e.message : 'Testcall konnte nicht gestartet werden.');
-      els.voiceCallBtn.disabled = false;
+      activeCall = null;
+      setCallState('failed', { error: e && e.message ? e.message : 'Testcall konnte nicht gestartet werden.' });
     }
     // prospectNumber deliberately never appears in any log/console statement above.
+  }
+
+  els.voiceCallBtn.addEventListener('click', startVoiceTestCall);
+  // item 1: Enter in the number field must not bypass the same guard/button —
+  // routed through the identical handler rather than a second, parallel
+  // "start a call" code path that could drift out of sync with it.
+  els.prospectNumber.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      startVoiceTestCall();
+    }
   });
 })();
 </script>

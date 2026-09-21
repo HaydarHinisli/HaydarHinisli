@@ -9,21 +9,32 @@ Wire format (documented assumption, see docs/PROVIDER_REFERENCES.md — this
 environment cannot make a live connection to a real Twilio account to confirm
 current wire behavior, so this MUST be confirmed against a real Media Stream before
 pilot go-live): `connected`/`start`/`media`/`mark`/`stop` JSON messages;
-`sequenceNumber` increments per message across the whole connection; `media.track` is
-`inbound` (audio FROM the far end of the call — the prospect, for REPLICA's outbound
-cold-calling use case) or `outbound` (audio Twilio sends TO the far end — the seller's
-or the AI agent's voice); `media.chunk` increments per message WITHIN a track,
-starting at 1; `media.timestamp` is milliseconds since the stream started. All three
-numeric fields arrive as JSON strings in Twilio's actual payloads, not numbers —
-parsed defensively here (a malformed value is a diagnostic anomaly, not a crash).
+`sequenceNumber` increments per message across the whole connection; `media.chunk`
+increments per message WITHIN a track, starting at 1; `media.timestamp` is
+milliseconds since the stream started. All three numeric fields arrive as JSON
+strings in Twilio's actual payloads, not numbers — parsed defensively here (a
+malformed value is a diagnostic anomaly, not a crash).
+
+Correction (docs/DECISIONS.md ADR-063, red-team item 9): `media.track` values
+`inbound`/`outbound` are deliberately left undocumented here as anything more than
+opaque transport-layer labels — an earlier version of this comment asserted a
+fixed inbound=prospect/outbound=seller identity, which was already WRONG for
+REPLICA's own confirmed topology even before this correction (ADR-053 established
+the opposite: inbound=seller/outbound=prospect for the outbound-sales-flow) and,
+more importantly, is exactly the kind of second, uncoordinated place a track->role
+assumption could silently drift out of sync with the real mapping. There is
+exactly ONE place that mapping is defined: `app/streaming/speaker_mapping.py`'s
+`SpeakerRoleResolver` — see that module's docstring for what these two track names
+actually mean for REPLICA's supported call topology, and never infer a role from
+the track name anywhere else, including here.
 """
 from __future__ import annotations
 import base64
 import time
 from dataclasses import dataclass, field
 
-INBOUND = 'inbound'   # far end of the call (the prospect)
-OUTBOUND = 'outbound'  # what Twilio sends to the far end (the seller / AI agent)
+INBOUND = 'inbound'    # Twilio transport label only — see module docstring correction (ADR-063)
+OUTBOUND = 'outbound'  # Twilio transport label only — see module docstring correction (ADR-063)
 TRACKS = (INBOUND, OUTBOUND)
 
 

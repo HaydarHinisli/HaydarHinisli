@@ -221,12 +221,18 @@ def test_prospect_number_field_is_never_prefilled_or_persisted():
 
 
 def test_prospect_number_is_cleared_immediately_after_reading_and_never_logged():
+    """ADR-063: the guarded-start function (startVoiceTestCall) is now the ONLY
+    path that can ever place a real call — its double-start guard is deliberately
+    the very first statement, ahead of even reading the prospect number, but the
+    number must still be cleared from the field before any further check/await."""
     html = _read()
-    click_handler_start = html.index("els.voiceCallBtn.addEventListener('click'")
-    click_handler_end = html.index('\n  });', click_handler_start)
-    handler_body = html[click_handler_start:click_handler_end]
+    handler_start = html.index('async function startVoiceTestCall()')
+    handler_end = html.index('\n  }\n\n  els.voiceCallBtn.addEventListener', handler_start)
+    handler_body = html[handler_start:handler_end]
+    guard_idx = handler_body.index("callState !== 'ready'")
     read_idx = handler_body.index('els.prospectNumber.value.trim()')
     clear_idx = handler_body.index("els.prospectNumber.value = ''")
+    assert guard_idx < read_idx, 'the double-start guard must run before the prospect number is ever read'
     assert read_idx < clear_idx, 'prospect number must be cleared from the field right after reading it'
     for forbidden in ('console.log', 'console.info', 'console.warn', 'console.debug'):
         assert forbidden not in handler_body
@@ -238,9 +244,15 @@ def test_voice_call_validates_e164_before_connecting():
     assert 'E164_RE.test(prospectNumber)' in html
 
 
-def test_device_connect_sends_replica_call_id_as_custom_parameter():
+def test_device_connect_sends_replica_voice_ticket_never_a_raw_call_id():
+    """ADR-063 (item 7/8): a raw call_id must never travel from the browser to
+    the voice-outbound webhook — only the short-lived, server-verified ticket
+    minted by /api/voice/access-token, which the webhook alone decodes to learn
+    the real (tenant-checked) call_id. See tests/test_voice_outbound.py for the
+    server-side enforcement this frontend contract depends on."""
     html = _read()
-    assert "params: { To: prospectNumber, replica_call_id: String(currentCallId) }" in html
+    assert 'params: { To: prospectNumber, replica_voice_ticket: tokenBody.voice_ticket }' in html
+    assert 'replica_call_id: String(currentCallId)' not in html
 
 
 def test_voice_test_ui_lives_inside_the_debug_view_not_the_main_seller_view():
@@ -260,7 +272,165 @@ def test_device_edge_comes_from_the_server_response_not_hardcoded():
     pinned to everywhere else — must be passed explicitly, sourced from the
     /api/voice/access-token response rather than a second hardcoded copy."""
     html = _read()
-    assert 'new Twilio.Device(body.token, { edge: body.edge })' in html
+    assert 'new Twilio.Device(tokenBody.token, { edge: tokenBody.edge })' in html
     # Regression guard: no hardcoded edge string literal anywhere (e.g. a
     # stray "edge: 'dublin'" that would silently drift from TWILIO_EDGE).
     assert not re.search(r"edge:\s*'[a-z-]+'", html)
+
+
+# --- ADR-063 (red-team hardening) --------------------------------------------------
+
+def _start_voice_test_call_body(html: str) -> str:
+    start = html.index('async function startVoiceTestCall()')
+    end = html.index('\n  }\n\n  els.voiceCallBtn.addEventListener', start)
+    return html[start:end]
+
+
+def test_item1_double_start_guard_is_the_very_first_statement():
+    """The double-start/double-call guard must run before ANYTHING else in the
+    one function that can ever place a real call — including before the
+    prospect number is read, before the preflight check, before any await —
+    so neither a second click nor Enter-while-a-call-is-in-flight can ever
+    reach past it, no matter how fast."""
+    html = _read()
+    body = _start_voice_test_call_body(html)
+    first_line = body.strip().splitlines()[0]
+    assert first_line == 'async function startVoiceTestCall() {'
+    second_line = body.strip().splitlines()[1].strip()
+    guard = "if (callState !== 'ready' && callState !== 'ended' && callState !== 'failed') return;"
+    assert second_line == guard, 'the double-start guard must be the first statement in startVoiceTestCall()'
+
+
+def test_item1_click_and_enter_key_both_invoke_the_same_single_start_function():
+    """No second, parallel "start a call" code path may exist — both the
+    button's click and Enter-in-the-number-field must route through the exact
+    same guarded function, so they can never drift out of sync with each
+    other (e.g. one gaining a new check the other doesn't)."""
+    html = _read()
+    assert "els.voiceCallBtn.addEventListener('click', startVoiceTestCall);" in html
+    keydown_start = html.index("els.prospectNumber.addEventListener('keydown'")
+    keydown_end = html.index('});', keydown_start)
+    keydown_body = html[keydown_start:keydown_end]
+    assert 'startVoiceTestCall();' in keydown_body
+    # Regression guard: no second inline call-starting implementation.
+    assert html.count('async function startVoiceTestCall()') == 1
+
+
+def test_item1_call_button_is_disabled_for_the_whole_in_flight_duration():
+    """Belt-and-suspenders alongside the guard above: the button itself must
+    stay disabled (so a disabled button never even dispatches a click event)
+    for exactly connecting/ringing/connected/ending, and re-enabled only for
+    ready/ended/failed."""
+    html = _read()
+    render_start = html.index('function renderVoiceStatus()')
+    render_end = html.index('\n  }\n\n  function setVoiceStatusText', render_start)
+    body = html[render_start:render_end]
+    assert "callState === 'ready' || callState === 'ended' || callState === 'failed'" in body
+    assert 'els.voiceCallBtn.disabled = !canStartNewCall;' in body
+
+
+def test_item2_call_state_is_only_ever_assigned_inside_its_one_setter():
+    """docs/DECISIONS.md ADR-063 item 2: the call state must come from the
+    real Twilio Device/Call SDK events, never be assumed/optimistically set —
+    enforced structurally here by requiring `callState = ` to appear exactly
+    once in the whole file, inside setCallState() itself; every other update
+    must go through that one function."""
+    html = _read()
+    # Excludes the one-time `var callState = 'ready';` initial declaration —
+    # every TRANSITION after that must go through setCallState().
+    assignment_lines = [
+        line for line in html.splitlines()
+        if re.search(r'(?<!\w)callState = ', line) and 'var callState' not in line
+    ]
+    assert len(assignment_lines) == 1, f'callState must be assigned in exactly one place (setCallState), found: {assignment_lines}'
+    setter_start = html.index('function setCallState(state, opts)')
+    setter_end = html.index('\n  }\n\n  function setAnalysisState', setter_start)
+    assert 'callState = state;' in html[setter_start:setter_end]
+
+
+def test_item2_every_real_call_state_transition_comes_from_a_twilio_sdk_event():
+    """Each of the seven required call states (Ready/Connecting/Ringing/
+    Connected/Ending/Ended/Failed) must be reachable, and the four terminal/
+    live ones (ringing/connected/ended/failed) only via a real call.on(...)
+    handler — never a bare timeout or a guess."""
+    html = _read()
+    for state in ('ready', 'connecting', 'ringing', 'connected', 'ending', 'ended', 'failed'):
+        assert f"{state}:" in html, f'missing call-state label for {state!r}'
+    body = _start_voice_test_call_body(html)
+    assert "call.on('ringing', function () { setCallState('ringing'); });" in body
+    assert "call.on('accept', function () { setCallState('connected'); });" in body
+    assert "call.on('disconnect', function () { onCallEnded('ended'); });" in body
+    assert "call.on('cancel', function () { onCallEnded('ended'); });" in body
+    assert "call.on('reject', function () { onCallEnded('ended'); });" in body
+    assert "onCallEnded('failed'" in body
+
+
+def test_item3_analysis_state_is_independent_of_call_state_and_combined_only_when_connected():
+    """docs/DECISIONS.md ADR-063 item 3: a connected phone call must never be
+    displayed as if it proves REPLICA's own analysis pipeline is working —
+    the analysis label is only ever shown ALONGSIDE (never instead of) "Call
+    verbunden", and analysisState is driven exclusively by server
+    pipeline_status pushes, never inferred from callState anywhere."""
+    html = _read()
+    assert "} else if (msg.type === 'pipeline_status') {" in html
+    assert 'setAnalysisState(msg.status, msg.detail);' in html
+    render_start = html.index('function renderVoiceStatus()')
+    render_end = html.index('\n  }\n\n  function setVoiceStatusText', render_start)
+    body = html[render_start:render_end]
+    assert "callState === 'connected' || callState === 'ending'" in body
+    assert "'Call verbunden – ' + analysisLabel()" in body
+    # setAnalysisState() is reset to 'waiting' once, at the very start of a new
+    # call attempt (a fresh baseline for THIS call, not call-state driving
+    # analysis progress) — but no call.on(...) event handler may call it with
+    # anything else; only real pipeline_status pushes may report progress.
+    call_handler_body = _start_voice_test_call_body(html)
+    assert call_handler_body.count('setAnalysisState') == 1
+    assert "setAnalysisState('waiting');" in call_handler_body
+
+
+def test_item3_disrupted_detail_labels_match_the_users_own_two_examples():
+    """The user's own two example messages ("Call verbunden – Analyse nicht
+    verfügbar" / "Call verbunden – Deepgram nicht verfügbar") must both be
+    reachable exactly as worded."""
+    html = _read()
+    assert "disrupted: 'Analyse nicht verfügbar'," in html
+    assert "deepgram_unavailable: 'Deepgram nicht verfügbar'," in html
+
+
+def test_item4_a_new_suggestion_clears_staleness_but_stale_push_overrides_reconnect_sync():
+    html = _read()
+    assert "} else if (msg.type === 'suggestion_stale') {" in html
+    assert 'setSuggestionStale(true);' in html
+    assert 'setSuggestionStale(!!payload.stale);' in html  # honors the server's sync-on-reconnect stale flag
+
+
+def test_item5_hangup_button_disconnects_the_real_call_and_never_optimistically_claims_ended():
+    """The Hangup button must request a real disconnect and show 'ending' as
+    honest in-flight feedback, but the actual 'ended' state transition must
+    still only ever come from the real call.on('disconnect') handler (tested
+    above), never be set directly by the hangup click handler itself."""
+    html = _read()
+    hangup_start = html.index("els.voiceHangupBtn.addEventListener('click'")
+    hangup_end = html.index('});', hangup_start)
+    body = html[hangup_start:hangup_end]
+    assert 'activeCall.disconnect();' in body
+    assert "setCallState('ending');" in body
+    assert "setCallState('ended')" not in body  # must come from the real SDK event only
+
+
+def test_item6_every_call_ending_sdk_event_converges_on_the_one_cleanup_function():
+    """No zombie state after any abort path (prospect hangs up, seller hangs
+    up, Twilio reports cancel/reject/error) — disconnect/cancel/reject/error
+    must all funnel through the SAME onCallEnded() helper, which is the one
+    place `activeCall` is cleared, rather than four independent copies that
+    could drift (e.g. one forgetting to null out activeCall, leaving the
+    Hangup button silently pointed at a dead Call object)."""
+    html = _read()
+    onCallEnded_start = html.index('function onCallEnded(state, opts)')
+    onCallEnded_end = html.index('\n  }\n\n  els.voiceHangupBtn', onCallEnded_start)
+    onCallEnded_body = html[onCallEnded_start:onCallEnded_end]
+    assert 'activeCall = null;' in onCallEnded_body
+    body = _start_voice_test_call_body(html)
+    for event_name in ('disconnect', 'cancel', 'reject'):
+        assert f"call.on('{event_name}', function () {{ onCallEnded('ended'); }});" in body
+    assert "onCallEnded('failed'" in body

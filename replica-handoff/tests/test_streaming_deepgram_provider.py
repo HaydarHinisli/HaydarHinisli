@@ -238,6 +238,41 @@ def test_unreachable_server_does_not_raise_it_degrades_gracefully():
     run(scenario())
 
 
+def test_is_connected_reflects_real_connection_state_across_a_drop(monkeypatch):
+    """docs/DECISIONS.md ADR-063 (red-team item 3/4): the ONLY way the pipeline
+    can detect a Deepgram disconnect and surface it to the seller's UI.
+
+    A momentary drop that `_ensure_connected()` immediately reconnects from
+    (the `degrades gracefully` scenario above) is deliberately NOT what this
+    asserts — self-healing within one feed_audio() call is not a seller-
+    visible event. This forces a SUSTAINED failure (the server is gone, every
+    reconnect attempt fails) to prove is_connected() correctly reports False
+    once retries are exhausted, not just once at the very start."""
+    import app.streaming.deepgram_provider as deepgram_module
+    monkeypatch.setattr(deepgram_module, '_RECONNECT_BACKOFFS_S', ())  # no retry delay — keep this test fast
+
+    async def scenario():
+        server = FakeDeepgramServer(drop_after_n_audio_chunks=1)
+        url = await server.start()
+        handle = DeepgramStreamHandle(track='inbound', api_key='fake-key', region='eu', model='nova-3', language='de', _url_override=url)
+        assert handle.is_connected() is False  # nothing connected yet — lazy, on first feed_audio()
+        await handle.feed_audio(b'\xff' * 160, is_speaking=True)
+        assert handle.is_connected() is True
+        await asyncio.sleep(0.1)  # server drops the connection here
+        await server.stop()  # and is now gone entirely — every reconnect attempt below must fail
+        await handle.feed_audio(b'\xff' * 160, is_speaking=True)
+        assert handle.is_connected() is False
+    run(scenario())
+
+
+def test_is_connected_is_always_true_for_the_simulated_provider():
+    """Simulated-provider tests/demos must never see a synthetic "Deepgram
+    nicht verfügbar" — there is no real connection to lose."""
+    from app.streaming.asr import SimulatedASRProvider
+    handle = run(SimulatedASRProvider().start_stream(track='inbound'))
+    assert handle.is_connected() is True
+
+
 def test_provider_factory_builds_handle_with_expected_config():
     provider = DeepgramASRProvider(api_key='k', region='eu', model='nova-3', language='de', keyterms=['Replica'])
     handle = run(provider.start_stream(track='outbound'))

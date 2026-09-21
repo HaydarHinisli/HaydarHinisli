@@ -3,20 +3,70 @@ calling for the first real test without a purchased Twilio number.
 
 Covers the two new endpoints:
 - POST /api/voice/access-token — mints a short-lived Twilio Access Token for
-  the browser's Device (`app.integrations.twilio_rest.create_voice_access_token`).
+  the browser's Device (`app.integrations.twilio_rest.create_voice_access_token`)
+  AND, since ADR-063, a short-lived REPLICA-signed `voice_ticket` binding this
+  Access Token's use to one specific tenant-owned, consent-checked call_id.
 - POST /webhooks/twilio/voice-outbound — the Voice Request URL the browser's
   `device.connect()` call lands on; same signature-verification posture as
-  the existing call-status webhook (docs/DECISIONS.md ADR-029/036).
+  the existing call-status webhook (docs/DECISIONS.md ADR-029/036), plus
+  (ADR-063) verification of that `voice_ticket` as the ONLY source of the
+  call_id this webhook will ever trust — never a raw browser-supplied value.
 """
+from datetime import datetime, timedelta
+
 import jwt as pyjwt
 import pytest
-from conftest import auth_headers, login
+from conftest import DEMO_PASSWORD, auth_headers, login
 from twilio.request_validator import RequestValidator
+
+from app.auth.security import create_voice_call_ticket, hash_password
+from app.db import SessionLocal
+from app.models import Call, Company, Seller, User
 
 TOKEN_PATH = '/api/voice/access-token'
 VOICE_PATH = '/webhooks/twilio/voice-outbound'
 AUTH_TOKEN = 'test-auth-token'
 BASE = 'http://127.0.0.1:8000'
+
+
+def _create_call(client, headers, **overrides):
+    payload = {'seller_id': 1, 'prospect_company': 'Acme', 'prospect_type': 'b2b'}
+    payload.update(overrides)
+    r = client.post('/api/calls', headers=headers, json=payload)
+    assert r.status_code == 200, r.text
+    call_id = r.json()['id']
+    client.post(f'/api/calls/{call_id}/consent', headers=headers, json={'state': 'granted'})
+    return call_id
+
+
+def _make_second_tenant():
+    """Mirrors tests/test_live_suggestions_ws.py's own helper of the same
+    purpose — a real second Company/Seller/User/Call, entirely independent of
+    the demo tenant every other test in this file uses. Unique name/email per
+    call (this file's tests share one session-scoped DB) so multiple tests
+    creating their own "second tenant" never collide on Company.name's unique
+    constraint."""
+    import uuid
+    suffix = uuid.uuid4().hex[:8]
+    db = SessionLocal()
+    try:
+        company = Company(name=f'Rival Voice Corp {suffix}', country_code='DE', network_learning_opt_in=False)
+        db.add(company)
+        db.flush()
+        now = datetime.utcnow()
+        seller = Seller(company_id=company.id, name='Riva', hired_at=now - timedelta(days=10), product_started_at=now - timedelta(days=10))
+        db.add(seller)
+        db.flush()
+        email = f'riva-voice-{suffix}@rival.example'
+        user = User(company_id=company.id, email=email, password_hash=hash_password(DEMO_PASSWORD), role='seller')
+        db.add(user)
+        call = Call(company_id=company.id, seller_id=seller.id, prospect_company='Rival Prospect', jurisdiction_country='DE')
+        db.add(call)
+        db.flush()
+        db.commit()
+        return {'company_id': company.id, 'call_id': call.id, 'email': email}
+    finally:
+        db.close()
 
 
 @pytest.fixture(autouse=True)
@@ -49,23 +99,65 @@ def _configure_voice_settings(monkeypatch, *, account_sid='ACtest', api_key_sid=
 
 
 # --- /api/voice/access-token ---------------------------------------------------------
+#
+# ADR-063: call_id is now a required query param, tenant-checked and
+# consent/policy-checked before anything is minted — every test below that
+# expects success first creates a real, consented call via _create_call().
 
 def test_access_token_requires_auth(client):
-    r = client.post(TOKEN_PATH)
+    r = client.post(TOKEN_PATH, params={'call_id': 1})
     assert r.status_code == 401
+
+
+def test_access_token_requires_call_id_query_param(client, monkeypatch):
+    _configure_voice_settings(monkeypatch)
+    headers = auth_headers(client, 'haydar@replica-pilot.example')
+    r = client.post(TOKEN_PATH, headers=headers)
+    assert r.status_code == 422
+
+
+def test_access_token_404s_for_a_nonexistent_call(client, monkeypatch):
+    _configure_voice_settings(monkeypatch)
+    headers = auth_headers(client, 'haydar@replica-pilot.example')
+    r = client.post(TOKEN_PATH, headers=headers, params={'call_id': 99999999})
+    assert r.status_code == 404
+
+
+def test_access_token_404s_for_a_cross_tenant_call(client, monkeypatch):
+    """Item 7/8: a real call_id, just not this tenant's — must be
+    indistinguishable from a nonexistent one, matching _get_call_or_404's
+    posture everywhere else in this codebase."""
+    _configure_voice_settings(monkeypatch)
+    other = _make_second_tenant()
+    headers = auth_headers(client, 'haydar@replica-pilot.example')
+    r = client.post(TOKEN_PATH, headers=headers, params={'call_id': other['call_id']})
+    assert r.status_code == 404
+
+
+def test_access_token_403s_when_consent_has_not_been_granted(client, monkeypatch):
+    """Item 7: a real, own-tenant call is not enough by itself — live-assist
+    processing must actually be permitted for it right now."""
+    _configure_voice_settings(monkeypatch)
+    headers = auth_headers(client, 'haydar@replica-pilot.example')
+    r = client.post('/api/calls', headers=headers, json={'seller_id': 1, 'prospect_company': 'Acme', 'prospect_type': 'b2b'})
+    call_id = r.json()['id']  # deliberately never granting consent
+    r = client.post(TOKEN_PATH, headers=headers, params={'call_id': call_id})
+    assert r.status_code == 403
 
 
 def test_access_token_fails_closed_when_not_configured(client, monkeypatch):
     _configure_voice_settings(monkeypatch, api_key_sid='', api_key_secret='', twiml_app_sid='')
     headers = auth_headers(client, 'haydar@replica-pilot.example')
-    r = client.post(TOKEN_PATH, headers=headers)
+    call_id = _create_call(client, headers)
+    r = client.post(TOKEN_PATH, headers=headers, params={'call_id': call_id})
     assert r.status_code == 500
 
 
 def test_access_token_returns_a_valid_voice_grant_jwt(client, monkeypatch):
     _configure_voice_settings(monkeypatch)
     headers = auth_headers(client, 'haydar@replica-pilot.example')
-    r = client.post(TOKEN_PATH, headers=headers)
+    call_id = _create_call(client, headers)
+    r = client.post(TOKEN_PATH, headers=headers, params={'call_id': call_id})
     assert r.status_code == 200, r.text
     body = r.json()
     assert body['identity'].startswith('user-')
@@ -84,7 +176,8 @@ def test_access_token_sets_the_twr_region_header_and_response_edge(client, monke
     constructor option) so it must come back in the response body instead."""
     _configure_voice_settings(monkeypatch, region='ie1', edge='dublin')
     headers = auth_headers(client, 'haydar@replica-pilot.example')
-    r = client.post(TOKEN_PATH, headers=headers)
+    call_id = _create_call(client, headers)
+    r = client.post(TOKEN_PATH, headers=headers, params={'call_id': call_id})
     assert r.status_code == 200, r.text
     body = r.json()
     assert body['region'] == 'ie1'
@@ -99,11 +192,12 @@ def test_access_token_fails_closed_without_region_or_edge_configured(client, mon
     would silently defeat that same guarantee for the browser-calling path."""
     _configure_voice_settings(monkeypatch, region='')
     headers = auth_headers(client, 'haydar@replica-pilot.example')
-    r = client.post(TOKEN_PATH, headers=headers)
+    call_id = _create_call(client, headers)
+    r = client.post(TOKEN_PATH, headers=headers, params={'call_id': call_id})
     assert r.status_code == 500
 
     _configure_voice_settings(monkeypatch, edge='')
-    r = client.post(TOKEN_PATH, headers=headers)
+    r = client.post(TOKEN_PATH, headers=headers, params={'call_id': call_id})
     assert r.status_code == 500
 
 
@@ -111,12 +205,50 @@ def test_access_token_identity_is_scoped_to_the_calling_user(client, monkeypatch
     _configure_voice_settings(monkeypatch)
     headers_a = auth_headers(client, 'haydar@replica-pilot.example')
     headers_b = auth_headers(client, 'mara@replica-pilot.example')
-    identity_a = client.post(TOKEN_PATH, headers=headers_a).json()['identity']
-    identity_b = client.post(TOKEN_PATH, headers=headers_b).json()['identity']
+    call_id = _create_call(client, headers_a)  # same tenant — either seller/manager may fetch a token for it
+    identity_a = client.post(TOKEN_PATH, headers=headers_a, params={'call_id': call_id}).json()['identity']
+    identity_b = client.post(TOKEN_PATH, headers=headers_b, params={'call_id': call_id}).json()['identity']
     assert identity_a != identity_b
 
 
+def test_access_token_voice_ticket_is_call_tenant_and_user_bound(client, monkeypatch):
+    """ADR-063 item 7/8: the ticket — not a raw call_id — is what the browser
+    passes to device.connect(), and what /webhooks/twilio/voice-outbound
+    actually trusts. Its claims must exactly match what was authorized."""
+    _configure_voice_settings(monkeypatch)
+    headers = auth_headers(client, 'haydar@replica-pilot.example')
+    call_id = _create_call(client, headers)
+    r = client.post(TOKEN_PATH, headers=headers, params={'call_id': call_id})
+    body = r.json()
+    assert 'voice_ticket' in body
+    assert body['voice_ticket'] != body['token']  # never the same artifact as the Twilio Access Token
+    ticket_payload = pyjwt.decode(body['voice_ticket'], 'test-only-secret-not-for-production', algorithms=['HS256'])
+    assert ticket_payload['purpose'] == 'voice_call_ticket'
+    assert ticket_payload['call_id'] == call_id
+    assert ticket_payload['company_id'] == 1  # demo tenant's company_id
+    assert body['voice_ticket_ttl_seconds'] <= 600  # short-lived by design, distinct from the 1h Twilio token TTL
+
+
+def test_access_token_voice_ticket_cannot_be_forged_with_a_different_secret(client, monkeypatch):
+    _configure_voice_settings(monkeypatch)
+    headers = auth_headers(client, 'haydar@replica-pilot.example')
+    call_id = _create_call(client, headers)
+    forged = pyjwt.encode(
+        {'purpose': 'voice_call_ticket', 'call_id': call_id, 'company_id': 1, 'user_id': 1},
+        'not-the-real-replica-jwt-secret', algorithm='HS256',
+    )
+    with pytest.raises(pyjwt.InvalidTokenError):
+        pyjwt.decode(forged, 'test-only-secret-not-for-production', algorithms=['HS256'])
+
+
 # --- /webhooks/twilio/voice-outbound --------------------------------------------------
+#
+# ADR-063 (item 8): this webhook no longer accepts a raw `replica_call_id` from
+# the browser at all — only `replica_voice_ticket`, decoded and verified
+# server-side. `_ticket()` below mints one directly (bypassing the HTTP
+# endpoint, for speed/precision in most tests); at least one test below still
+# goes through the real /api/voice/access-token endpoint end-to-end into this
+# webhook, proving the full real flow, not just the two halves in isolation.
 
 def _sig(url, params, token=AUTH_TOKEN):
     return RequestValidator(token).compute_signature(url, params)
@@ -129,16 +261,20 @@ def _configure_webhook_settings(monkeypatch, *, auth_token=AUTH_TOKEN, base_url=
     monkeypatch.setattr(main_module.settings, 'twilio_verified_caller_id', caller_id)
 
 
+def _ticket(*, call_id, company_id=1, user_id=1, ttl_seconds=300):
+    return create_voice_call_ticket(call_id=call_id, company_id=company_id, user_id=user_id, ttl_seconds=ttl_seconds)['ticket']
+
+
 def test_voice_outbound_rejects_missing_signature(client, monkeypatch):
     _configure_webhook_settings(monkeypatch)
-    r = client.post(VOICE_PATH, data={'To': '+49170123456', 'replica_call_id': '1'})
+    r = client.post(VOICE_PATH, data={'To': '+49170123456', 'replica_voice_ticket': 'irrelevant-signature-checked-first'})
     assert r.status_code == 403
 
 
 def test_voice_outbound_rejects_wrong_signature(client, monkeypatch):
     _configure_webhook_settings(monkeypatch)
     r = client.post(
-        VOICE_PATH, data={'To': '+49170123456', 'replica_call_id': '1'},
+        VOICE_PATH, data={'To': '+49170123456', 'replica_voice_ticket': 'irrelevant-signature-checked-first'},
         headers={'X-Twilio-Signature': 'totally-wrong=='},
     )
     assert r.status_code == 403
@@ -146,7 +282,9 @@ def test_voice_outbound_rejects_wrong_signature(client, monkeypatch):
 
 def test_voice_outbound_accepts_valid_signature_and_returns_correct_twiml(client, monkeypatch):
     _configure_webhook_settings(monkeypatch)
-    params = {'To': '+49170123456', 'replica_call_id': '42'}
+    headers = auth_headers(client, 'haydar@replica-pilot.example')
+    call_id = _create_call(client, headers)
+    params = {'To': '+49170123456', 'replica_voice_ticket': _ticket(call_id=call_id)}
     sig = _sig(BASE + VOICE_PATH, params)
     r = client.post(VOICE_PATH, data=params, headers={'X-Twilio-Signature': sig})
     assert r.status_code == 200, r.text
@@ -155,16 +293,35 @@ def test_voice_outbound_accepts_valid_signature_and_returns_correct_twiml(client
     # Stream must come before Dial (Media Stream running before anything is dialed).
     assert body.index('<Start>') < body.index('<Dial')
     assert 'track="both_tracks"' in body
-    assert '<Parameter name="replica_call_id" value="42" />' in body
+    assert f'<Parameter name="replica_call_id" value="{call_id}" />' in body
     assert 'callerId="+491700000000"' in body
     assert '<Number>+49170123456</Number>' in body
     assert '/ws/twilio-media' in body
 
 
+def test_voice_outbound_full_real_flow_through_the_actual_access_token_endpoint(client, monkeypatch):
+    """Not just the two halves tested in isolation elsewhere in this file — the
+    REAL /api/voice/access-token response's voice_ticket, fed into the REAL
+    webhook, exactly as app/static/live.html's device.connect() call does."""
+    _configure_voice_settings(monkeypatch)
+    _configure_webhook_settings(monkeypatch)
+    headers = auth_headers(client, 'haydar@replica-pilot.example')
+    call_id = _create_call(client, headers)
+    token_resp = client.post(TOKEN_PATH, headers=headers, params={'call_id': call_id})
+    assert token_resp.status_code == 200, token_resp.text
+    voice_ticket = token_resp.json()['voice_ticket']
+
+    params = {'To': '+49170123456', 'replica_voice_ticket': voice_ticket}
+    sig = _sig(BASE + VOICE_PATH, params)
+    r = client.post(VOICE_PATH, data=params, headers={'X-Twilio-Signature': sig})
+    assert r.status_code == 200, r.text
+    assert f'<Parameter name="replica_call_id" value="{call_id}" />' in r.text
+
+
 def test_voice_outbound_rejects_malformed_to_and_never_logs_it(client, monkeypatch, caplog):
     import logging
     _configure_webhook_settings(monkeypatch)
-    params = {'To': 'not-a-real-phone-number', 'replica_call_id': '42'}
+    params = {'To': 'not-a-real-phone-number', 'replica_voice_ticket': _ticket(call_id=1)}
     sig = _sig(BASE + VOICE_PATH, params)
     with caplog.at_level(logging.WARNING, logger='replica.webhooks'):
         r = client.post(VOICE_PATH, data=params, headers={'X-Twilio-Signature': sig})
@@ -172,33 +329,132 @@ def test_voice_outbound_rejects_malformed_to_and_never_logs_it(client, monkeypat
     assert 'not-a-real-phone-number' not in caplog.text
 
 
-def test_voice_outbound_requires_replica_call_id(client, monkeypatch):
+def test_voice_outbound_requires_replica_voice_ticket(client, monkeypatch):
     _configure_webhook_settings(monkeypatch)
-    params = {'To': '+49170123456', 'replica_call_id': ''}
+    params = {'To': '+49170123456', 'replica_voice_ticket': ''}
     sig = _sig(BASE + VOICE_PATH, params)
     r = client.post(VOICE_PATH, data=params, headers={'X-Twilio-Signature': sig})
     assert r.status_code == 400
 
 
+def test_voice_outbound_rejects_a_ticket_signed_with_the_wrong_secret(client, monkeypatch):
+    """Item 8: proves a browser cannot forge its own ticket — it does not, and
+    cannot obtain, REPLICA_JWT_SECRET."""
+    _configure_webhook_settings(monkeypatch)
+    forged = pyjwt.encode(
+        {'purpose': 'voice_call_ticket', 'call_id': 1, 'company_id': 1, 'user_id': 1},
+        'attacker-guessed-wrong-secret', algorithm='HS256',
+    )
+    params = {'To': '+49170123456', 'replica_voice_ticket': forged}
+    sig = _sig(BASE + VOICE_PATH, params)
+    r = client.post(VOICE_PATH, data=params, headers={'X-Twilio-Signature': sig})
+    assert r.status_code == 403
+
+
+def test_voice_outbound_rejects_an_expired_ticket(client, monkeypatch):
+    _configure_webhook_settings(monkeypatch)
+    expired = _ticket(call_id=1, ttl_seconds=-1)
+    params = {'To': '+49170123456', 'replica_voice_ticket': expired}
+    sig = _sig(BASE + VOICE_PATH, params)
+    r = client.post(VOICE_PATH, data=params, headers={'X-Twilio-Signature': sig})
+    assert r.status_code == 403
+
+
+def test_voice_outbound_rejects_a_ticket_whose_purpose_claim_is_not_voice_call_ticket(client, monkeypatch):
+    """A login session token (create_access_token()) must never be usable
+    here even if somehow supplied — distinct purpose claims, distinct trust
+    boundaries."""
+    from app.auth.security import create_access_token
+    _configure_webhook_settings(monkeypatch)
+    login_token = create_access_token(user_id=1, company_id=1, role='seller')
+    params = {'To': '+49170123456', 'replica_voice_ticket': login_token}
+    sig = _sig(BASE + VOICE_PATH, params)
+    r = client.post(VOICE_PATH, data=params, headers={'X-Twilio-Signature': sig})
+    assert r.status_code == 403
+
+
+def test_voice_outbound_rejects_ticket_whose_company_id_does_not_match_the_real_calls(client, monkeypatch):
+    """A ticket's call_id/company_id pair is only ever produced by
+    /api/voice/access-token from a real, already-tenant-checked call — this
+    proves the webhook re-verifies rather than trusting the pairing blindly
+    (defense in depth against, e.g., a ticket somehow minted for a stale/
+    reassigned call)."""
+    _configure_webhook_settings(monkeypatch)
+    headers = auth_headers(client, 'haydar@replica-pilot.example')
+    call_id = _create_call(client, headers)  # real call, but belongs to company_id=1
+    mismatched = _ticket(call_id=call_id, company_id=999999)
+    params = {'To': '+49170123456', 'replica_voice_ticket': mismatched}
+    sig = _sig(BASE + VOICE_PATH, params)
+    r = client.post(VOICE_PATH, data=params, headers={'X-Twilio-Signature': sig})
+    assert r.status_code == 403
+
+
+def test_voice_outbound_rejects_ticket_when_consent_has_been_withdrawn_since_minting(client, monkeypatch):
+    """Item 7/8's defense-in-depth: even a genuinely, correctly-issued ticket
+    is re-checked against the CURRENT call/consent state, not just trusted
+    because it was valid the moment it was minted."""
+    _configure_webhook_settings(monkeypatch)
+    headers = auth_headers(client, 'haydar@replica-pilot.example')
+    call_id = _create_call(client, headers)
+    ticket = _ticket(call_id=call_id)
+    client.post(f'/api/calls/{call_id}/consent', headers=headers, json={'state': 'withdrawn'})
+    params = {'To': '+49170123456', 'replica_voice_ticket': ticket}
+    sig = _sig(BASE + VOICE_PATH, params)
+    r = client.post(VOICE_PATH, data=params, headers={'X-Twilio-Signature': sig})
+    assert r.status_code == 403
+
+
+def test_voice_outbound_ignores_a_raw_replica_call_id_and_trusts_only_the_ticket(client, monkeypatch):
+    """THE core cross-tenant-manipulation regression test (item 8): simulates a
+    compromised/malicious browser that holds a legitimately-issued ticket for
+    ITS OWN call, but additionally sends a raw `replica_call_id` pointing at a
+    COMPLETELY DIFFERENT tenant's call — proving the webhook never reads that
+    raw value for anything; the resulting TwiML (and therefore the Media
+    Stream this call will bind to) is always and only the ticket's own,
+    already-verified call_id."""
+    _configure_webhook_settings(monkeypatch)
+    headers = auth_headers(client, 'haydar@replica-pilot.example')
+    own_call_id = _create_call(client, headers)
+    other = _make_second_tenant()  # a call belonging to an entirely different company
+    own_ticket = _ticket(call_id=own_call_id, company_id=1)
+
+    params = {
+        'To': '+49170123456', 'replica_voice_ticket': own_ticket,
+        'replica_call_id': str(other['call_id']),  # attacker-controlled, must be ignored entirely
+    }
+    sig = _sig(BASE + VOICE_PATH, params)
+    r = client.post(VOICE_PATH, data=params, headers={'X-Twilio-Signature': sig})
+
+    assert r.status_code == 200, r.text
+    assert f'<Parameter name="replica_call_id" value="{own_call_id}" />' in r.text
+    assert f'value="{other["call_id"]}"' not in r.text
+
+
 def test_voice_outbound_fails_closed_without_verified_caller_id_configured(client, monkeypatch):
     _configure_webhook_settings(monkeypatch, caller_id=None)
-    params = {'To': '+49170123456', 'replica_call_id': '42'}
+    headers = auth_headers(client, 'haydar@replica-pilot.example')
+    call_id = _create_call(client, headers)
+    params = {'To': '+49170123456', 'replica_voice_ticket': _ticket(call_id=call_id)}
     sig = _sig(BASE + VOICE_PATH, params)
     r = client.post(VOICE_PATH, data=params, headers={'X-Twilio-Signature': sig})
     assert r.status_code == 500
 
 
-def test_voice_outbound_xml_escapes_replica_call_id_in_the_actual_response(client, monkeypatch):
-    # replica_call_id always comes from the browser's own JS (String(currentCallId),
-    # a numeric DB id) rather than free text, but the embedding still must not
-    # break — or inject markup — if it ever contained XML-special characters.
-    _configure_webhook_settings(monkeypatch)
-    params = {'To': '+49170123456', 'replica_call_id': '42"><Evil/>'}
+def test_voice_outbound_escapes_verified_caller_id_in_the_actual_response(client, monkeypatch):
+    # call_id now always comes from a verified ticket's int claim (never free
+    # text) and `To` is regex-validated E.164 — neither can carry an XML
+    # metacharacter anymore. The one remaining templated value that could
+    # (an operator-misconfigured TWILIO_VERIFIED_CALLER_ID) must still be
+    # escaped, matching the original ADR-060 finding this guards against.
+    _configure_webhook_settings(monkeypatch, caller_id='+4917000"><Evil/>')
+    headers = auth_headers(client, 'haydar@replica-pilot.example')
+    call_id = _create_call(client, headers)
+    params = {'To': '+49170123456', 'replica_voice_ticket': _ticket(call_id=call_id)}
     sig = _sig(BASE + VOICE_PATH, params)
     r = client.post(VOICE_PATH, data=params, headers={'X-Twilio-Signature': sig})
     assert r.status_code == 200, r.text
     assert '<Evil/>' not in r.text
-    assert '42&quot;&gt;&lt;Evil/&gt;' in r.text
+    assert '+4917000&quot;&gt;&lt;Evil/&gt;' in r.text
 
 
 # --- GET /api/voice/preflight (ADR-062) -----------------------------------------------

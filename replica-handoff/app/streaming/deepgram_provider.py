@@ -215,6 +215,14 @@ class DeepgramStreamHandle:
         if self._receiver_task is not None:
             self._receiver_task.cancel()
 
+    def is_connected(self) -> bool:
+        """Red-team hardening (docs/DECISIONS.md ADR-063): the real, current
+        connection state — `_ensure_connected()`/`_receive_loop()` both null out
+        `self._connection` on any disconnect/failure without raising, so this is
+        the ONLY way the pipeline can observe that transition (see
+        ASRStreamHandle.is_connected()'s docstring)."""
+        return self._connection is not None
+
 
 def _now() -> float:
     import time

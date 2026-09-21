@@ -77,6 +77,12 @@ class LiveSuggestionHub:
     """
     _subscribers: dict[int, set[_Subscriber]] = field(default_factory=dict)
     _last_payload: dict[int, dict] = field(default_factory=dict)
+    # Red-team hardening (docs/DECISIONS.md ADR-063, item 3): the pipeline/analysis
+    # state (media stream / ASR / transcript / suggestion-pipeline health), tracked
+    # and resynced on reconnect exactly like `_last_payload` above, but as its OWN
+    # channel — a phone call being connected must never be conflated with REPLICA's
+    # analysis actually working (see app/streaming/pipeline.py's PipelineStatus).
+    _last_status: dict[int, dict] = field(default_factory=dict)
 
     def register(self, *, call_id: int, company_id: int, user_id: int, websocket: WebSocket) -> _Subscriber:
         sub = _Subscriber(websocket=websocket, call_id=call_id, company_id=company_id, user_id=user_id)
@@ -102,6 +108,27 @@ class LiveSuggestionHub:
         "latest wins" once the conversation has moved on."""
         return self._last_payload.get(call_id)
 
+    async def _send(self, *, call_id: int, company_id: int, message: dict) -> dict:
+        """Shared tenant-checked fan-out used by `publish_suggestion()` and the
+        pipeline-status/staleness pushes below — one send path, one place the
+        cross-tenant check lives, rather than three copies that could drift out
+        of sync with each other."""
+        delivered = 0
+        for sub in list(self._subscribers.get(call_id, ())):
+            if sub.company_id != company_id:
+                # Structurally unreachable given how register() is always called
+                # (see class docstring) — kept as an explicit fail-closed check
+                # rather than trusting that invariant silently.
+                logger.error('live push: cross-tenant delivery blocked', extra={'fields': {'call_id': call_id}})
+                continue
+            try:
+                await sub.websocket.send_json(message)
+                delivered += 1
+            except Exception as exc:  # noqa: BLE001 — one dead subscriber must not break the others or the caller
+                logger.warning('live push: send failed, dropping subscriber', extra={'fields': {'call_id': call_id, 'error': str(exc)}})
+                self.unregister(sub)
+        return {'delivered_to': delivered}
+
     async def publish_suggestion(self, *, call_id: int, company_id: int, payload: dict) -> dict:
         """Hands `payload` to every currently-connected subscriber for this
         call_id whose OWN authenticated company_id matches `company_id`. Returns
@@ -115,22 +142,40 @@ class LiveSuggestionHub:
         genuinely was handed to this delivery layer, it simply had no one to
         deliver to at that instant.
         """
-        self._last_payload[call_id] = payload
-        delivered = 0
-        for sub in list(self._subscribers.get(call_id, ())):
-            if sub.company_id != company_id:
-                # Structurally unreachable given how register() is always called
-                # (see class docstring) — kept as an explicit fail-closed check
-                # rather than trusting that invariant silently.
-                logger.error('live push: cross-tenant delivery blocked', extra={'fields': {'call_id': call_id}})
-                continue
-            try:
-                await sub.websocket.send_json({'type': 'suggestion', **payload})
-                delivered += 1
-            except Exception as exc:  # noqa: BLE001 — one dead subscriber must not break the others or the caller
-                logger.warning('live push: send failed, dropping subscriber', extra={'fields': {'call_id': call_id, 'error': str(exc)}})
-                self.unregister(sub)
-        return {'delivered_to': delivered}
+        self._last_payload[call_id] = {**payload, 'stale': False}
+        return await self._send(call_id=call_id, company_id=company_id, message={'type': 'suggestion', **payload})
+
+    async def push_status(self, *, call_id: int, company_id: int, status: str, detail: str | None = None) -> dict:
+        """Red-team hardening (docs/DECISIONS.md ADR-063, item 3): pushes the
+        pipeline/analysis-health state — deliberately a SEPARATE message type
+        from `suggestion`, never conflated with it, so the browser can show "Call
+        verbunden" (from the Twilio Voice SDK's own call state) and "Analyse
+        nicht verfügbar" (from here) as the two genuinely independent facts they
+        are. Remembered per call_id exactly like `_last_payload`, so a
+        reconnecting seller's browser is resynced to the current analysis state,
+        not left showing a stale/default one."""
+        record = {'status': status, 'detail': detail}
+        self._last_status[call_id] = record
+        return await self._send(call_id=call_id, company_id=company_id, message={'type': 'pipeline_status', **record})
+
+    def last_status(self, call_id: int) -> dict | None:
+        return self._last_status.get(call_id)
+
+    async def push_suggestion_stale(self, *, call_id: int, company_id: int, reason: str) -> dict:
+        """Red-team hardening (docs/DECISIONS.md ADR-063, item 4): a runtime
+        failure (Media-Stream/Deepgram disconnect, an untrusted speaker mapping,
+        an unhandled pipeline exception) must never leave the seller's last-shown
+        "Sag jetzt" suggestion looking as current/trustworthy as it did the
+        instant before the failure. This does not retract or delete that
+        suggestion (it may still be exactly right) — it marks it, visibly, as
+        no longer backed by a confirmed-working analysis pipeline. Also updates
+        the remembered last-payload's `stale` flag, so a client that reconnects
+        AFTER this failure is resynced to the correct (stale) state too, not
+        just one that was already connected when it happened."""
+        last = self._last_payload.get(call_id)
+        if last is not None:
+            self._last_payload[call_id] = {**last, 'stale': True}
+        return await self._send(call_id=call_id, company_id=company_id, message={'type': 'suggestion_stale', 'reason': reason})
 
 
 _hub = LiveSuggestionHub()
