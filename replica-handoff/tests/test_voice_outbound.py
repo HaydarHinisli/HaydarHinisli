@@ -265,6 +265,18 @@ def _ticket(*, call_id, company_id=1, user_id=1, ttl_seconds=300):
     return create_voice_call_ticket(call_id=call_id, company_id=company_id, user_id=user_id, ttl_seconds=ttl_seconds)['ticket']
 
 
+# ADR-064: every request that reaches the ticket-replay/concurrency-lock
+# checks now needs a CallSid — a fresh, unique one per test's own call_id
+# keeps ticket_jti/CallSid pairs (and therefore lock acquisitions) from ever
+# needing to be coordinated across tests, since call_id itself is already
+# unique per test (auto-incrementing, shared session-scoped DB).
+_call_sid_counter = iter(range(1, 10_000))
+
+
+def _fresh_call_sid() -> str:
+    return f'CAtest{next(_call_sid_counter):026d}'
+
+
 def test_voice_outbound_rejects_missing_signature(client, monkeypatch):
     _configure_webhook_settings(monkeypatch)
     r = client.post(VOICE_PATH, data={'To': '+49170123456', 'replica_voice_ticket': 'irrelevant-signature-checked-first'})
@@ -284,7 +296,7 @@ def test_voice_outbound_accepts_valid_signature_and_returns_correct_twiml(client
     _configure_webhook_settings(monkeypatch)
     headers = auth_headers(client, 'haydar@replica-pilot.example')
     call_id = _create_call(client, headers)
-    params = {'To': '+49170123456', 'replica_voice_ticket': _ticket(call_id=call_id)}
+    params = {'To': '+49170123456', 'replica_voice_ticket': _ticket(call_id=call_id), 'CallSid': _fresh_call_sid()}
     sig = _sig(BASE + VOICE_PATH, params)
     r = client.post(VOICE_PATH, data=params, headers={'X-Twilio-Signature': sig})
     assert r.status_code == 200, r.text
@@ -311,7 +323,7 @@ def test_voice_outbound_full_real_flow_through_the_actual_access_token_endpoint(
     assert token_resp.status_code == 200, token_resp.text
     voice_ticket = token_resp.json()['voice_ticket']
 
-    params = {'To': '+49170123456', 'replica_voice_ticket': voice_ticket}
+    params = {'To': '+49170123456', 'replica_voice_ticket': voice_ticket, 'CallSid': _fresh_call_sid()}
     sig = _sig(BASE + VOICE_PATH, params)
     r = client.post(VOICE_PATH, data=params, headers={'X-Twilio-Signature': sig})
     assert r.status_code == 200, r.text
@@ -421,6 +433,7 @@ def test_voice_outbound_ignores_a_raw_replica_call_id_and_trusts_only_the_ticket
     params = {
         'To': '+49170123456', 'replica_voice_ticket': own_ticket,
         'replica_call_id': str(other['call_id']),  # attacker-controlled, must be ignored entirely
+        'CallSid': _fresh_call_sid(),
     }
     sig = _sig(BASE + VOICE_PATH, params)
     r = client.post(VOICE_PATH, data=params, headers={'X-Twilio-Signature': sig})
@@ -449,12 +462,133 @@ def test_voice_outbound_escapes_verified_caller_id_in_the_actual_response(client
     _configure_webhook_settings(monkeypatch, caller_id='+4917000"><Evil/>')
     headers = auth_headers(client, 'haydar@replica-pilot.example')
     call_id = _create_call(client, headers)
-    params = {'To': '+49170123456', 'replica_voice_ticket': _ticket(call_id=call_id)}
+    params = {'To': '+49170123456', 'replica_voice_ticket': _ticket(call_id=call_id), 'CallSid': _fresh_call_sid()}
     sig = _sig(BASE + VOICE_PATH, params)
     r = client.post(VOICE_PATH, data=params, headers={'X-Twilio-Signature': sig})
     assert r.status_code == 200, r.text
     assert '<Evil/>' not in r.text
     assert '+4917000&quot;&gt;&lt;Evil/&gt;' in r.text
+
+
+# --- ADR-064 (red-team follow-up): voice-ticket replay/idempotency + per-call concurrency lock ---
+
+def test_voice_ticket_replayed_with_the_same_callsid_is_treated_as_an_idempotent_retry(client, monkeypatch):
+    """Twilio can legitimately retry the exact same voice-webhook request
+    (same CallSid — it hasn't given up on this call-setup attempt) — this
+    must succeed identically both times, never be treated as a suspicious
+    reuse."""
+    _configure_webhook_settings(monkeypatch)
+    headers = auth_headers(client, 'haydar@replica-pilot.example')
+    call_id = _create_call(client, headers)
+    ticket = _ticket(call_id=call_id)
+    call_sid = _fresh_call_sid()
+    params = {'To': '+49170123456', 'replica_voice_ticket': ticket, 'CallSid': call_sid}
+    sig = _sig(BASE + VOICE_PATH, params)
+
+    r1 = client.post(VOICE_PATH, data=params, headers={'X-Twilio-Signature': sig})
+    r2 = client.post(VOICE_PATH, data=params, headers={'X-Twilio-Signature': sig})
+
+    assert r1.status_code == 200, r1.text
+    assert r2.status_code == 200, r2.text
+    assert r1.text == r2.text  # identical, deterministic TwiML both times
+
+
+def test_voice_ticket_reused_for_a_different_callsid_is_rejected(client, monkeypatch):
+    """The actual replay risk (item 1): the SAME ticket used to place a
+    SECOND, independent real call (a different Twilio CallSid) must fail
+    closed — Twilio retrying its own attempt is the only legitimate reuse."""
+    _configure_webhook_settings(monkeypatch)
+    headers = auth_headers(client, 'haydar@replica-pilot.example')
+    call_id = _create_call(client, headers)
+    ticket = _ticket(call_id=call_id)
+    params_1 = {'To': '+49170123456', 'replica_voice_ticket': ticket, 'CallSid': _fresh_call_sid()}
+    sig_1 = _sig(BASE + VOICE_PATH, params_1)
+    r1 = client.post(VOICE_PATH, data=params_1, headers={'X-Twilio-Signature': sig_1})
+    assert r1.status_code == 200, r1.text
+
+    params_2 = {'To': '+49170123457', 'replica_voice_ticket': ticket, 'CallSid': _fresh_call_sid()}
+    sig_2 = _sig(BASE + VOICE_PATH, params_2)
+    r2 = client.post(VOICE_PATH, data=params_2, headers={'X-Twilio-Signature': sig_2})
+    assert r2.status_code == 403
+
+
+def test_voice_outbound_requires_callsid(client, monkeypatch):
+    _configure_webhook_settings(monkeypatch)
+    headers = auth_headers(client, 'haydar@replica-pilot.example')
+    call_id = _create_call(client, headers)
+    params = {'To': '+49170123456', 'replica_voice_ticket': _ticket(call_id=call_id)}  # no CallSid
+    sig = _sig(BASE + VOICE_PATH, params)
+    r = client.post(VOICE_PATH, data=params, headers={'X-Twilio-Signature': sig})
+    assert r.status_code == 400
+
+
+def test_voice_ticket_missing_jti_claim_is_rejected(client, monkeypatch):
+    """Defense in depth: a ticket somehow lacking the jti claim (should never
+    happen — create_voice_call_ticket() always sets one) cannot be safely
+    deduplicated, so it must be rejected rather than silently let through."""
+    _configure_webhook_settings(monkeypatch)
+    headers = auth_headers(client, 'haydar@replica-pilot.example')
+    call_id = _create_call(client, headers)
+    ticket_without_jti = pyjwt.encode(
+        {'purpose': 'voice_call_ticket', 'call_id': call_id, 'company_id': 1, 'user_id': 1},
+        'test-only-secret-not-for-production', algorithm='HS256',
+    )
+    params = {'To': '+49170123456', 'replica_voice_ticket': ticket_without_jti, 'CallSid': _fresh_call_sid()}
+    sig = _sig(BASE + VOICE_PATH, params)
+    r = client.post(VOICE_PATH, data=params, headers={'X-Twilio-Signature': sig})
+    assert r.status_code == 403
+
+
+def test_two_independently_minted_tickets_for_the_same_call_second_is_blocked_while_first_in_progress(client, monkeypatch):
+    """item 2: two DIFFERENT, both individually valid tickets for the SAME
+    call_id (e.g. two browser tabs, or a race on /api/voice/access-token) —
+    the first commits to placing a real call; the second must be refused
+    while that call is still in progress, even though its own ticket is
+    perfectly legitimate and not a replay of the first's."""
+    _configure_voice_settings(monkeypatch)
+    _configure_webhook_settings(monkeypatch)
+    headers = auth_headers(client, 'haydar@replica-pilot.example')
+    call_id = _create_call(client, headers)
+
+    ticket_a = client.post(TOKEN_PATH, headers=headers, params={'call_id': call_id}).json()['voice_ticket']
+    ticket_b = client.post(TOKEN_PATH, headers=headers, params={'call_id': call_id}).json()['voice_ticket']
+    assert ticket_a != ticket_b  # two genuinely independent tickets
+
+    params_a = {'To': '+49170123456', 'replica_voice_ticket': ticket_a, 'CallSid': _fresh_call_sid()}
+    sig_a = _sig(BASE + VOICE_PATH, params_a)
+    r_a = client.post(VOICE_PATH, data=params_a, headers={'X-Twilio-Signature': sig_a})
+    assert r_a.status_code == 200, r_a.text
+
+    params_b = {'To': '+49170123457', 'replica_voice_ticket': ticket_b, 'CallSid': _fresh_call_sid()}
+    sig_b = _sig(BASE + VOICE_PATH, params_b)
+    r_b = client.post(VOICE_PATH, data=params_b, headers={'X-Twilio-Signature': sig_b})
+    assert r_b.status_code == 409
+
+
+def test_a_second_independent_call_attempt_succeeds_once_the_lock_is_released(client, monkeypatch):
+    """Proves the 409 above is a real, temporary, per-call_id lock — not a
+    permanent one-real-call-ever-for-this-call_id restriction — by releasing
+    it directly (mirroring what app/main.py's /ws/twilio-media does on every
+    exit path) and confirming a second call is then accepted."""
+    from app.services.voice_call_guard import get_voice_call_lock
+
+    _configure_webhook_settings(monkeypatch)
+    headers = auth_headers(client, 'haydar@replica-pilot.example')
+    call_id = _create_call(client, headers)
+
+    params_a = {'To': '+49170123456', 'replica_voice_ticket': _ticket(call_id=call_id), 'CallSid': _fresh_call_sid()}
+    sig_a = _sig(BASE + VOICE_PATH, params_a)
+    assert client.post(VOICE_PATH, data=params_a, headers={'X-Twilio-Signature': sig_a}).status_code == 200
+
+    params_b = {'To': '+49170123457', 'replica_voice_ticket': _ticket(call_id=call_id), 'CallSid': _fresh_call_sid()}
+    sig_b = _sig(BASE + VOICE_PATH, params_b)
+    assert client.post(VOICE_PATH, data=params_b, headers={'X-Twilio-Signature': sig_b}).status_code == 409
+
+    get_voice_call_lock().release(call_id=call_id)
+
+    params_c = {'To': '+49170123458', 'replica_voice_ticket': _ticket(call_id=call_id), 'CallSid': _fresh_call_sid()}
+    sig_c = _sig(BASE + VOICE_PATH, params_c)
+    assert client.post(VOICE_PATH, data=params_c, headers={'X-Twilio-Signature': sig_c}).status_code == 200
 
 
 # --- GET /api/voice/preflight (ADR-062) -----------------------------------------------

@@ -91,7 +91,10 @@ def test_full_browser_call_flow_without_a_real_pstn_call(client, media_stream_cl
 
     # --- 2) device.connect() -> POST /webhooks/twilio/voice-outbound -> TwiML --------
     # ADR-063: only the ticket travels from the browser — never a raw call_id.
-    voice_params = {'To': '+491701234567', 'replica_voice_ticket': token_body['voice_ticket']}
+    # ADR-064: CallSid is required (ticket-replay/concurrency-lock check) —
+    # matches StreamSimulator's own default call_sid ('CASIM1') below, exactly
+    # as a real call's webhook CallSid and its Media Stream's callSid agree.
+    voice_params = {'To': '+491701234567', 'replica_voice_ticket': token_body['voice_ticket'], 'CallSid': 'CASIM1'}
     sig = _sig(BASE + VOICE_PATH, voice_params, MEDIA_STREAM_TOKEN)
     voice_resp = client.post(VOICE_PATH, data=voice_params, headers={'X-Twilio-Signature': sig})
     assert voice_resp.status_code == 200, voice_resp.text

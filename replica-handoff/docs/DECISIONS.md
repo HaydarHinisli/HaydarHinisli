@@ -2605,3 +2605,117 @@ existing behavior. Also live-browser-verified (Playwright, fake `Twilio.
 Device`/`Call`, real server, zero console errors) per item 1/2's own
 section above — not just read, exactly this project's standing discipline
 for any UI-behavior claim.
+
+## ADR-064 — Two residual red-team gaps that 357/357 green tests did not cover: voice-ticket replay and cross-ticket concurrent calls for the same call_id
+
+Status: accepted (targeted audit ahead of the first real call — two real
+gaps found and closed, no new product feature)
+
+The operator asked, explicitly, for exactly the kind of check ADR-063's own
+test count couldn't by itself prove: whether the new voice_call_ticket
+mechanism (ADR-063) could be replayed, and whether a manipulated/buggy
+browser could still trigger multiple concurrent real calls server-side even
+with the JS-level double-start guard in place. Both turned out to be real,
+unaddressed gaps in the ADR-063 design — not defended by anything already
+built, and not exercised by any of the 357 passing tests.
+
+**Gap 1 — ticket replay.** `decode_voice_call_ticket()` verifies signature,
+expiry, purpose, and (at the webhook) that the referenced call/tenant/
+consent are still current — but nothing marked a ticket as used. Within its
+5-minute lifetime, the exact same `replica_voice_ticket` value could be
+resent to `POST /webhooks/twilio/voice-outbound` an unlimited number of
+times, each producing valid TwiML. Confirmed this is not hypothetical:
+nothing in `_resolve_call_for_media_stream()` or `MediaStreamPipeline`
+prevents two independently-placed real calls from both attaching a Media
+Stream to the same `call_id` — two concurrent real conversations' audio
+would be interleaved into one call's `Turn`/`Suggestion` records.
+
+The operator's own constraint made the naive fix wrong: Twilio's own
+documented behavior is to retry a voice webhook request if it doesn't get a
+timely response, resending the IDENTICAL request (same params, same
+signature) for the SAME call-setup attempt — "ticket invalid after first
+use" would break that legitimate retry and fail a real call for no reason.
+The fix needed to tell "same attempt, retried" apart from "second,
+independent attempt reusing the ticket" using a fact ticket verification
+alone cannot see: **Twilio's own `CallSid`** — allocated once per real
+call-setup attempt and stable across that attempt's own retries (already an
+established, trusted fact in this codebase — the call-status webhook has
+required and correlated on `CallSid` since ADR-029/054).
+
+**Fix**: `create_voice_call_ticket()` now stamps every minted ticket with a
+`jti` (a fresh UUID, distinct from anything Twilio provides).
+`app/services/voice_call_guard.VoiceTicketLedger.check_and_record(jti,
+call_sid)` (new, small, in-memory — see "what stayed in-memory" below)
+returns `'new'` (first use), `'retry'` (same jti + same CallSid — a
+legitimate Twilio retry, proceed identically) or `'conflict'` (same jti + a
+DIFFERENT CallSid — a second, independent attempt; reject, HTTP 403). The
+webhook now requires `CallSid` (fails closed, 400, if absent — a real
+Twilio request always includes it) and calls this check after every
+existing verification, right before generating TwiML.
+
+**Gap 2 — cross-ticket concurrency.** Even with replay closed, TWO
+DIFFERENT, individually valid tickets for the SAME `call_id` (e.g. two
+browser tabs, or a race on `/api/voice/access-token`) would each pass every
+existing check independently and could both place a real call concurrently
+— the same audio-interleaving risk as Gap 1, just via two legitimate
+tickets instead of one replayed one. The operator explicitly named this as
+the server-side backstop the existing JS double-start guard (ADR-063 item
+1) cannot provide on its own against a manipulated client.
+
+**Fix**: `VoiceCallConcurrencyLock` (same new module) — at most one real
+call in flight per `call_id`. Acquired by the webhook the moment it commits
+to placing a real call (only on a `'new'` ticket-use verdict — a `'retry'`
+already holds it from the original attempt), refused with HTTP 409
+otherwise. Released, unconditionally, in `app/main.py`'s `/ws/twilio-media`
+handler's single `finally` block — covering every real exit path of that
+call's Media Stream (a clean `'stop'`, an unclean disconnect, or a pipeline-
+construction failure with no `pipeline` object ever created) via one
+`resolved_call_id` variable set as soon as the Call is resolved, rather than
+three separate copies of a release call that could drift out of sync. A
+30-minute TTL is a safety net ONLY, for the residual case where neither
+release path ever fires (e.g. TwiML is returned but the call never reaches
+a Media Stream at all) — never the primary mechanism, so one failed attempt
+never requires a server restart to recover from ("sauberer Reset nach
+Ended/Failed", satisfied by the explicit release path, not the TTL).
+
+**Scope deliberately NOT extended, stated plainly rather than silently
+assumed**: no per-user (as opposed to per-call_id) concurrency lock — the
+operator flagged this as "idealerweise", not required, and every REPLICA
+call already belongs to exactly one seller/one test session in the data
+model, so a per-call_id lock already prevents the realistic double-testcall
+scenario without inventing a second, coarser lock with its own edge cases.
+No DB-backed ledger/lock — both new structures are in-memory, single-
+instance-scoped, explicitly matching the same already-documented
+constraint `app/services/live_push.LiveSuggestionHub` states for this
+pilot's deployment shape (docs/DEPLOYMENT.md): this is the manual, one-
+operator real-call test path, not scaled product infrastructure, and adding
+a migration for it would have been exactly the "größerer Refactor" ruled
+out for this pass. No live-UI change — the lock/replay checks happen
+entirely between Twilio and the server (the browser never sees a 409/403
+from this path directly, since Twilio — not the browser — calls the
+webhook), so there was nothing here for `app/static/live.html` to surface
+that ADR-063's existing preflight/call-state/analysis-state UI doesn't
+already cover.
+
+**Regression coverage**: 9 new tests — `tests/test_voice_outbound.py`
+(same-ticket-same-CallSid is idempotent and returns byte-identical TwiML;
+same-ticket-different-CallSid is rejected; missing `CallSid` rejected;
+missing `jti` claim rejected; two independently-minted tickets for the same
+call — first succeeds, second gets 409 while the first is "in progress";
+and, after directly releasing the lock, a third succeeds — proving the 409
+is temporary, not permanent) and a new `tests/test_voice_call_guard.py`
+(three full `/ws/twilio-media`-level tests proving the lock is genuinely
+released by a clean stop, an unclean disconnect, and a pipeline-
+construction failure respectively — not asserted against the lock object
+directly, but by confirming a SECOND real call attempt is accepted
+afterward). Full suite: 366/366, run three times consecutively — the
++9 over ADR-063's 357/357 baseline are exactly these new tests, zero
+regressions to any previously-existing behavior.
+
+**Verdict: ready for the first real call.** Both gaps the operator asked
+about are now closed and regression-tested; no other unaddressed gap was
+found in this pass. Nothing about `/api/voice/access-token`,
+`app/static/live.html`, or any other part of the ADR-060/061/062/063
+browser-call path needed to change — this ADR is confined entirely to
+`POST /webhooks/twilio/voice-outbound`'s own request-handling and the two
+new small guard structures it now calls.

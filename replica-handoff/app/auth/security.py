@@ -12,6 +12,7 @@ import hashlib
 import hmac
 import os
 import time
+import uuid
 
 import jwt
 
@@ -94,6 +95,15 @@ def create_voice_call_ticket(*, call_id: int, company_id: int, user_id: int, ttl
         'call_id': call_id,
         'company_id': company_id,
         'user_id': user_id,
+        # docs/DECISIONS.md ADR-064 (red-team item 1): a unique id per MINTED
+        # ticket, distinct from anything Twilio provides — this is what lets
+        # the voice-outbound webhook tell "Twilio retried the exact same call
+        # attempt" (same ticket jti + same Twilio CallSid — idempotent, must
+        # proceed) apart from "this ticket is being reused to start an
+        # independent second call" (same jti, a DIFFERENT CallSid — replay,
+        # must fail closed). Signature/expiry alone cannot distinguish these:
+        # both present an identical, still-valid, correctly-signed ticket.
+        'jti': uuid.uuid4().hex,
         'iat': now,
         'exp': now + ttl_seconds,
     }

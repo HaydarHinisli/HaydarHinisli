@@ -672,6 +672,13 @@ here).
   `call_id`, and issues a short-lived signed ticket that
   `/webhooks/twilio/voice-outbound` alone verifies and trusts, never a raw
   browser-supplied value).
+- Voice-ticket replay and cross-ticket concurrency closed (ADR-064): the
+  same ticket reused for a second, independent real call is rejected while
+  a legitimate Twilio retry of the same call attempt still succeeds
+  identically; two different, individually valid tickets for the same
+  `call_id` (e.g. two browser tabs) cannot both place a real call at
+  once — the second is refused (409) until the first call's Media Stream
+  ends, then a new one is accepted again automatically.
 - New end-to-end test (`tests/test_voice_call_flow_e2e.py`, ADR-062) proves
   the entire flow without a real Twilio/Deepgram account or phone: token
   region/edge → webhook TwiML → the same `call_id` driven through the real

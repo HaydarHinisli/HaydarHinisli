@@ -41,6 +41,7 @@ from .services.copilot import suggest, suggest_with_state
 from .services.experiments import assign_variant
 from .services.language_sync import analyze_language
 from .services.live_push import get_live_suggestion_hub
+from .services.voice_call_guard import get_voice_call_lock, get_voice_ticket_ledger
 from .services.reaction_delta import build_baseline, reaction_delta
 from .services.review import build_call_review, manager_analysis
 from .services.turn_identity import claim_turn, record_result, synthesize_turn_id
@@ -829,6 +830,20 @@ async def twilio_voice_outbound(request: Request, db: Session = Depends(get_db))
     moments earlier when the ticket was minted) — closing the window where
     consent could have been withdrawn between minting and placing the call.
 
+    Red-team hardening (docs/DECISIONS.md ADR-064, item 1/2): a ticket being
+    genuinely valid does not by itself mean this specific request should
+    place a NEW call — Twilio's own documented retry behavior means the exact
+    same request (same ticket) can legitimately arrive twice for the SAME
+    call attempt, which must succeed identically both times, while the same
+    ticket being reused to start a SECOND, independent call attempt must fail
+    closed. `app/services/voice_call_guard.VoiceTicketLedger` tells these
+    apart using Twilio's own `CallSid` (one per real call-setup attempt,
+    stable across that attempt's own retries). Independently,
+    `VoiceCallConcurrencyLock` ensures at most one real call is ever in
+    flight for a given `call_id` at a time, even across two DIFFERENT,
+    individually valid tickets (e.g. two browser tabs) — released the moment
+    that call's Media Stream ends (`/ws/twilio-media`, any exit path).
+
     The generated TwiML mirrors the already-confirmed, already-tested shape from
     docs/REAL_TEST_SETUP.md exactly: `<Start><Stream track="both_tracks">` first
     (so the Media Stream is running before anything is dialed), then
@@ -887,6 +902,38 @@ async def twilio_voice_outbound(request: Request, db: Session = Depends(get_db))
         raise HTTPException(403, 'Processing is not currently permitted for this call')
     if not settings.twilio_verified_caller_id:
         raise HTTPException(500, 'TWILIO_VERIFIED_CALLER_ID is not configured')
+
+    # Red-team hardening (docs/DECISIONS.md ADR-064, item 1/2): everything
+    # above this point can be re-derived identically on a retry (it only
+    # depends on the ticket and the current Call/consent state), so it is
+    # safe to redo. From here on we are about to COMMIT to placing one real
+    # call — this is where replay/concurrency must be checked, using
+    # Twilio's own CallSid (allocated once per real call-setup attempt,
+    # including its retries) to tell a legitimate retry of THIS attempt apart
+    # from a second, independent one.
+    call_sid = params.get('CallSid', '').strip()
+    if not call_sid:
+        logger.warning('twilio voice webhook: missing CallSid', extra={'fields': {'path': request.url.path}})
+        raise HTTPException(400, 'Missing CallSid')
+    ticket_jti = ticket_payload.get('jti')
+    if not ticket_jti:
+        # Every ticket minted by create_voice_call_ticket() carries a jti —
+        # a ticket without one cannot be safely deduplicated and must not be
+        # silently allowed through as if it could be.
+        logger.warning('twilio voice webhook: voice ticket missing jti claim', extra={'fields': {'call_id': call.id}})
+        raise HTTPException(403, 'Invalid voice ticket')
+
+    verdict = get_voice_ticket_ledger().check_and_record(jti=ticket_jti, call_sid=call_sid)
+    if verdict == 'conflict':
+        logger.warning('twilio voice webhook: ticket reused for a different call attempt', extra={'fields': {'call_id': call.id}})
+        raise HTTPException(403, 'This voice ticket has already been used for a different call attempt')
+    if verdict == 'new':
+        # A `'retry'` verdict means THIS SAME attempt already holds the lock
+        # (acquired the first time this jti/CallSid pair was seen) — only a
+        # genuinely new attempt needs to acquire it.
+        if not get_voice_call_lock().try_acquire(call_id=call.id):
+            logger.warning('twilio voice webhook: a real test call is already in progress for this call', extra={'fields': {'call_id': call.id}})
+            raise HTTPException(409, 'A real test call is already in progress for this call')
 
     # xml_escape()'s default entity set is &/</> only — NOT quotes (that's
     # xml.sax.saxutils's own documented default). Fine for the <Number> element's
@@ -1122,6 +1169,14 @@ async def twilio_media(websocket: WebSocket, asr_provider: ASRProvider = Depends
     await websocket.accept()
     correlation_session = MediaStreamSession()
     pipeline: MediaStreamPipeline | None = None
+    # Red-team hardening (docs/DECISIONS.md ADR-064, item 2): tracked
+    # separately from `pipeline` because the concurrency lock is acquired by
+    # the voice-outbound webhook BEFORE this connection ever exists, and must
+    # still be released even if pipeline construction itself fails below
+    # (pipeline stays None in that case) — this is set once a Call is
+    # resolved and released, unconditionally, in the `finally` block for
+    # every exit path (clean stop, unclean disconnect, or any exception).
+    resolved_call_id: int | None = None
     hub = get_live_suggestion_hub()
     is_real_asr = type(asr_provider).__name__ == 'DeepgramASRProvider'
     try:
@@ -1141,6 +1196,7 @@ async def twilio_media(websocket: WebSocket, asr_provider: ASRProvider = Depends
                     logger.warning('media stream: could not resolve a Call for this stream — closing', extra={'fields': {'call_sid': correlation_session.call_sid}})
                     await websocket.close(code=1008)
                     return
+                resolved_call_id = call.id
                 # Red-team hardening (docs/DECISIONS.md ADR-063, item 3): a phone
                 # call connecting is NOT the same fact as REPLICA's own analysis
                 # pipeline working — pushed as its own, independent signal the
@@ -1209,6 +1265,13 @@ async def twilio_media(websocket: WebSocket, asr_provider: ASRProvider = Depends
         if pipeline is not None:
             await pipeline.close()
             logger.info('media stream diagnostics', extra={'fields': pipeline.diagnostics_summary()})
+        # ADR-064 item 2: released unconditionally here (clean stop, unclean
+        # disconnect, a pipeline-construction failure, or any other
+        # exception) — this is the ONE place a call_id's concurrency lock is
+        # ever released, so every exit path frees it exactly once, never
+        # requiring its own copy of this line.
+        if resolved_call_id is not None:
+            get_voice_call_lock().release(call_id=resolved_call_id)
 
 
 _LIVE_AUTH_TIMEOUT_S = 5.0
