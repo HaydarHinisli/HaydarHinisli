@@ -98,6 +98,62 @@ def test_ws_accepts_valid_auth_and_call_ownership(client):
         # handshake succeeded.
 
 
+# --- Token normalization (ADR-057) ---------------------------------------------------
+#
+# REST never hits this class of bug: FastAPI's HTTPBearer strips the "Bearer "
+# scheme prefix from the Authorization header before app code ever sees the
+# token (app/auth/dependencies.py). This WS handshake instead receives the
+# token as a plain JSON string value the browser typed/pasted into a form
+# field, so nothing strips an accidental "Bearer " prefix or incidental
+# whitespace unless the handler does it itself. Before this fix, any of these
+# raised jwt.exceptions.DecodeError, caught by the same blanket
+# `except jwt.InvalidTokenError` as a genuinely expired token and logged with
+# the same indistinguishable "invalid or expired token" message.
+
+def test_ws_accepts_a_bearer_prefixed_token(client):
+    """A token copy-pasted including its `Authorization: Bearer <token>` scheme
+    prefix (an easy mistake when copying from a curl example) must still work,
+    exactly like it already does for REST."""
+    headers = auth_headers(client, 'haydar@replica-pilot.example')
+    call_id = _create_call(client, headers)
+    token = login(client, 'haydar@replica-pilot.example')
+    with client.websocket_connect(f'/ws/live/{call_id}') as ws:
+        ws.send_text(json.dumps({'type': 'auth', 'token': 'Bearer ' + token}))
+
+
+def test_ws_accepts_a_token_with_surrounding_whitespace(client):
+    headers = auth_headers(client, 'haydar@replica-pilot.example')
+    call_id = _create_call(client, headers)
+    token = login(client, 'haydar@replica-pilot.example')
+    with client.websocket_connect(f'/ws/live/{call_id}') as ws:
+        ws.send_text(json.dumps({'type': 'auth', 'token': '  ' + token + '\n'}))
+
+
+def test_ws_rejected_token_logs_the_real_exception_class_not_a_generic_message(client, caplog):
+    """A malformed token (here: truncated, so decode fails at the signature/
+    padding level) must be logged with the ACTUAL PyJWT exception class name,
+    never the old blanket 'invalid or expired token' text that made every
+    rejection reason look like expiry."""
+    import logging
+    headers = auth_headers(client, 'haydar@replica-pilot.example')
+    call_id = _create_call(client, headers)
+    token = login(client, 'haydar@replica-pilot.example')
+    broken_token = token[:-10]
+    with caplog.at_level(logging.WARNING, logger='replica.webhooks'):
+        with pytest.raises(Exception):
+            with client.websocket_connect(f'/ws/live/{call_id}') as ws:
+                ws.send_text(json.dumps({'type': 'auth', 'token': broken_token}))
+                ws.receive_text()
+    rejected = [r for r in caplog.records if 'token rejected' in r.message]
+    assert rejected, 'expected a "token rejected" log record'
+    fields = rejected[0].fields
+    assert fields['exception'] in ('DecodeError', 'InvalidSignatureError')
+    assert fields['token_len'] == len(broken_token)
+    assert 'token_sha256_prefix' in fields
+    assert broken_token not in caplog.text
+    assert token not in caplog.text
+
+
 def test_ws_auth_timeout_closes_the_connection(client, monkeypatch):
     import app.main as main_module
     monkeypatch.setattr(main_module, '_LIVE_AUTH_TIMEOUT_S', 0.05)

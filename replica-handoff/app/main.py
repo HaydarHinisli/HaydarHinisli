@@ -1,5 +1,6 @@
 from __future__ import annotations
 import asyncio
+import hashlib
 import json
 import logging
 import time
@@ -989,10 +990,33 @@ async def live_suggestions(websocket: WebSocket, call_id: int):
         logger.warning('live suggestions: first message was not a valid auth frame')
         await websocket.close(code=1008)
         return
+
+    # Fix (docs/DECISIONS.md ADR-057): unlike REST (where FastAPI's HTTPBearer
+    # strips the "Bearer " scheme prefix from the Authorization header before
+    # this code ever sees the token, see app/auth/dependencies.py), the token
+    # here arrives as a plain JSON string value that the browser typed/pasted
+    # into a form field — nothing strips an accidentally-included "Bearer "
+    # prefix or incidental whitespace before it reaches us. Both are normalized
+    # the same way a copy-paste mistake would produce one, so they don't fail
+    # decode and get misreported as "expired" below.
+    normalized_token = token.strip()
+    if normalized_token[:7].lower() == 'bearer ':
+        normalized_token = normalized_token[7:].strip()
+
     try:
-        payload = decode_access_token(token)
-    except jwt.InvalidTokenError:
-        logger.warning('live suggestions: invalid or expired token')
+        payload = decode_access_token(normalized_token)
+    except jwt.InvalidTokenError as exc:
+        # Fix (ADR-057): the previous blanket "invalid or expired token" message
+        # made a malformed token (wrong prefix, stray whitespace, truncated
+        # copy-paste) indistinguishable from a genuinely expired one. Logging the
+        # real exception class plus non-secret token shape/fingerprint metadata
+        # (never the token itself) lets this be diagnosed from server logs alone.
+        logger.warning('live suggestions: token rejected', extra={'fields': {
+            'exception': type(exc).__name__,
+            'token_len': len(token),
+            'token_segments': token.count('.') + 1,
+            'token_sha256_prefix': hashlib.sha256(token.encode('utf-8')).hexdigest()[:12],
+        }})
         await websocket.close(code=1008)
         return
 

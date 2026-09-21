@@ -128,3 +128,38 @@ def test_exactly_one_previous_suggestion_kept_as_history():
     # Only one history slot exists — no array/list of past suggestions.
     assert 'historyList' not in html
     assert 'suggestionHistory' not in html
+
+
+# --- Token normalization + no-endless-reconnect-on-auth-failure (ADR-057) ------------
+
+
+def test_token_is_sanitized_before_being_sent_to_the_server():
+    html = _read()
+    assert 'function sanitizeToken(' in html
+    assert 'var token = sanitizeToken(els.token.value);' in html
+    # Must strip an accidentally-pasted "Bearer " scheme prefix, case-insensitively.
+    assert re.search(r"/\^bearer\\s\+/i", html)
+
+
+def test_policy_close_does_not_trigger_an_endless_reconnect_loop():
+    html = _read()
+    # The close handler must read the CloseEvent's code and treat 1008
+    # (server policy rejection: bad/expired token, disallowed origin, wrong
+    # tenant) as terminal for the current credentials, not just another
+    # transient drop to blindly retry forever with the same rejected token.
+    assert "ws.addEventListener('close', function (event)" in html
+    assert "event.code === 1008" in html
+    close_handler_start = html.index("ws.addEventListener('close'")
+    close_handler_end = html.index('});', close_handler_start)
+    close_handler_body = html[close_handler_start:close_handler_end]
+    assert "setConnectionState('auth-error')" in close_handler_body
+    # The auth-error branch must return before reaching scheduleReconnect().
+    auth_error_idx = close_handler_body.index("setConnectionState('auth-error')")
+    schedule_idx = close_handler_body.index('scheduleReconnect()')
+    assert auth_error_idx < schedule_idx
+
+
+def test_auth_error_state_shows_a_clear_actionable_message():
+    html = _read()
+    assert "state === 'auth-error'" in html
+    assert 'Authentifizierung fehlgeschlagen' in html

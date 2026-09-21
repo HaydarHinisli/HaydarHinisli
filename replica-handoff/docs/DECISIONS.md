@@ -1672,3 +1672,104 @@ tenant as the call is therefore expected to work exactly like a `seller`
 token here; it was never the cause of that session's "Verbindung
 unterbrochen" symptom. No code change resulted from this — it's a read of
 already-correct, already-tested behavior, not a bug.
+
+## ADR-057 — Root cause found and fixed: `/ws/live/{call_id}` mislabels a malformed token as "invalid or expired"; client reconnected forever on any auth failure
+
+Status: accepted (bug fix, verified against the real running server and a real browser)
+
+Follow-up to ADR-056's unrelated finding: the operator's `/ws/live/56`
+connection kept failing even with a fresh JWT that worked immediately
+against a REST endpoint, a git branch confirmed up to date, and a call
+confirmed to exist. This ADR records the actual root cause, the fix, and the
+concrete evidence — this session reproduced the failure against the real
+code before changing anything, per this project's standing discipline (ADR-043,
+ADR-053, ADR-055) of never fixing a hypothesis it hasn't first confirmed.
+
+**Root cause, confirmed by direct reproduction.** REST authentication never
+hits this bug: FastAPI's `HTTPBearer` (`app/auth/dependencies.py`) strips the
+`Authorization: Bearer <token>` header's scheme prefix before any app code
+sees the token, so `decode_access_token()` there always receives a clean
+string. `/ws/live/{call_id}`, however, receives the token as a plain JSON
+string value inside the first WebSocket message — nothing strips a
+prefix or incidental whitespace before `decode_access_token(token)` was
+called directly on it. A token copy-pasted with its `Bearer ` scheme prefix
+still attached (an easy mistake — e.g. from copying a `curl -H
+"Authorization: Bearer $TOKEN"` example), or with a stray leading/trailing
+space or newline, makes PyJWT raise `jwt.exceptions.DecodeError` — a
+completely different condition from `ExpiredSignatureError` — but the
+handler's `except jwt.InvalidTokenError:` catches both identically and
+logged the same generic `"live suggestions: invalid or expired token"`
+either way, making the real cause unrecoverable from the log alone.
+
+Reproduced directly against the real server (not a hypothesis): a real JWT
+issued via `POST /api/auth/login`, decoded successfully via
+`decode_access_token()` when clean, raised `DecodeError: Invalid header
+padding` when prefixed with `"Bearer "` or a leading space, and `DecodeError:
+Invalid crypto padding` with a trailing newline — all three closed the real
+`/ws/live/{call_id}` connection with code 1008 and logged the identical
+generic message. This is not necessarily proven to be the operator's exact
+keystroke sequence (that state only ever existed in their browser), but it
+is a real, 100%-reproducible defect matching every symptom reported: REST
+works, a fresh non-expired token still gets "invalid or expired token", and
+the client kept reconnecting with the same doomed token indefinitely.
+
+**Second, compounding bug found in the same investigation.** The client's
+WebSocket `close` handler (`app/static/live.html`) never inspected the
+`CloseEvent.code` — every non-manual close, including the server's policy
+rejection (code 1008 — bad/expired token, disallowed origin, wrong tenant),
+triggered the same exponential-backoff auto-reconnect as a real network
+drop. Since `connect()` always resends whatever is still in the token field,
+a rejected token reconnected forever with that exact same rejected token,
+which is also why the operator saw the warning logged repeatedly rather
+than once.
+
+**Fix.**
+1. `app/main.py` (`/ws/live/{call_id}`): the received token is normalized
+   (whitespace-stripped; a leading `Bearer ` prefix, case-insensitive, is
+   stripped) before `decode_access_token()` is called — matching what
+   `HTTPBearer` already does for REST. On rejection, the log now records the
+   actual exception class name plus non-secret token-shape metadata (length,
+   `.`-segment count, first 12 hex chars of a SHA-256 fingerprint) — enough
+   to compare against a locally-computed fingerprint of a known-good token,
+   never the token itself.
+2. `app/static/live.html`: `sanitizeToken()` applies the same normalization
+   client-side before sending (defense in depth — the sent value is clean
+   either way). The `close` handler now reads `event.code`; a 1008
+   (policy/auth rejection) sets a new, explicit `'auth-error'` connection
+   state ("Authentifizierung fehlgeschlagen — bitte Call-ID/Token prüfen und
+   neu verbinden", connect form re-shown) instead of scheduling another
+   reconnect — any other close code still auto-reconnects exactly as before.
+   `'auth-error'` is not an invented conversation state in the sense ADR
+   discussion around Seller Frontend v1 ruled out (`"Gespräch läuft"` etc.):
+   it is driven by a real, already-existing protocol signal (the server's own
+   close code) the client was simply discarding.
+
+**Regression coverage, all passing (288/288 full suite):**
+- `tests/test_live_suggestions_ws.py`: a `Bearer `-prefixed token and a
+  whitespace-wrapped token are both accepted; a malformed token's rejection
+  is logged with the real PyJWT exception class name and non-secret
+  fingerprint fields, with neither the malformed nor a valid token ever
+  appearing in the log text (`caplog`-asserted).
+- `tests/test_seller_frontend_structure.py`: `sanitizeToken()` exists and is
+  used before sending; the `close` handler reads `event.code`, treats 1008 as
+  terminal (`'auth-error'` before `scheduleReconnect()` in source order,
+  never after), and the auth-error message text is present.
+- `tests/test_live_ws_browser_e2e.py` (new): a REAL headless-Chromium browser
+  (Playwright), driven against a REAL `uvicorn` subprocess (its own isolated
+  SQLite DB, real sockets, no ASGI shortcut) — real login, real call
+  creation, then for each of a clean/`Bearer`-prefixed/whitespace-wrapped/
+  actually-invalid token: open `/live/{call_id}`, paste the token, click
+  "Verbinden", and assert on the real rendered `#statusText` and whether the
+  connect card is hidden. Verified passing in this session: all three
+  malformed-but-real tokens reach "Bereit" with the connect card hidden; the
+  actually-invalid token reaches "Authentifizierung fehlgeschlagen" with the
+  connect card shown again — never an endless "Wiederverbindung läuft" loop.
+  This file `pytest.mark.skipif`s cleanly (not red) wherever Node.js or the
+  `playwright` npm package aren't installed — most environments running this
+  suite, including the operator's own machine, are not expected to have
+  either, and this suite must never require them to get a green `pytest -q`.
+
+**What did NOT change.** No new product feature, no architecture change, no
+change to `/ws/twilio-media`, SalesBrain, or Render-ACK. This is a fix to an
+input-normalization gap and a reconnect-policy gap, both pre-existing since
+Sprint 3A, surfaced by real operator testing.

@@ -147,6 +147,19 @@ pre{background:#0f141d;border:1px solid var(--border);border-radius:10px;padding
     return PHASE_LABELS[raw] || raw;
   }
 
+  // Fix (docs/DECISIONS.md ADR-057): a pasted token can easily carry an
+  // accidental leading "Bearer " (copied from a curl -H line) or stray
+  // whitespace — REST never hits this because FastAPI's HTTPBearer strips it
+  // from the Authorization header before the token reaches app code; this WS
+  // handshake sends the token as a plain JSON string instead, so nothing
+  // strips it unless we do. The server normalizes the same way independently
+  // (defense in depth) — this just avoids sending an already-broken token.
+  function sanitizeToken(raw) {
+    var t = (raw || '').trim();
+    if (/^bearer\s+/i.test(t)) t = t.replace(/^bearer\s+/i, '').trim();
+    return t;
+  }
+
   // Pre-fill call_id from /live/{call_id} if that's how this page was opened.
   var pathMatch = window.location.pathname.match(/\/live\/(\d+)/);
   if (pathMatch) els.callId.value = pathMatch[1];
@@ -187,6 +200,15 @@ pre{background:#0f141d;border:1px solid var(--border);border-radius:10px;padding
     } else if (state === 'error') {
       els.statusDot.className = 'dot err';
       els.statusText.textContent = 'Verbindungsfehler';
+    } else if (state === 'auth-error') {
+      // Fix (docs/DECISIONS.md ADR-057): a policy-close (code 1008 — invalid/
+      // expired token, disallowed origin, tenant mismatch) is a permanent
+      // condition for the credentials just used; retrying it forever behind
+      // "Wiederverbindung läuft" would silently loop and hide that the seller
+      // actually needs to fix the pasted call_id/token.
+      els.statusDot.className = 'dot err';
+      els.statusText.textContent = 'Authentifizierung fehlgeschlagen — bitte Call-ID/Token prüfen und neu verbinden';
+      els.connectCard.hidden = false;
     } else {
       els.statusDot.className = 'dot';
       els.statusText.textContent = 'Nicht verbunden';
@@ -195,7 +217,7 @@ pre{background:#0f141d;border:1px solid var(--border);border-radius:10px;padding
 
   function connect() {
     var callId = els.callId.value.trim();
-    var token = els.token.value.trim();
+    var token = sanitizeToken(els.token.value);
     if (!callId || !token) {
       setConnectionState('error');
       els.statusText.textContent = 'call_id und Token erforderlich';
@@ -231,7 +253,17 @@ pre{background:#0f141d;border:1px solid var(--border);border-radius:10px;padding
       }
     });
 
-    ws.addEventListener('close', function () {
+    ws.addEventListener('close', function (event) {
+      // Fix (ADR-057): code 1008 is the server's policy-close (invalid/expired
+      // token, disallowed origin, wrong-tenant call_id) — reusing the exact
+      // same rejected token in an endless reconnect loop can never succeed and
+      // previously just looked like "Wiederverbindung läuft" forever while
+      // silently spamming the server. Any other close code (network drop,
+      // server restart) still auto-reconnects as before.
+      if (!manualClose && event && event.code === 1008) {
+        setConnectionState('auth-error');
+        return;
+      }
       setConnectionState(manualClose ? 'disconnected' : 'reconnecting');
       if (!manualClose) scheduleReconnect();
     });
