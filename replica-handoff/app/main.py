@@ -738,12 +738,21 @@ def voice_access_token(current_user: AuthContext = Depends(require_role('seller'
     Requires the same auth as every other seller-facing endpoint; the token itself
     is scoped (via VoiceGrant) to only ever reach the one configured TwiML
     Application (`TWILIO_TWIML_APP_SID`), never an arbitrary Twilio resource.
+
+    ADR-061: also returns `edge` (`TWILIO_EDGE`, e.g. `dublin`) alongside the
+    token — the Voice SDK's `Device` takes the signaling edge as a constructor
+    option, not something embeddable in the Access Token itself, so the
+    browser needs it explicitly rather than hardcoding a second copy of
+    `TWILIO_EDGE` in JavaScript.
     """
     try:
-        token = twilio_rest.create_voice_access_token(identity=f'user-{current_user.user_id}')
+        result = twilio_rest.create_voice_access_token(identity=f'user-{current_user.user_id}')
     except ValueError as exc:
         raise HTTPException(500, str(exc)) from exc
-    return {'token': token, 'identity': f'user-{current_user.user_id}', 'ttl_seconds': 3600}
+    return {
+        'token': result['token'], 'identity': f'user-{current_user.user_id}', 'ttl_seconds': 3600,
+        'region': result['region'], 'edge': result['edge'],
+    }
 
 
 @app.post('/webhooks/twilio/voice-outbound')

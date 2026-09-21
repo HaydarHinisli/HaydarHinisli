@@ -252,3 +252,15 @@ def test_voice_test_ui_lives_inside_the_debug_view_not_the_main_seller_view():
     debug_block = html[debug_details_start:debug_details_end]
     assert 'id="voiceTest"' in debug_block
     assert 'id="voiceTest"' not in html[:debug_details_start]
+
+
+def test_device_edge_comes_from_the_server_response_not_hardcoded():
+    """ADR-061: the Voice SDK's own default edge is 'roaming' (nearest-latency
+    auto-selection), not necessarily the EU edge (TWILIO_EDGE) this account is
+    pinned to everywhere else — must be passed explicitly, sourced from the
+    /api/voice/access-token response rather than a second hardcoded copy."""
+    html = _read()
+    assert 'new Twilio.Device(body.token, { edge: body.edge })' in html
+    # Regression guard: no hardcoded edge string literal anywhere (e.g. a
+    # stray "edge: 'dublin'" that would silently drift from TWILIO_EDGE).
+    assert not re.search(r"edge:\s*'[a-z-]+'", html)

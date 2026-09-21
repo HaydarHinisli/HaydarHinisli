@@ -45,7 +45,7 @@ listed here.
 |---|---|
 | `TWILIO_AUTH_TOKEN` | Verifies `X-Twilio-Signature` on the call-status webhook, the NEW voice-outbound webhook (`POST /webhooks/twilio/voice-outbound`, ADR-060), and the Media Streams WebSocket handshake (`/ws/twilio-media`). Fail-closed: wrong/missing → request rejected. |
 | `TWILIO_ACCOUNT_SID` | **Correction (ADR-058):** required for real this time, not just "for completeness" — both the REST call-placement path (§4a) and the browser-based path's Access Token minting (§4b, ADR-060) need it. |
-| `TWILIO_REGION` / `TWILIO_EDGE` | **Correction (ADR-058):** exercised by `get_twilio_rest_client()` (§4a's REST call placement only — the browser path in §4b does not use this client at all). Already default to `ie1`/`dublin` in code (ADR-049); only set explicitly if overriding. |
+| `TWILIO_REGION` / `TWILIO_EDGE` | Exercised by `get_twilio_rest_client()` for §4a's REST call placement (ADR-058). **Correction (ADR-061):** also required for §4b's browser path — `create_voice_access_token()` sets the Access Token's `twr` (region) JWT header from `TWILIO_REGION`, and the response's `edge` field is passed to the Voice SDK's `Device` constructor as `TWILIO_EDGE`; both now fail closed (500) if either is unset, matching `get_twilio_rest_client()`'s posture exactly. Already default to `ie1`/`dublin` in code (ADR-049); only set explicitly if overriding. |
 | `TWILIO_API_KEY_SID` / `TWILIO_API_KEY_SECRET` | **New (ADR-060), only needed for the browser-based test path (§4b).** A Twilio API Key (not the Account Auth Token — kept deliberately separate, see the code comment in `app/integrations/twilio_rest.py`) used to sign the short-lived Access Token the seller's browser needs to register a Voice SDK `Device`. Created once in the Console (§4b step 1). |
 | `TWILIO_TWIML_APP_SID` | **New (ADR-060), only needed for §4b.** The TwiML Application the browser's `device.connect()` call is routed through — created once in the Console (§4b step 2), its Voice Request URL points at `POST /webhooks/twilio/voice-outbound`. |
 | `TWILIO_VERIFIED_CALLER_ID` | **New (ADR-060), only needed for §4b.** The operator's own already-Verified Caller ID, used server-side (never sent by the browser) as `<Dial callerId="...">` so the Prospect sees a real, verified number and the browser client can never spoof an arbitrary caller ID. |
@@ -474,6 +474,24 @@ account, not per call):**
    every other real-provider test (Deepgram EU → Turn Detection → Speaker
    Mapping → Conversation State → SalesBrain → Live Suggestion → browser
    render → Render-ACK).
+
+**IE1/Dublin confirmation (ADR-061 — checked and fixed before step 1 above
+was ever run for real):** the Access Token minted in step 5 carries `region:
+'ie1'` as its JWT `twr` header claim (confirmed by decoding a real
+constructed token — `{'twr': 'ie1', ...}`), and the `Device` in step 5 is
+constructed with `edge: 'dublin'` read from that same response, never
+hardcoded. Both now fail closed (HTTP 500 from `/api/voice/access-token`) if
+`TWILIO_REGION`/`TWILIO_EDGE` are ever unset — the browser-calling path can
+no longer silently fall back to Twilio's own `roaming`/`us1` defaults, the
+exact same guarantee `get_twilio_rest_client()` already had for the REST
+path. The voice-test status line shows the active region/edge live
+(`"Registriere Device (Region: ie1, Edge: dublin) …"`) so you can see it
+during the test, not just trust it. What this does NOT cover: Twilio's own
+infrastructure (not REPLICA's code) ultimately decides which region actually
+processes a call and its Media Stream — pinning the signaling connection to
+IE1/Dublin is the well-founded expectation that the whole call stays in that
+region, not an independently observed fact; this test itself IS that
+observation.
 
 **Honesty note, stated plainly (mirrors ADR-058's for the REST path):** the
 speaker-role mapping for this exact topology (browser parent leg = `inbound`

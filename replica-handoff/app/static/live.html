@@ -469,7 +469,13 @@ pre{background:#0f141d;border:1px solid var(--border);border-radius:10px;padding
       throw new Error('Access-Token-Anfrage fehlgeschlagen (HTTP ' + resp.status + ').');
     }
     var body = await resp.json();
-    voiceDevice = new Twilio.Device(body.token);
+    setVoiceStatus('Registriere Device (Region: ' + body.region + ', Edge: ' + body.edge + ') …');
+    // Fix (docs/DECISIONS.md ADR-061): edge must be set explicitly — the
+    // Voice SDK's own default is 'roaming' (nearest-latency auto-selection),
+    // not necessarily the EU edge this account is pinned to everywhere else
+    // (TWILIO_EDGE). Read from the token response rather than hardcoded here,
+    // so this file can never drift out of sync with the server's own config.
+    voiceDevice = new Twilio.Device(body.token, { edge: body.edge });
     voiceDevice.on('error', function (err) {
       setVoiceStatus('Voice-SDK-Fehler: ' + (err && err.message ? err.message : 'unbekannt'));
       els.voiceCallBtn.disabled = false;

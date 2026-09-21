@@ -2127,3 +2127,84 @@ non-optional): 308/308 every time.**
 any existing endpoint's behavior. The main seller-facing view (above the
 debug disclosure) is untouched — this is additive, confined to the
 already-reclassified (ADR-056) technical debug view.
+
+## ADR-061 — ADR-060's Voice Access Token silently carried no EU region preference at all; fixed and verified against the real SDK source before the first real call
+
+Status: accepted (correction, real bug found by the operator's own explicit
+question before running anything — fixed and tested, no code shipped
+unverified)
+
+The operator asked, before creating any Twilio Console resources, for
+verification that the ADR-060 browser-calling path is fully pinned to
+`TWILIO_REGION=ie1`/`TWILIO_EDGE=dublin` — the same EU data-residency
+guarantee `get_twilio_rest_client()` already enforces (ADR-049). It was not.
+
+**Confirmed, by reading the installed Twilio SDK's own source directly (not
+assumed):** `AccessToken.__init__` accepts a `region` parameter, but ADR-060's
+`create_voice_access_token()` never passed it. Read `AccessToken`'s actual
+`_generate_headers()`/`_generate_payload()` implementation: `region` is NOT a
+no-op — it sets the JWT's `twr` (Twilio Region) header claim, which Twilio's
+signaling infrastructure uses to route the client to the configured region.
+Verified concretely by constructing a real token with `region='ie1'` and
+decoding its header: `{'alg': 'HS256', 'cty': 'twilio-fpa;v=1', 'twr': 'ie1',
+'typ': 'JWT'}` — confirming both that the parameter does something and
+exactly what it produces. Without it, every Voice Access Token ADR-060 could
+have issued carried no region preference at all, silently defeating this
+account's EU-residency setup for the one path that most directly represents
+a live call (the browser's real-time signaling connection to Twilio).
+
+Separately confirmed (same rigor, this time against the pinned Voice JS
+SDK's own TypeScript source, `lib/twilio/device.ts`): `Device.Options.edge`
+exists, accepts a string or array of strings, and its own documented default
+is `"roaming"` — automatic edge selection by client-measured latency, NOT
+necessarily Dublin. ADR-060's `new Twilio.Device(body.token)` call never set
+it either.
+
+**Fix:**
+1. `create_voice_access_token()` (`app/integrations/twilio_rest.py`) now
+   passes `region=settings.twilio_region` to `AccessToken(...)`, and fails
+   closed (`ValueError`) if `TWILIO_REGION`/`TWILIO_EDGE` are not both
+   explicitly configured — matching `get_twilio_rest_client()`'s existing
+   posture exactly, so the browser-calling path can no longer be the one
+   place this account's EU-residency requirement is silently skippable. Its
+   return value changed from a bare token string to `{token, region, edge}`
+   — `edge` cannot be embedded in the Access Token itself (there is no such
+   JWT claim), so it travels back to the caller instead.
+2. `POST /api/voice/access-token` (`app/main.py`) now also returns `region`
+   and `edge` in its JSON response.
+3. `app/static/live.html`: `new Twilio.Device(body.token, { edge: body.edge })`
+   — read from the server's response rather than hardcoded a second time in
+   JavaScript, so this file can never independently drift out of sync with
+   `TWILIO_EDGE`. The voice-test status line also now shows the active
+   region/edge (`"Registriere Device (Region: ie1, Edge: dublin) …"`) so the
+   operator can visually confirm it during the real test, not just trust it.
+
+**Media Stream and the rest of the voice pipeline, stated plainly (not newly
+verified, re-confirmed from the existing documented finding):** `/ws/twilio-
+media` and the call-status/voice-outbound webhooks have no region parameter
+in REPLICA's own code at all — inbound Twilio→REPLICA traffic was already
+documented (`docs/REAL_TEST_SETUP.md` §1) as having no region concept on
+REPLICA's side; Twilio's own infrastructure determines which region actually
+processes a given call and its Media Stream, driven by which
+region/edge the call's signaling connection used. Since that signaling
+connection is now pinned to IE1/Dublin from the moment `Device.connect()` is
+called, the whole call — the Media Stream included — should be processed
+within Twilio's IE1/EU infrastructure consistently. This has NOT been
+independently verified against a live call (no such verification is possible
+without one); it is a well-founded expectation from the token/edge
+configuration being correct now, not an observed fact yet.
+
+**Regression coverage, all passing, full suite run three times consecutively
+after this fix: 311/311 every time** (`tests/test_voice_outbound.py`: the
+JWT header's `twr` claim and the response body's `region`/`edge` fields are
+asserted directly against a real constructed token; a new fail-closed test
+confirms 500 when either `TWILIO_REGION` or `TWILIO_EDGE` is unset;
+`tests/test_seller_frontend_structure.py`: the `Device` constructor call
+includes `{ edge: body.edge }` and no hardcoded edge string literal exists
+anywhere in the file).
+
+**What did NOT change:** no new endpoint, no change to
+`OutboundSalesFlowResolver`, `get_twilio_rest_client()`, or any other
+existing behavior — this is a correction confined entirely to ADR-060's own
+new code, found and fixed before a single Twilio Console resource for it was
+created.

@@ -37,12 +37,14 @@ def _settings_cache_reset():
     config_module.get_settings.cache_clear()
 
 
-def _configure_voice_settings(monkeypatch, *, account_sid='ACtest', api_key_sid='SKtest', api_key_secret='supersecretsupersecretsupersecret', twiml_app_sid='APtest'):
+def _configure_voice_settings(monkeypatch, *, account_sid='ACtest', api_key_sid='SKtest', api_key_secret='supersecretsupersecretsupersecret', twiml_app_sid='APtest', region='ie1', edge='dublin'):
     import app.config as config_module
     monkeypatch.setenv('TWILIO_ACCOUNT_SID', account_sid or '')
     monkeypatch.setenv('TWILIO_API_KEY_SID', api_key_sid or '')
     monkeypatch.setenv('TWILIO_API_KEY_SECRET', api_key_secret or '')
     monkeypatch.setenv('TWILIO_TWIML_APP_SID', twiml_app_sid or '')
+    monkeypatch.setenv('TWILIO_REGION', region or '')
+    monkeypatch.setenv('TWILIO_EDGE', edge or '')
     config_module.get_settings.cache_clear()
 
 
@@ -71,6 +73,38 @@ def test_access_token_returns_a_valid_voice_grant_jwt(client, monkeypatch):
     assert decoded['grants']['voice']['outgoing']['application_sid'] == 'APtest'
     assert decoded['grants']['identity'] == body['identity']
     assert decoded['sub'] == 'ACtest'
+
+
+def test_access_token_sets_the_twr_region_header_and_response_edge(client, monkeypatch):
+    """ADR-061: confirmed directly against the installed Twilio SDK's source
+    that `region=` on AccessToken sets the JWT's `twr` header claim — Twilio's
+    signaling infrastructure uses this to route the client to the configured
+    region (IE1). The initial ADR-060 implementation omitted this entirely.
+    `edge` isn't a JWT claim at all (the Voice SDK's Device takes it as a
+    constructor option) so it must come back in the response body instead."""
+    _configure_voice_settings(monkeypatch, region='ie1', edge='dublin')
+    headers = auth_headers(client, 'haydar@replica-pilot.example')
+    r = client.post(TOKEN_PATH, headers=headers)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body['region'] == 'ie1'
+    assert body['edge'] == 'dublin'
+    header = pyjwt.get_unverified_header(body['token'])
+    assert header['twr'] == 'ie1'
+
+
+def test_access_token_fails_closed_without_region_or_edge_configured(client, monkeypatch):
+    """Matches get_twilio_rest_client()'s existing EU-residency posture
+    (ADR-049) — a Voice Access Token issued with no region preference at all
+    would silently defeat that same guarantee for the browser-calling path."""
+    _configure_voice_settings(monkeypatch, region='')
+    headers = auth_headers(client, 'haydar@replica-pilot.example')
+    r = client.post(TOKEN_PATH, headers=headers)
+    assert r.status_code == 500
+
+    _configure_voice_settings(monkeypatch, edge='')
+    r = client.post(TOKEN_PATH, headers=headers)
+    assert r.status_code == 500
 
 
 def test_access_token_identity_is_scoped_to_the_calling_user(client, monkeypatch):
