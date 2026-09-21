@@ -183,3 +183,72 @@ def test_ready_state_is_only_set_from_a_real_server_ack_not_on_raw_ws_open():
     message_handler_body = html[message_handler_start:message_handler_end]
     assert "msg.type === 'auth_ok'" in message_handler_body
     assert "setConnectionState('ready')" in message_handler_body
+
+
+# --- ADR-060: real browser-originated test call (Twilio Voice JS SDK) ---------------
+
+
+def test_voice_sdk_is_loaded_from_a_vendored_local_file_not_a_third_party_cdn():
+    """Twilio's Voice JS SDK v2+ is no longer CDN-hosted (confirmed against the
+    SDK's own README before vendoring it) — it must be self-hosted. Guards
+    against a future edit reverting to a third-party <script src> that may not
+    exist or may serve an unpinned/untrusted version."""
+    html = _read()
+    assert '<script src="/static/vendor/twilio-voice-sdk.min.js"></script>' in html
+    for forbidden_host in ('cdn.jsdelivr.net', 'unpkg.com', 'sdk.twilio.com'):
+        assert forbidden_host not in html
+
+
+def test_vendored_voice_sdk_file_exists_and_is_valid_js():
+    vendor_path = LIVE_HTML.parent / 'vendor' / 'twilio-voice-sdk.min.js'
+    assert vendor_path.is_file(), 'vendored Twilio Voice SDK file is missing'
+    content = vendor_path.read_text(encoding='utf-8')
+    assert len(content) > 10_000  # a real bundle, not an empty/error placeholder
+    assert 'Device' in content
+
+
+def test_prospect_number_field_is_never_prefilled_or_persisted():
+    html = _read()
+    assert 'id="prospectNumber"' in html
+    input_tag_start = html.index('id="prospectNumber"')
+    input_tag_end = html.index('/>', input_tag_start)
+    input_tag = html[input_tag_start:input_tag_end]
+    assert 'value=' not in input_tag  # never prefilled with anything, let alone a real number
+    assert 'autocomplete="off"' in input_tag
+    # No real-looking phone number literal anywhere in the file (placeholder
+    # text like "+49…" is fine; a specific dialable-looking number is not).
+    assert not re.search(r'\+49\d{6,}', html)
+
+
+def test_prospect_number_is_cleared_immediately_after_reading_and_never_logged():
+    html = _read()
+    click_handler_start = html.index("els.voiceCallBtn.addEventListener('click'")
+    click_handler_end = html.index('\n  });', click_handler_start)
+    handler_body = html[click_handler_start:click_handler_end]
+    read_idx = handler_body.index('els.prospectNumber.value.trim()')
+    clear_idx = handler_body.index("els.prospectNumber.value = ''")
+    assert read_idx < clear_idx, 'prospect number must be cleared from the field right after reading it'
+    for forbidden in ('console.log', 'console.info', 'console.warn', 'console.debug'):
+        assert forbidden not in handler_body
+
+
+def test_voice_call_validates_e164_before_connecting():
+    html = _read()
+    assert 'var E164_RE = /^\\+[1-9]\\d{6,14}$/;' in html
+    assert 'E164_RE.test(prospectNumber)' in html
+
+
+def test_device_connect_sends_replica_call_id_as_custom_parameter():
+    html = _read()
+    assert "params: { To: prospectNumber, replica_call_id: String(currentCallId) }" in html
+
+
+def test_voice_test_ui_lives_inside_the_debug_view_not_the_main_seller_view():
+    """ADR-056 reclassified /live/{call_id} as the technical debug view — this
+    real-call test tool belongs there, not in the calm main copilot area."""
+    html = _read()
+    debug_details_start = html.index('<details class="debug-toggle"')
+    debug_details_end = html.index('</details>', debug_details_start)
+    debug_block = html[debug_details_start:debug_details_end]
+    assert 'id="voiceTest"' in debug_block
+    assert 'id="voiceTest"' not in html[:debug_details_start]

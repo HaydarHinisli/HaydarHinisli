@@ -15,7 +15,7 @@ button,input{font:inherit}
    longer the visual center of the page. */
 .card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:18px;margin-top:14px}
 .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-input[type=password],input[type=number]{background:#0f141d;color:var(--text);border:1px solid var(--border);border-radius:9px;padding:9px 11px;flex:1;min-width:160px}
+input[type=password],input[type=number],input[type=tel]{background:#0f141d;color:var(--text);border:1px solid var(--border);border-radius:9px;padding:9px 11px;flex:1;min-width:160px}
 .btn{border:0;border-radius:10px;background:var(--accent);color:white;padding:9px 14px;cursor:pointer;font-weight:700}
 .btn:disabled{opacity:.5;cursor:not-allowed}
 .hint{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
@@ -64,6 +64,11 @@ pre{background:#0f141d;border:1px solid var(--border);border-radius:10px;padding
 .debug-toggle summary::-webkit-details-marker{color:var(--muted)}
 .debug-body{margin-top:12px}
 
+/* ADR-060: real-browser-call test tool — deliberately inside the debug view,
+   not the calm seller UI above; this is a test harness control, not a
+   product feature. */
+.voice-test{margin-top:20px;padding-top:14px;border-top:1px solid var(--border)}
+
 @media(max-width:600px){.debug-grid{grid-template-columns:1fr}.sag{font-size:26px}.sag.empty{font-size:18px}}
 </style>
 </head>
@@ -101,11 +106,21 @@ pre{background:#0f141d;border:1px solid var(--border);border-radius:10px;padding
     <div class="debug-body">
       <div id="debugPanel" class="debug-grid"></div>
       <div id="debugNotice" class="notice"></div>
+
+      <div class="voice-test" id="voiceTest">
+        <div class="hint">Echter Testcall (Twilio Voice SDK, ADR-060)</div>
+        <div class="row" style="margin-top:8px">
+          <input id="prospectNumber" type="tel" placeholder="+49… (Testperson, wird nicht gespeichert)" autocomplete="off" autocorrect="off" spellcheck="false" />
+          <button id="voiceCallBtn" class="btn">Testcall starten</button>
+        </div>
+        <div id="voiceStatus" class="notice">Noch nicht initialisiert.</div>
+      </div>
     </div>
   </details>
 
 </div>
 
+<script src="/static/vendor/twilio-voice-sdk.min.js"></script>
 <script>
 (function () {
   'use strict';
@@ -123,6 +138,9 @@ pre{background:#0f141d;border:1px solid var(--border);border-radius:10px;padding
     historyText: document.getElementById('historyText'),
     debugPanel: document.getElementById('debugPanel'),
     debugNotice: document.getElementById('debugNotice'),
+    prospectNumber: document.getElementById('prospectNumber'),
+    voiceCallBtn: document.getElementById('voiceCallBtn'),
+    voiceStatus: document.getElementById('voiceStatus'),
   };
 
   var SAG_PLACEHOLDER = 'Bereit für den nächsten Hinweis';
@@ -424,6 +442,76 @@ pre{background:#0f141d;border:1px solid var(--border);border-radius:10px;padding
   els.connectBtn.addEventListener('click', function () {
     if (ws) { manualClose = true; ws.close(); }
     connect();
+  });
+
+  // --- ADR-060: real browser-originated test call (Twilio Voice JS SDK) ------
+  // Deliberately confined to the debug view — this drives one real call for
+  // the first real-provider test, it is not a seller-facing dialer feature.
+  var voiceDevice = null;
+  var E164_RE = /^\+[1-9]\d{6,14}$/;
+
+  function setVoiceStatus(text) {
+    els.voiceStatus.textContent = text;
+  }
+
+  async function ensureVoiceDevice() {
+    if (voiceDevice) return voiceDevice;
+    if (typeof Twilio === 'undefined' || !Twilio.Device) {
+      throw new Error('Twilio Voice SDK nicht geladen (app/static/vendor/twilio-voice-sdk.min.js fehlt?).');
+    }
+    var bearer = sanitizeToken(els.token.value);
+    if (!bearer) {
+      throw new Error('Kein Bearer-Token — oben zuerst verbinden.');
+    }
+    setVoiceStatus('Hole Access Token …');
+    var resp = await fetch('/api/voice/access-token', { method: 'POST', headers: { Authorization: 'Bearer ' + bearer } });
+    if (!resp.ok) {
+      throw new Error('Access-Token-Anfrage fehlgeschlagen (HTTP ' + resp.status + ').');
+    }
+    var body = await resp.json();
+    voiceDevice = new Twilio.Device(body.token);
+    voiceDevice.on('error', function (err) {
+      setVoiceStatus('Voice-SDK-Fehler: ' + (err && err.message ? err.message : 'unbekannt'));
+      els.voiceCallBtn.disabled = false;
+    });
+    return voiceDevice;
+  }
+
+  els.voiceCallBtn.addEventListener('click', async function () {
+    // Read once, then clear the field immediately — the number is used for
+    // exactly this one call and never persisted, logged, or left sitting in
+    // the DOM longer than necessary (docs/DECISIONS.md ADR-059/060).
+    var prospectNumber = els.prospectNumber.value.trim();
+    els.prospectNumber.value = '';
+
+    if (!currentCallId) {
+      setVoiceStatus('Erst oben mit Call-ID/Token verbinden (liefert replica_call_id).');
+      return;
+    }
+    if (!E164_RE.test(prospectNumber)) {
+      setVoiceStatus('Ungültiges Format — bitte E.164 verwenden (z. B. +49…).');
+      return;
+    }
+
+    els.voiceCallBtn.disabled = true;
+    try {
+      var device = await ensureVoiceDevice();
+      setVoiceStatus('Verbinde …');
+      var call = await device.connect({ params: { To: prospectNumber, replica_call_id: String(currentCallId) } });
+      call.on('ringing', function () { setVoiceStatus('Klingelt …'); });
+      call.on('accept', function () { setVoiceStatus('Im Gespräch.'); });
+      call.on('disconnect', function () { setVoiceStatus('Beendet.'); els.voiceCallBtn.disabled = false; });
+      call.on('cancel', function () { setVoiceStatus('Abgebrochen.'); els.voiceCallBtn.disabled = false; });
+      call.on('reject', function () { setVoiceStatus('Abgelehnt.'); els.voiceCallBtn.disabled = false; });
+      call.on('error', function (err) {
+        setVoiceStatus('Fehler: ' + (err && err.message ? err.message : 'unbekannt'));
+        els.voiceCallBtn.disabled = false;
+      });
+    } catch (e) {
+      setVoiceStatus(e && e.message ? e.message : 'Testcall konnte nicht gestartet werden.');
+      els.voiceCallBtn.disabled = false;
+    }
+    // prospectNumber deliberately never appears in any log/console statement above.
   });
 })();
 </script>

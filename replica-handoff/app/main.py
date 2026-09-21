@@ -3,13 +3,15 @@ import asyncio
 import hashlib
 import json
 import logging
+import re
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
+from xml.sax.saxutils import escape as xml_escape
 import jwt
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -718,6 +720,107 @@ async def twilio_call_status(request: Request, db: Session = Depends(get_db)):
         )
     db.commit()
     return {'ok': True, 'applied': applied}
+
+
+# ---------------------------------------------------------------------------
+# Browser-based outbound calling (Twilio Voice JS SDK, ADR-060)
+# ---------------------------------------------------------------------------
+
+_E164_RE = re.compile(r'\+[1-9]\d{6,14}')
+
+
+@app.post('/api/voice/access-token')
+def voice_access_token(current_user: AuthContext = Depends(require_role('seller', 'manager', 'tenant_admin'))):
+    """ADR-060: mints a short-lived Twilio Access Token so the seller's browser
+    (Twilio Voice JS SDK, app/static/live.html) can register a `Device` and place
+    an outbound call via `device.connect()` — the first real test's call path when
+    the seller is calling from their own MacBook's browser rather than a phone.
+    Requires the same auth as every other seller-facing endpoint; the token itself
+    is scoped (via VoiceGrant) to only ever reach the one configured TwiML
+    Application (`TWILIO_TWIML_APP_SID`), never an arbitrary Twilio resource.
+    """
+    try:
+        token = twilio_rest.create_voice_access_token(identity=f'user-{current_user.user_id}')
+    except ValueError as exc:
+        raise HTTPException(500, str(exc)) from exc
+    return {'token': token, 'identity': f'user-{current_user.user_id}', 'ttl_seconds': 3600}
+
+
+@app.post('/webhooks/twilio/voice-outbound')
+async def twilio_voice_outbound(request: Request):
+    """ADR-060: the Voice Request URL configured on the TwiML Application that
+    `TWILIO_TWIML_APP_SID` points to — Twilio calls this the moment the browser's
+    `device.connect({params: {...}})` places the outbound leg. Same
+    authentication posture as `twilio_call_status()` above: X-Twilio-Signature is
+    the ONLY authentication available here (fail-closed, ADR-029/036) — a bearer
+    token cannot apply since Twilio itself is the caller.
+
+    `To` (the Prospect test person's number, supplied by the browser at
+    `device.connect()` time — see app/static/live.html) is validated against a
+    plain E.164 shape and never logged: a rejection warning names the failure
+    reason, never the rejected value, matching this project's existing token-
+    rejection logging discipline (ADR-057). `replica_call_id` travels the same
+    way it always has for this topology (as a `<Stream>` custom Parameter, ADR-053
+    onward) — nothing about how the parent leg was established changes that.
+
+    The generated TwiML mirrors the already-confirmed, already-tested shape from
+    docs/REAL_TEST_SETUP.md exactly: `<Start><Stream track="both_tracks">` first
+    (so the Media Stream is running before anything is dialed), then
+    `<Dial callerId="...">` to the Prospect — `callerId` is the operator's own
+    Verified Caller ID from server-side config (`TWILIO_VERIFIED_CALLER_ID`),
+    never something the browser could set, so a compromised/buggy browser client
+    could never spoof an arbitrary caller ID.
+    """
+    form = await request.form()
+    params = {key: str(value) for key, value in form.items()}
+    signature = request.headers.get('x-twilio-signature')
+
+    try:
+        auth_token = get_secrets_provider().get('TWILIO_AUTH_TOKEN', settings.twilio_auth_token)
+    except NotImplementedError as exc:
+        logger.error('secrets backend error while resolving Twilio auth token', extra={'fields': {'error': str(exc)}})
+        raise HTTPException(403, 'Webhook verification unavailable') from exc
+
+    query = f'?{request.url.query}' if request.url.query else ''
+    url = f'{settings.replica_public_base_url.rstrip("/")}{request.url.path}{query}'
+    if not verify_twilio_signature(url, params, signature, auth_token):
+        logger.warning('twilio voice webhook signature verification failed', extra={'fields': {'path': request.url.path}})
+        raise HTTPException(403, 'Invalid webhook signature')
+
+    to_number = params.get('To', '').strip()
+    replica_call_id = params.get('replica_call_id', '').strip()
+    if not _E164_RE.fullmatch(to_number):
+        logger.warning('twilio voice webhook: rejected malformed To parameter', extra={'fields': {'path': request.url.path}})
+        raise HTTPException(400, 'Invalid destination number')
+    if not replica_call_id:
+        raise HTTPException(400, 'Missing replica_call_id parameter')
+    if not settings.twilio_verified_caller_id:
+        raise HTTPException(500, 'TWILIO_VERIFIED_CALLER_ID is not configured')
+
+    # xml_escape()'s default entity set is &/</> only — NOT quotes (that's
+    # xml.sax.saxutils's own documented default). Fine for the <Number> element's
+    # TEXT content below, but replica_call_id/callerId sit inside double-quoted
+    # ATTRIBUTE values, where an unescaped `"` would let a value break out of its
+    # attribute and inject arbitrary TwiML. Caught by this ADR's own test suite
+    # (tests/test_voice_outbound.py) before this ever shipped.
+    def xml_attr_escape(value: str) -> str:
+        return xml_escape(value, {'"': '&quot;'})
+
+    public_host = settings.replica_public_base_url.split('://', 1)[-1].rstrip('/')
+    twiml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<Response>'
+        '<Start>'
+        f'<Stream url="wss://{public_host}/ws/twilio-media" track="both_tracks">'
+        f'<Parameter name="replica_call_id" value="{xml_attr_escape(replica_call_id)}" />'
+        '</Stream>'
+        '</Start>'
+        f'<Dial callerId="{xml_attr_escape(settings.twilio_verified_caller_id)}">'
+        f'<Number>{xml_escape(to_number)}</Number>'
+        '</Dial>'
+        '</Response>'
+    )
+    return Response(content=twiml, media_type='application/xml')
 
 
 # ---------------------------------------------------------------------------

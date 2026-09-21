@@ -16,6 +16,8 @@ ever calling `Client(sid, token)` without them and inheriting the SDK's own
 default silently.
 """
 from __future__ import annotations
+from twilio.jwt.access_token import AccessToken
+from twilio.jwt.access_token.grants import VoiceGrant
 from twilio.rest import Client
 
 from ..config import get_settings
@@ -45,3 +47,30 @@ def get_twilio_rest_client() -> Client:
             'refusing to construct a client that would silently fall back to the Twilio SDK\'s own us1 default.'
         )
     return Client(settings.twilio_account_sid, settings.twilio_auth_token, region=settings.twilio_region, edge=settings.twilio_edge)
+
+
+def create_voice_access_token(identity: str, ttl_seconds: int = 3600) -> str:
+    """ADR-060: mints a short-lived Twilio Access Token carrying a VoiceGrant, so
+    the browser (Twilio Voice JS SDK) can register a `Device` and place an
+    outbound call via `device.connect()` — the browser-calling equivalent of
+    `get_twilio_rest_client()` above, which places calls server-side via REST
+    instead. Deliberately uses TWILIO_API_KEY_SID/SECRET, never
+    TWILIO_ACCOUNT_SID/AUTH_TOKEN — an Access Token signed with the main Auth
+    Token would work too, but Twilio's own guidance is to keep API Keys and the
+    Auth Token on separate, independently revocable credentials; this project's
+    Auth Token is also already relied on elsewhere purely as a webhook-signature
+    secret (docs/DECISIONS.md ADR-036), so reusing it here would blur that
+    boundary. Fails closed (ValueError) if any of the three required settings is
+    missing, same posture as `get_twilio_rest_client()` above.
+    """
+    settings = get_settings()
+    if not settings.twilio_account_sid or not settings.twilio_api_key_sid or not settings.twilio_api_key_secret:
+        raise ValueError('TWILIO_ACCOUNT_SID/TWILIO_API_KEY_SID/TWILIO_API_KEY_SECRET are not all configured.')
+    if not settings.twilio_twiml_app_sid:
+        raise ValueError('TWILIO_TWIML_APP_SID is not configured.')
+    token = AccessToken(
+        settings.twilio_account_sid, settings.twilio_api_key_sid, settings.twilio_api_key_secret,
+        identity=identity, ttl=ttl_seconds,
+    )
+    token.add_grant(VoiceGrant(outgoing_application_sid=settings.twilio_twiml_app_sid))
+    return token.to_jwt()

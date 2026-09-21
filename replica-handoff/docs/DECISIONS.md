@@ -1953,3 +1953,177 @@ REAL_TEST_SETUP.md` instructs saving it outside the repository), consistent
 with ADR-058's one-off operator script and this whole document's standing
 "never a real secret value in this file" rule extended here to a third
 party's personal data, not only to REPLICA's own credentials.
+
+## ADR-060 — Browser-based outbound calling (Twilio Voice JS SDK) for the first real test; two new endpoints, one vendored SDK file, three bugs caught by writing tests before shipping
+
+Status: accepted (real implementation — the first ADR in this series that
+adds actual product code, explicitly authorized: "Falls ja, bitte den
+minimalen Browser-Testpfad implementieren.")
+
+**Change of plan, explicitly requested.** ADR-058/059's REST-`calls.create()`
+call-placement path is no longer the mechanism for the first real test. The
+operator now wants to place the call live, themselves, from their MacBook's
+browser via the Twilio Voice JavaScript SDK (`device.connect()`), with the
+Prospect's normal mobile ringing without needing to be a Verified Caller ID.
+ADR-058/059's REST path remains documented and working as an alternative
+(`docs/REAL_TEST_SETUP.md` §4a); nothing about it was removed.
+
+**What ADR-059 (REST path) still didn't have, confirmed before writing any
+code:** no browser calling capability at all — the Twilio Voice JS SDK was
+not present anywhere in `app/static/live.html`, there was no server endpoint
+to mint a browser Access Token, and no TwiML-generating endpoint existed
+(REPLICA had never needed one — Bin-based and REST-inline TwiML both avoid
+that). All three needed to be built for real, not just documented.
+
+**Confirmed before writing any implementation code (not assumed):**
+- The Twilio Python SDK already installed (`twilio>=9,<10`) exposes
+  `twilio.jwt.access_token.AccessToken` and `.grants.VoiceGrant` — inspected
+  their real constructor signatures directly rather than guessing, and
+  smoke-tested `AccessToken(...).add_grant(VoiceGrant(...)).to_jwt()`
+  end-to-end with dummy credentials before writing `create_voice_access_token()`.
+- `Client.calls.create()`'s installed signature was already known to accept
+  `twiml=` (confirmed for ADR-059) but that has no bearing on the Voice SDK
+  path, which never calls the REST API at all — the browser talks to Twilio
+  directly over its own signaling connection.
+- **The Twilio Voice JS SDK is, as of v2.0, no longer CDN-hosted** (confirmed
+  against the SDK's own README, not assumed from memory) — a `<script src=
+  "https://sdk.twilio.com/...">` tag would 404. The officially recommended
+  alternative is self-hosting the built bundle. `twilio.min.js` from GitHub
+  Releases tag `2.18.5` (the confirmed-latest release at the time) was
+  downloaded, verified (valid JS via `node --check`, ~300KB, exposes the
+  documented `Twilio.Device`/`Twilio.Call` globals via `globalThis`) and
+  vendored into the repo at `app/static/vendor/twilio-voice-sdk.min.js`,
+  served same-origin by the existing static file mount — no CDN dependency,
+  no build step, no npm/webpack introduced.
+- The exact `Device` constructor signature, `connect()`'s `ConnectOptions`
+  shape (`{ params: Record<string,string> }` — confirmed as the mechanism for
+  passing `To`/`replica_call_id` to the Voice webhook), and both `Device`'s
+  and `Call`'s real event names (`'registered'`, `'error'`, `'accept'`,
+  `'ringing'`, `'disconnect'`, `'cancel'`, `'reject'`, ...) were read directly
+  from the pinned version's own TypeScript source (`lib/twilio/device.ts`,
+  `lib/twilio/call.ts`), not assumed from older SDK versions' now-outdated
+  public examples.
+
+**What was built:**
+1. `app/config.py`: four new optional settings — `TWILIO_API_KEY_SID`/
+   `TWILIO_API_KEY_SECRET` (a separate Twilio API Key, deliberately never the
+   main `TWILIO_AUTH_TOKEN`, which stays reserved for webhook signature
+   verification), `TWILIO_TWIML_APP_SID`, `TWILIO_VERIFIED_CALLER_ID`.
+2. `app/integrations/twilio_rest.py`: `create_voice_access_token(identity,
+   ttl_seconds=3600)` — mints a short-lived Access Token with a `VoiceGrant`
+   scoped to the one configured TwiML Application, fails closed (`ValueError`)
+   if any required setting is missing, mirroring `get_twilio_rest_client()`'s
+   existing posture exactly.
+3. `app/main.py`, two new endpoints:
+   - `POST /api/voice/access-token` — authenticated like every other
+     seller-facing endpoint (`require_role('seller','manager','tenant_admin')`),
+     returns `{token, identity, ttl_seconds}`.
+   - `POST /webhooks/twilio/voice-outbound` — the TwiML Application's Voice
+     Request URL. Same authentication posture as the existing
+     `POST /webhooks/twilio/call-status` webhook: X-Twilio-Signature is the
+     ONLY authentication (fail-closed, ADR-029/036) — reuses
+     `verify_twilio_signature()` and the exact URL-construction pattern
+     already established there. Validates `To` against a plain E.164 regex
+     and rejects (never echoing the rejected value) rather than embedding
+     unvalidated input into TwiML; returns
+     `<Start><Stream track="both_tracks"><Parameter name="replica_call_id">
+     ...` then `<Dial callerId="<server-side TWILIO_VERIFIED_CALLER_ID>">
+     <Number>{To}</Number></Dial>` — `callerId` is never something the
+     browser can set, so a compromised/buggy client could never spoof it.
+4. `app/static/vendor/twilio-voice-sdk.min.js` (new, vendored, see above) +
+   `app/static/live.html`: a new "Echter Testcall (Twilio Voice SDK)" section
+   added **inside the existing closed-by-default Debug-Ansicht** (ADR-056 —
+   this is a test-harness control, not a seller-facing product feature): a
+   number input and a button. The number is read once on click, the field is
+   cleared immediately after, it is validated against E.164 before any
+   network call, and it never appears in a `console.*` call anywhere in the
+   click handler (all deliberate, and each individually covered by a new
+   structural test — the operator's own runtime-only/never-logged
+   requirement for the Prospect's number, first raised for ADR-059, applies
+   identically here).
+
+**Speaker-role mapping for this exact topology:** unchanged from ADR-053/058
+— `OutboundSalesFlowResolver` still maps `inbound` (whoever is connected on
+the parent leg) to `seller` and `outbound` (the `<Dial>`-ed child leg) to
+`prospect`. Twilio's Media Streams track semantics do not distinguish a
+WebRTC client leg from a PSTN one, so a browser-originated parent leg with
+the Seller on it is structurally identical to the already-confirmed cases.
+Clarified via a new paragraph in `app/streaming/speaker_mapping.py`'s module
+docstring (doc-only, zero logic change, `tests/test_streaming_speaker_mapping.py`
+untouched) — explicitly **not yet verified against a live call**, which is
+exactly what running this test is for.
+
+**Three real bugs found by writing tests before shipping, not shipped
+unverified (this project's standing discipline):**
+1. **XML attribute-injection risk.** `xml.sax.saxutils.escape()`'s documented
+   default entity set is `&`/`<`/`>` only — it does NOT escape `"`. Two of
+   the three values embedded in the generated TwiML sit inside
+   double-quoted XML *attributes* (`value="..."`, `callerId="..."`); an
+   unescaped `"` in either could have let a value break out of its attribute
+   and inject arbitrary TwiML. Caught while writing
+   `tests/test_voice_outbound.py`'s escaping test (which initially asserted
+   the WRONG — i.e. actually-vulnerable — expected output, itself only
+   caught by cross-checking `xml.sax.saxutils.escape`'s real default
+   behavior directly rather than assuming). Fixed with a small
+   `xml_attr_escape()` helper that additionally escapes `"` for the two
+   attribute-context values; the `<Number>` element's plain text content
+   correctly keeps the simpler default (it doesn't need quote-escaping, and
+   `To` is already E.164-regex-validated before it ever reaches that point
+   regardless).
+2. **Test-isolation bug (test-only, not a product bug).** The first version
+   of the access-token tests monkeypatched attributes directly on
+   `app.main.settings` (the module-level `Settings` instance bound once at
+   import time) — this is exactly the pattern this repo's own webhook tests
+   already use successfully, but `create_voice_access_token()` calls
+   `get_settings()` FRESH on every invocation rather than using that
+   pre-bound reference. `tests/test_twilio_rest_region.py` (which sorts
+   alphabetically before the new test file and already clears the
+   `get_settings` lru_cache in its own `finally` blocks) left the cache
+   pointing at a rebuilt instance that the old `app.main.settings` reference
+   no longer represented — a full-suite run failed two tests that passed in
+   isolation, confirmed by re-running the full suite three times before and
+   after the fix. Fixed by switching to this repo's own already-established
+   env-var + `get_settings.cache_clear()` pattern
+   (`tests/test_twilio_rest_region.py`), plus an autouse fixture that
+   re-clears the cache on teardown so this file cannot leak a fake-credentialed
+   Settings instance into whichever test file happens to run next.
+3. **Premature error surfacing gap (design decision, not a defect in shipped
+   code):** confirmed the Device/Call error-event wiring surfaces failures to
+   the visible `voiceStatus` text rather than only to the browser console,
+   specifically because `device.connect()`'s exact registration requirements
+   could not be independently verified against Twilio's own live
+   documentation (`www.twilio.com` and `api.github.com` were both blocked by
+   this session's network egress policy; the pinned version's own
+   TypeScript source, fetched from `raw.githubusercontent.com`, was used as
+   the authoritative source instead) — if `device.connect()` alone turns out
+   to be insufficient without an explicit prior `device.register()` call,
+   the operator will see a clear, specific error message rather than a
+   silently non-functional button.
+
+**Regression coverage, all passing, full suite run three times consecutively
+to rule out ordering flakiness (this ADR's own test-isolation bug made that
+non-optional): 308/308 every time.**
+- `tests/test_voice_outbound.py` (new): access-token auth requirement,
+  fail-closed when unconfigured, JWT grant/identity/subject correctness,
+  per-user identity scoping; voice-outbound signature enforcement (missing/
+  wrong signature both rejected), correct TwiML shape and ordering
+  (`<Start>` before `<Dial>`), malformed `To` rejected without ever being
+  logged (`caplog`-asserted), missing `replica_call_id` rejected, fails
+  closed without `TWILIO_VERIFIED_CALLER_ID` configured, and the XML
+  attribute-escaping fix verified against the actual endpoint response (not
+  just the escape function in isolation).
+- `tests/test_seller_frontend_structure.py` (extended): the Voice SDK is
+  loaded from the vendored local file, never a third-party CDN host; the
+  vendored file exists and contains real SDK content; the Prospect number
+  field is never prefilled and has `autocomplete="off"`; no real-looking
+  phone number literal exists anywhere in the file; the field is read then
+  immediately cleared before any `console.*` call could exist in that code
+  path; E.164 validation runs before `device.connect()`; `replica_call_id`
+  is sent as a custom parameter; the whole voice-test UI lives inside the
+  debug `<details>`, never in the main seller view.
+
+**What did NOT change:** `OutboundSalesFlowResolver`'s logic, `TurnDetector`,
+`SalesBrain`, the Media Stream pipeline, `/ws/twilio-media`, Render-ACK, or
+any existing endpoint's behavior. The main seller-facing view (above the
+debug disclosure) is untouched — this is additive, confined to the
+already-reclassified (ADR-056) technical debug view.

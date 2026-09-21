@@ -41,6 +41,19 @@ class Settings(BaseSettings):
     twilio_region: str | None = 'ie1'
     twilio_edge: str | None = 'dublin'
 
+    # ADR-060: browser-based (Twilio Voice JS SDK) outbound calling for the first
+    # real test without a purchased number. An Access Token for the browser client
+    # needs a Twilio API Key (SID + Secret) — deliberately NOT the main
+    # TWILIO_AUTH_TOKEN, which stays reserved for webhook signature verification —
+    # plus the TwiML Application the browser's device.connect() call is routed
+    # through. TWILIO_VERIFIED_CALLER_ID is the operator's own already-Verified
+    # Caller ID, used server-side as <Dial callerId="..."> so it never has to be
+    # sent from (or trusted from) the browser.
+    twilio_api_key_sid: str | None = None
+    twilio_api_key_secret: str | None = None
+    twilio_twiml_app_sid: str | None = None
+    twilio_verified_caller_id: str | None = None
+
     # Sprint 2B: streaming ASR provider selection (app/streaming/asr.get_asr_provider()).
     # 'simulated' (default) is the only provider that works without credentials — see
     # docs/DECISIONS.md ADR-045. Nova-3 is Deepgram's current-generation streaming

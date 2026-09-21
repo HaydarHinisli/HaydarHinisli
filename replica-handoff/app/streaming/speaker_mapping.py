@@ -49,6 +49,22 @@ outbound-via-REST one. The explicitly out-of-scope case above remains: a REST
 call placed directly `To` the prospect, with the seller bridged in separately
 — that inverts which party is on the parent leg and would mislabel both roles
 under this resolver's fixed mapping.
+
+Extended by ADR-060 (no logic change) to a THIRD way of establishing the same
+parent leg: the seller's own browser, via the Twilio Voice JS SDK
+(`Device.connect()`), instead of a phone call (PSTN-inbound or REST-outbound-
+to-self). Twilio's Media Streams track semantics do not distinguish a WebRTC
+client leg from a PSTN one — `inbound` is still "audio Twilio receives from
+whoever is connected on the parent leg" regardless of what kind of connection
+that is, so a browser-originated parent leg with the seller on it, followed by
+the same `<Dial>` step bringing the prospect in as the child leg, remains
+structurally identical to the already-confirmed topology above and stays
+`inbound` = seller / `outbound` = prospect under this same resolver. This has
+been verified by re-reading Twilio's own Media Streams track documentation and
+by re-confirming this resolver's code makes no assumption about the parent
+leg's connection type anywhere — it has NOT yet been verified against an
+actual live browser-originated call; that verification is the first real test
+this topology is being prepared for, not something to assume in advance.
 """
 from __future__ import annotations
 from typing import Protocol

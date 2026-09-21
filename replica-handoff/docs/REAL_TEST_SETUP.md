@@ -4,9 +4,16 @@ Purpose: everything needed to run REPLICA's first real end-to-end test call
 (Twilio IE1 → real phone call → real Media Stream → Deepgram EU → real
 transcript → Turn Detection → SalesBrain → Live Suggestion → browser push →
 Render-ACK → real latency measurement), against real provider accounts, with
-consenting test persons only. No new code is required for this — everything
-below uses endpoints and mechanisms already built and tested (Sprints 2/2B/3A,
-Fix-Sprint, ADR-052).
+consenting test persons only. Through ADR-058/059, no new code was required —
+everything used endpoints and mechanisms already built and tested (Sprints
+2/2B/3A, Fix-Sprint, ADR-052). **ADR-060 changed that for the browser-based
+call path (§4b)**: placing the outbound call from the seller's own browser
+(Twilio Voice JS SDK) instead of a purchased number or a REST script needs a
+short-lived Access Token and a TwiML response Twilio can only get from
+REPLICA's own server at call time — two small, tested endpoints
+(`POST /api/voice/access-token`, `POST /webhooks/twilio/voice-outbound`) were
+added specifically for this. §4a's REST path remains fully code-free, as
+before.
 
 Never put a real secret value into this file, a commit, a log line, or any
 other document in this repo. Only variable *names* and their *purpose* are
@@ -36,10 +43,13 @@ listed here.
 ### Twilio
 | Variable | Purpose |
 |---|---|
-| `TWILIO_AUTH_TOKEN` | Verifies `X-Twilio-Signature` on both the call-status webhook (`POST /webhooks/twilio/call-status`) and the Media Streams WebSocket handshake (`/ws/twilio-media`). Fail-closed: wrong/missing → request rejected. |
-| `TWILIO_ACCOUNT_SID` | **Correction (ADR-058):** required for real this time, not just "for completeness" — the no-purchased-number REST call-placement path (§4a) actually calls `get_twilio_rest_client()`, which refuses to construct a client without it. |
-| `TWILIO_REGION` / `TWILIO_EDGE` | **Correction (ADR-058):** also actually exercised now — `get_twilio_rest_client()` uses these for the one real `calls.create()` call this test's REST-based call placement makes. Already default to `ie1`/`dublin` in code (ADR-049); only set explicitly if overriding. |
-| *(Twilio phone number)* | **Still not purchased and still not an environment variable** — this test deliberately runs without one (Verified Caller ID + REST call placement, §4a) instead of buying a number. |
+| `TWILIO_AUTH_TOKEN` | Verifies `X-Twilio-Signature` on the call-status webhook, the NEW voice-outbound webhook (`POST /webhooks/twilio/voice-outbound`, ADR-060), and the Media Streams WebSocket handshake (`/ws/twilio-media`). Fail-closed: wrong/missing → request rejected. |
+| `TWILIO_ACCOUNT_SID` | **Correction (ADR-058):** required for real this time, not just "for completeness" — both the REST call-placement path (§4a) and the browser-based path's Access Token minting (§4b, ADR-060) need it. |
+| `TWILIO_REGION` / `TWILIO_EDGE` | **Correction (ADR-058):** exercised by `get_twilio_rest_client()` (§4a's REST call placement only — the browser path in §4b does not use this client at all). Already default to `ie1`/`dublin` in code (ADR-049); only set explicitly if overriding. |
+| `TWILIO_API_KEY_SID` / `TWILIO_API_KEY_SECRET` | **New (ADR-060), only needed for the browser-based test path (§4b).** A Twilio API Key (not the Account Auth Token — kept deliberately separate, see the code comment in `app/integrations/twilio_rest.py`) used to sign the short-lived Access Token the seller's browser needs to register a Voice SDK `Device`. Created once in the Console (§4b step 1). |
+| `TWILIO_TWIML_APP_SID` | **New (ADR-060), only needed for §4b.** The TwiML Application the browser's `device.connect()` call is routed through — created once in the Console (§4b step 2), its Voice Request URL points at `POST /webhooks/twilio/voice-outbound`. |
+| `TWILIO_VERIFIED_CALLER_ID` | **New (ADR-060), only needed for §4b.** The operator's own already-Verified Caller ID, used server-side (never sent by the browser) as `<Dial callerId="...">` so the Prospect sees a real, verified number and the browser client can never spoof an arbitrary caller ID. |
+| *(Twilio phone number)* | **Still not purchased and still not an environment variable** — both real-test paths (§4a REST, §4b browser) deliberately run without one, using a Verified Caller ID instead. |
 
 ### Deepgram
 | Variable | Purpose |
@@ -58,15 +68,20 @@ listed here.
 |---|---|---|
 | Media Stream WebSocket | `wss://<PUBLIC_HOST>/ws/twilio-media` (**no query parameters**) | Embedded literally inside the TwiML you configure (§4) — not a separate Twilio dashboard field. |
 | Status Callback | `https://<PUBLIC_HOST>/webhooks/twilio/call-status` (HTTP POST) | Embedded directly in the TwiML Bin (§4), as `<Number statusCallback="...">` — kept inside the Bin so the whole Bin is the single place to fill in, per the explicit "only 4 fields" simplification. |
-| Call/Voice webhook ("A call comes in") | **No REPLICA URL** — see finding below | Phone Number → Voice Configuration → "A call comes in" → a **TwiML Bin**, not a webhook URL. |
+| Call/Voice webhook ("A call comes in") | **No REPLICA URL for the REST path (§4a)** — see finding below. **For the browser path (§4b, ADR-060): `https://<PUBLIC_HOST>/webhooks/twilio/voice-outbound` (HTTP POST)** | §4a: Phone Number → Voice Configuration → "A call comes in" → a **TwiML Bin**. §4b: TwiML Application → **Voice Configuration → "A call comes in" → Webhook**, this exact URL. |
 
-**Finding, stated plainly:** REPLICA's backend does not currently serve any
-TwiML-generating endpoint (no `/webhooks/twilio/voice` or similar exists in
-`app/main.py`). Building one would be a new backend feature, out of scope
-right now per the explicit instruction not to add architecture/product work.
-For this first test, use a static Twilio **TwiML Bin** instead (Twilio hosts
-the TwiML content itself — REPLICA's server is never contacted for it) — exact
-content given in §4.
+**Finding, stated plainly (still true for §4a's REST path, superseded for §4b
+by ADR-060):** REPLICA's backend originally served no TwiML-generating
+endpoint at all (no `/webhooks/twilio/voice` or similar existed in
+`app/main.py`) — building one was explicitly out of scope while only a
+purchased-number/REST call flow was being prepared. §4a's REST path still
+uses a static Twilio **TwiML Bin** instead (Twilio hosts the TwiML itself —
+REPLICA's server is never contacted for it), exact content given in §4.
+**This changed with ADR-060**: the browser-based path (§4b) needs the
+Prospect's number at connect-time, which a static Bin cannot embed — so
+`POST /webhooks/twilio/voice-outbound` now exists specifically for that path,
+built the same way and with the same signature-verification posture as the
+existing `POST /webhooks/twilio/call-status` webhook (see `app/main.py`).
 
 **Confirmed (code-verified, not a guess): `call_id` travels exclusively via
 `<Stream><Parameter name="replica_call_id" value="..."/></Stream>`, delivered
@@ -396,6 +411,82 @@ written to any file, never logged, never committed.
    inline form (`history -d <line>` or equivalent) — the non-echoed prompt
    avoids this entirely, which is why it's the safer default when in doubt.
 
+### Browser-based calling from the seller's own MacBook (ADR-060, now the preferred path)
+
+Supersedes §4a's REST call placement for the actual first test, per explicit
+request: the operator places the call themselves, live, from the browser
+(Twilio Voice JS SDK, `Device.connect()`), rather than a script calling
+Twilio's REST API. §4a's underlying topology reasoning (seller must be the
+PARENT leg / `inbound` track, Prospect must be the `<Dial>`-ed child leg /
+`outbound` track) is unchanged and still applies — only *how* the parent leg
+gets established changes again, this time to a WebRTC browser connection.
+§4a stays documented as a working alternative (e.g. for a fully unattended/
+scripted re-run later); it is not being removed.
+
+**One-time Twilio Console setup (steps 1–2 only ever need doing once per
+account, not per call):**
+
+1. **Create an API Key** (Standard, not Main — deliberately separate from the
+   Account Auth Token used for webhook signatures): Console → Account → API
+   keys & tokens → "Create API key" → Type: **Standard** → name it e.g.
+   `replica-voice-sdk` → copy the **SID** (`SK...`) and the **Secret** (shown
+   once) into your password manager, never into this repo. These become
+   `TWILIO_API_KEY_SID` / `TWILIO_API_KEY_SECRET`.
+2. **Create a TwiML Application**: Console → Voice → TwiML → **TwiML Apps** →
+   "Create new TwiML App" → name it e.g. `replica-first-test-browser` →
+   under **Voice Configuration**, set **"A call comes in"** to **Webhook**,
+   HTTP **POST**, URL `https://<PUBLIC_HOST>/webhooks/twilio/voice-outbound`
+   → Save. Copy the **Application SID** (`AP...`) shown at the top — this is
+   `TWILIO_TWIML_APP_SID`.
+3. Set the four new environment variables from §1
+   (`TWILIO_API_KEY_SID`, `TWILIO_API_KEY_SECRET`, `TWILIO_TWIML_APP_SID`,
+   `TWILIO_VERIFIED_CALLER_ID` — the last one is your own already-Verified
+   Caller ID number) in `.env`, alongside the existing
+   `TWILIO_ACCOUNT_SID`/`TWILIO_AUTH_TOKEN`/`TWILIO_REGION`/`TWILIO_EDGE`.
+   Restart the server after editing `.env` so the new values are picked up.
+
+**Running the actual test call, with as few steps as possible:**
+
+1. Complete preflight checklist steps 1–4 below (login, create the call,
+   grant consent, confirm permissions) — unchanged.
+2. Open `https://<PUBLIC_HOST>/live/{id}` in Chrome, paste a fresh bearer
+   token, click **"Verbinden"** (this is what makes `replica_call_id`
+   available to the page — required before the next step will do anything).
+3. Open the **Debug-Ansicht** (closed by default, ADR-056) → scroll to
+   **"Echter Testcall (Twilio Voice SDK, ADR-060)"**.
+4. Type the Prospect test person's number into the field (E.164, e.g.
+   `+49...`) — this value is never sent anywhere except this one call, never
+   logged, and the field clears itself the instant you click the button.
+5. Click **"Testcall starten"**. The browser will ask for microphone
+   permission (required by WebRTC/getUserMedia; HTTPS is already a
+   prerequisite for this whole setup) — allow it. The page fetches a fresh
+   Access Token from `POST /api/voice/access-token`, registers a Voice SDK
+   `Device`, and calls `device.connect()` with the number and
+   `replica_call_id` as custom parameters.
+6. Twilio POSTs those parameters to `/webhooks/twilio/voice-outbound`
+   (signature-verified, same posture as the existing call-status webhook),
+   which returns the TwiML: `<Start><Stream track="both_tracks">` first (so
+   the Media Stream is already running), then `<Dial callerId="<your
+   Verified Caller ID>">` to the Prospect's number.
+7. The Prospect's normal mobile phone rings, showing your Verified Caller ID
+   as the caller. Once they answer, speak as the seller directly into your
+   MacBook's microphone — REPLICA processes it through the same pipeline as
+   every other real-provider test (Deepgram EU → Turn Detection → Speaker
+   Mapping → Conversation State → SalesBrain → Live Suggestion → browser
+   render → Render-ACK).
+
+**Honesty note, stated plainly (mirrors ADR-058's for the REST path):** the
+speaker-role mapping for this exact topology (browser parent leg = `inbound`
+= seller, `<Dial>`-ed child leg = `outbound` = prospect) has been verified by
+re-reading Twilio's Media Streams track semantics and by confirming
+`OutboundSalesFlowResolver` makes no assumption anywhere about the parent
+leg's connection type (see the clarifying paragraph added to `app/streaming/
+speaker_mapping.py`'s docstring, ADR-060) — it has NOT yet been verified
+against an actual live call. That verification is what running this test
+IS; check `GET /api/calls/{id}/review` afterward to confirm which
+`Turn.speaker` values actually match who said what, exactly as ADR-058
+already recommended for its own topology.
+
 ### Deepgram (https://console.deepgram.com)
 
 1. Öffne https://console.deepgram.com und melde dich an.
@@ -410,9 +501,13 @@ written to any file, never logged, never committed.
 4. `mip_opt_out=true` ist bereits fest im Code gesetzt — keine Dashboard-Aktion
    nötig.
 
-## 5. Preflight checklist (existing API, no new code)
+## 5. Preflight checklist
 
-Once infra + credentials are in place, before dialing:
+Once infra + credentials are in place, before dialing. Steps 1–5 use only
+already-existing API, exactly as before ADR-060; step 6's browser option is
+the one part of this checklist that now also depends on the two new
+endpoints ADR-060 added (`POST /api/voice/access-token`,
+`POST /webhooks/twilio/voice-outbound`).
 
 1. **Login** (`POST /api/auth/login`) with the demo seller (if
    `REPLICA_DEMO_MODE=true`) → get a bearer token.
@@ -428,14 +523,19 @@ Once infra + credentials are in place, before dialing:
 5. **Open the live UI**: `https://<PUBLIC_HOST>/live/{id}` in the seller's
    browser, paste a fresh bearer token, click "Verbinden" — do this BEFORE
    placing the call, so the push connection is already live.
-6. **Place the call.** Two equivalent ways to get the Seller onto the parent
-   leg, pick whichever matches whether you bought a number:
+6. **Place the call.** Three equivalent ways to get the Seller onto the
+   parent leg — pick the one matching your setup:
    - **With a purchased number**: the Seller (Haydar) dials the Twilio number
      — **not** the other way around, and not the Prospect test person calling
      in either.
-   - **Without a purchased number (ADR-058, this test)**: run the REST
-     `calls.create()` command from §4a with `to=` the Seller's own phone —
-     Twilio calls the Seller, who answers exactly as if they'd dialed in.
+   - **Without a purchased number, via REST** (ADR-058, §4a): run the REST
+     `calls.create()` command with `to=` the Seller's own phone — Twilio
+     calls the Seller, who answers exactly as if they'd dialed in.
+   - **Without a purchased number, from the browser** (ADR-060, §4b, the
+     path actually used for this test): click **"Testcall starten"** in the
+     Debug-Ansicht's new voice-test section on the same `/live/{id}` page
+     already opened in step 5 — the Seller's own MacBook microphone becomes
+     the parent leg directly, no phone involved on the Seller's side at all.
 
 **Speaker-role honesty note** (corrected by ADR-053, superseding ADR-043's
 original assumption): with the TwiML above, the person **connected on the
