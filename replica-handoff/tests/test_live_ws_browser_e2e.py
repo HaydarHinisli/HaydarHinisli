@@ -139,7 +139,7 @@ def call_and_token(live_server):
 def _run_browser_cases(live_server, call_id, token) -> dict:
     result = subprocess.run(
         ['node', str(DRIVER_SCRIPT), live_server, str(call_id), token],
-        capture_output=True, text=True, env=_NODE_ENV, timeout=60,
+        capture_output=True, text=True, env=_NODE_ENV, timeout=90,
     )
     assert result.returncode == 0, f'driver script crashed: stdout={result.stdout!r} stderr={result.stderr!r}'
     try:

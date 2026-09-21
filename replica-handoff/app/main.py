@@ -1043,6 +1043,15 @@ async def live_suggestions(websocket: WebSocket, call_id: int):
     sub = hub.register(call_id=call_id, company_id=call.company_id, user_id=user.id, websocket=websocket)
     logger.info('live suggestion client connected', extra={'fields': {'call_id': call_id, 'user_id': user.id}})
     try:
+        # Fix (docs/DECISIONS.md ADR-058, found by the real-browser E2E test
+        # added in ADR-057): the client previously showed 'Bereit' as soon as
+        # the raw WebSocket opened, before the server had actually validated
+        # the auth frame — a rejected token could still flash the authenticated
+        # state for the brief window between `open` and the server's 1008
+        # close arriving. This explicit ack, sent only once every check above
+        # has actually passed, lets the client wait for real confirmation
+        # instead of assuming success from the absence of a close so far.
+        await websocket.send_json({'type': 'auth_ok'})
         last = hub.last_payload(call_id)
         if last is not None:
             # Reconnect behavior (Sprint 3A requirement 1): a reconnecting client

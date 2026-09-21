@@ -36,6 +36,19 @@ with more than two parties, warm transfers, ...) is explicitly OUT OF SCOPE for
 this resolver and must not be assumed to work — see docs/DECISIONS.md ADR-043/053
 for the full topology restriction and what would need to change to support
 another one.
+
+Clarified by ADR-058 (no logic change — the mapping below was already correct
+for this case, only the parent leg's origin differs): placing the PARENT call
+via Twilio's REST API instead of having the seller dial a purchased number in
+is still IN SCOPE, as long as the REST call's `To` is the SELLER (not the
+prospect) and the same `<Dial>` step still brings the prospect in as the child
+leg — the Media Stream's `inbound`/`outbound` labels depend only on who is
+connected on the parent leg and who is `<Dial>`-ed out afterward, never on
+whether that parent leg was established by an inbound PSTN call or an
+outbound-via-REST one. The explicitly out-of-scope case above remains: a REST
+call placed directly `To` the prospect, with the seller bridged in separately
+— that inverts which party is on the parent leg and would mislabel both roles
+under this resolver's fixed mapping.
 """
 from __future__ import annotations
 from typing import Protocol

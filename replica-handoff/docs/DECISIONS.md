@@ -1773,3 +1773,131 @@ than once.
 change to `/ws/twilio-media`, SalesBrain, or Render-ACK. This is a fix to an
 input-normalization gap and a reconnect-policy gap, both pre-existing since
 Sprint 3A, surfaced by real operator testing.
+
+## ADR-058 — First real test prepared without a purchased Twilio number: REST-placed call to the Seller, same confirmed topology, zero pipeline code changes
+
+Status: accepted (preparation/documentation — no functional code change; one
+docstring clarification only)
+
+**New account state, confirmed by the operator:** Pay-as-you-go active, a
+real starting balance plus bonus voice minutes, a **Verified Caller ID**
+(the operator's own German mobile) instead of a purchased number, and Voice
+Geographic Permissions for Germany (+49) enabled at Low Risk (High Risk
+intentionally left off). The operator explicitly decided not to buy a
+number for this first test.
+
+**The core question this session had to answer before touching anything:**
+does REPLICA's already-confirmed, already-tested speaker mapping
+(`OutboundSalesFlowResolver`, ADR-053) still hold when the parent call leg is
+established by a REST-API `calls.create()` instead of an inbound PSTN call to
+a purchased number? The resolver's own docstring explicitly lists "a
+REST-API-originated outbound call to the prospect with the seller bridged in
+separately" as out of scope — and the operator's own plain-language topology
+description ("ausgehender Call → Verbindung zur einwilligenden Testperson")
+reads exactly like that out-of-scope case on first pass, which would have
+silently inverted both speaker roles (the real prospect labelled `seller`,
+whoever got `<Dial>`-ed in labelled `prospect`) and produced zero live
+suggestions, since only `prospect`-labelled turns trigger SalesBrain.
+
+**Resolution: it depends only on who is on the parent leg, not on how that
+leg was established.** The Media Stream's `inbound`/`outbound` track labels
+describe the parent call's connected party (`inbound`) versus whoever gets
+`<Dial>`-ed out from it afterward (`outbound`) — nothing about that depends
+on whether the parent leg came from an inbound PSTN call or an
+outbound-via-REST one. So the REST call must be placed **`To` the Seller**
+(the operator's own phone), not `To` the Prospect test person: Twilio calls
+the Seller, the Seller answers exactly as if they'd dialed in, and the
+already-written, already-correct TwiML (`<Start><Stream>` then
+`<Dial><Number>` to the Prospect) runs completely unchanged. This preserves
+ADR-053's confirmed topology exactly, with the REST call replacing only the
+Seller's own act of dialing in — not the topology itself. Placing the REST
+call `To` the Prospect instead (bridging the Seller in separately) remains
+genuinely out of scope and was not implemented.
+
+**Answers to the five concrete preparation questions asked this session:**
+1. **Is the existing Twilio REST client sufficient?** Yes for authentication/
+   region config (`get_twilio_rest_client()`, `app/integrations/
+   twilio_rest.py`) — it has simply never been called yet (`.calls.create()`
+   appears nowhere in the codebase before this). No new client code needed;
+   the one `calls.create()` call itself is a one-off operator action (a
+   `python3 -c "..."` snippet in `docs/REAL_TEST_SETUP.md` §4a), not new
+   product/API code — REPLICA still does not gain a "place a call" endpoint.
+2. **Which env vars were missing?** None at the `Settings` level —
+   `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_REGION`, `TWILIO_EDGE`
+   already existed (ADR-049). What was actually wrong: `docs/
+   REAL_TEST_SETUP.md`'s own claims that `TWILIO_ACCOUNT_SID`/
+   `TWILIO_REGION`/`TWILIO_EDGE` were "not read by any code path this test
+   depends on" — true for the old bought-number plan, false now that this
+   test's call placement actually calls `get_twilio_rest_client()`. Corrected
+   in that document's §1.
+3. **How to start the call without buying a number?** `client.calls.create(
+   to=<Seller phone>, from_=<Verified Caller ID>, url=<TwiML Bin's own public
+   Request URL>)` — the same TwiML Bin already documented for the
+   bought-number plan, just referenced by its own Twilio-hosted Request URL
+   instead of being assigned to a purchased number's "A call comes in"
+   webhook. No REPLICA endpoint serves TwiML; Twilio still hosts it.
+4. **How does `replica_call_id` reach the Media Stream?** Unchanged —
+   `<Parameter name="replica_call_id" value="...">` inside `<Stream>`,
+   delivered in the WS `start` event's `customParameters`
+   (`app/main.py`'s `_resolve_call_for_media_stream()`). This never depended
+   on how the call was initiated.
+5. **TwiML / Call API parameters?** TwiML: identical to the already-documented
+   two-person variant (`docs/REAL_TEST_SETUP.md` §4, step 5) — zero changes.
+   Call API: `to`/`from_`/`url` as in point 3 above; everything else
+   (`statusCallback` etc.) already lives inside the TwiML Bin itself, per
+   ADR-054.
+6. **Speaker/track mapping for this exact topology?** Unchanged from
+   ADR-053 — `inbound` (parent leg's connected party = Seller) → `seller`,
+   `outbound` (the `<Dial>`-ed party = Prospect) → `prospect`. Documented as
+   explicitly still in-scope via a clarifying paragraph added to
+   `app/streaming/speaker_mapping.py`'s module docstring (doc-only, no logic
+   change — `OutboundSalesFlowResolver.resolve()` itself is untouched, and
+   `tests/test_streaming_speaker_mapping.py` still passes unmodified).
+7. **Minimal trigger path for the operator?** Create the TwiML Bin → note its
+   Request URL → run the existing preflight checklist (login, create call,
+   grant consent, open `/live/{id}`) → run the one `calls.create()` snippet
+   with `to=` the Seller's own phone. Full detail in `docs/
+   REAL_TEST_SETUP.md` §4a (new) and the updated §5 step 6.
+
+**What did NOT change.** No new endpoint, no new Settings field, no change to
+`OutboundSalesFlowResolver.resolve()`'s logic, `TurnDetector`, `SalesBrain`,
+or the Media Stream/Render-ACK pipeline. The topology preparation itself is
+one docstring clarification in `app/streaming/speaker_mapping.py` plus
+documentation (`docs/REAL_TEST_SETUP.md` §1/§4/§5/§7) and a one-off operator
+command that is never committed — no new endpoint, no new Settings field.
+
+**Incidental real bug found and fixed while re-verifying for this
+preparation.** Re-running ADR-057's real-browser E2E test (the one exercising
+the actual `/ws/live/{call_id}` handshake, unrelated to today's topology
+question) surfaced a genuine, previously-undetected race: `app/static/
+live.html`'s `open` handler called `setConnectionState('ready')` as soon as
+the raw WebSocket connected and the auth frame was *sent* — not once the
+server had actually *validated* it. For a token the server was about to
+reject, the browser could flash `'Bereit'` for the window between `open` and
+the server's 1008 close arriving, undermining the very point of ADR-057's
+`'auth-error'` state. Fixed by adding an explicit `{'type': 'auth_ok'}`
+server message (`app/main.py`, sent immediately after every auth/tenant/role
+check passes, before entering the receive loop) and moving the client's
+`setConnectionState('ready')` call to fire only on receiving `auth_ok` (or
+`sync`, which equally proves successful auth) — never on raw `open`. Existing
+tests asserting on the first message received after sending `auth` (`tests/
+test_live_suggestions_ws.py`'s ping/pong test, `tests/
+test_streaming_pipeline_e2e.py`'s live-push assertion) were updated to
+consume the new leading `auth_ok` message; a new explicit test
+(`test_ws_sends_explicit_auth_ok_immediately_after_successful_auth`) and a
+structural guard (`test_ready_state_is_only_set_from_a_real_server_ack_not_on_raw_ws_open`)
+cover the fix directly. This was a real defect, not a test artifact — it
+also explains why the E2E test appeared to "flake" (~2 of 3 runs) before the
+fix: the race window's outcome depended on scheduling, not chance in any
+meaningful sense. Full regression after this fix, run four times
+consecutively to confirm the race is actually gone rather than just
+less likely: **290/290 passing, every time.**
+
+**Secrets discipline for this preparation, stated plainly:** no Twilio
+credential, phone number, or TwiML Bin URL was requested from or shared by
+the operator in this session — every value in the commands above is a
+placeholder the operator fills in locally. The two real phone numbers
+involved (Seller's own, Prospect test person's) are not secrets but still
+do not belong in any commit, log line, or this document — `docs/
+REAL_TEST_SETUP.md` continues to only ever name variable *purposes*, never
+values.

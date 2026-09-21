@@ -483,6 +483,8 @@ def test_sprint_3a_full_synthetic_path_through_live_push_and_render_ack(client, 
     try:
         with client.websocket_connect(f'/ws/live/{call_id}') as live_ws:
             live_ws.send_text(json.dumps({'type': 'auth', 'token': live_token}))
+            auth_ok = live_ws.receive_json()
+            assert auth_ok['type'] == 'auth_ok'  # ADR-058: explicit ack before the receive loop starts
             with _connect(media_stream_client) as ws:
                 sim = StreamSimulator(ws, call_id=call_id)
                 sim.start()

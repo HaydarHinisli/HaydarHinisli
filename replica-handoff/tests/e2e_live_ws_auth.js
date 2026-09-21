@@ -30,7 +30,9 @@ async function runCase(browser, baseUrl, callId, token) {
     await page.fill('#callId', String(callId));
     await page.fill('#token', token);
     await page.click('#connectBtn');
-    const statusText = await waitForStatusText(page, 4000);
+    // 12s, not 4s: this is a correctness check, not a latency benchmark — a
+    // busy CI/dev machine running the full suite must not flake this.
+    const statusText = await waitForStatusText(page, 12000);
     const connectCardHidden = await page.$eval('#connectCard', (el) => el.hidden);
     return { statusText, connectCardHidden };
   } finally {

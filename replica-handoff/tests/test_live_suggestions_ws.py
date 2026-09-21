@@ -242,6 +242,23 @@ def test_ws_local_env_allows_missing_origin(client):
         ws.send_text(json.dumps({'type': 'auth', 'token': token}))
 
 
+# --- Explicit auth_ok ack (ADR-058) --------------------------------------------------
+#
+# Found via the real-browser E2E test added in ADR-057: the client used to show
+# 'Bereit' as soon as the raw WebSocket opened and the auth frame was SENT, not
+# once the server had actually validated it — a rejected token could flash the
+# authenticated state for the window before the server's 1008 close arrived.
+
+def test_ws_sends_explicit_auth_ok_immediately_after_successful_auth(client):
+    headers = auth_headers(client, 'haydar@replica-pilot.example')
+    call_id = _create_call(client, headers)
+    token = login(client, 'haydar@replica-pilot.example')
+    with client.websocket_connect(f'/ws/live/{call_id}') as ws:
+        ws.send_text(json.dumps({'type': 'auth', 'token': token}))
+        first = ws.receive_json()
+        assert first == {'type': 'auth_ok'}
+
+
 # --- Clock-sync ping/pong (Fix-Sprint, ADR-051) --------------------------------------
 
 def test_ws_ping_gets_a_pong_with_server_timestamps(client):
@@ -250,6 +267,8 @@ def test_ws_ping_gets_a_pong_with_server_timestamps(client):
     token = login(client, 'haydar@replica-pilot.example')
     with client.websocket_connect(f'/ws/live/{call_id}') as ws:
         ws.send_text(json.dumps({'type': 'auth', 'token': token}))
+        auth_ok = ws.receive_json()
+        assert auth_ok['type'] == 'auth_ok'  # ADR-058: explicit ack before the receive loop starts
         ws.send_text(json.dumps({'type': 'ping', 'seq': 1, 't1_client_send_ms': 12345.0}))
         pong = ws.receive_json()
         assert pong['type'] == 'pong'

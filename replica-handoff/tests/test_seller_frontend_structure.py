@@ -163,3 +163,23 @@ def test_auth_error_state_shows_a_clear_actionable_message():
     html = _read()
     assert "state === 'auth-error'" in html
     assert 'Authentifizierung fehlgeschlagen' in html
+
+
+def test_ready_state_is_only_set_from_a_real_server_ack_not_on_raw_ws_open():
+    """Regression guard (ADR-058, found by the real-browser E2E test): the
+    'open' handler fires as soon as the socket connects, before the server
+    has validated the auth frame at all — setting 'ready' there would flash
+    the authenticated state even for a token the server is about to reject.
+    'ready' must only be set once the server's own auth_ok/sync message
+    proves the auth frame was actually accepted."""
+    html = _read()
+    open_handler_start = html.index("ws.addEventListener('open'")
+    open_handler_end = html.index('});', open_handler_start)
+    open_handler_body = html[open_handler_start:open_handler_end]
+    assert "setConnectionState('ready')" not in open_handler_body
+
+    message_handler_start = html.index("ws.addEventListener('message'")
+    message_handler_end = html.index('});', message_handler_start)
+    message_handler_body = html[message_handler_start:message_handler_end]
+    assert "msg.type === 'auth_ok'" in message_handler_body
+    assert "setConnectionState('ready')" in message_handler_body

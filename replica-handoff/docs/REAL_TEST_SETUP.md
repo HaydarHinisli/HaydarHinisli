@@ -36,10 +36,10 @@ listed here.
 ### Twilio
 | Variable | Purpose |
 |---|---|
-| `TWILIO_AUTH_TOKEN` | The **only** Twilio credential REPLICA's code actually reads for this test — verifies `X-Twilio-Signature` on both the call-status webhook (`POST /webhooks/twilio/call-status`) and the Media Streams WebSocket handshake (`/ws/twilio-media`). Fail-closed: wrong/missing → request rejected. |
-| `TWILIO_ACCOUNT_SID` | Not read by any code path this test depends on today (only by the not-yet-used REST client factory / `/api/integrations` status display). Worth setting for completeness; the test does not require it. |
-| `TWILIO_REGION` / `TWILIO_EDGE` | Govern REST API calls REPLICA itself makes TO Twilio (not the inbound webhook/media-stream traffic, which has no region concept). REPLICA makes no such calls yet, so these aren't exercised by this test either — already default to `ie1`/`dublin` in code (ADR-049). |
-| *(Twilio phone number)* | **Not an environment variable at all** — REPLICA's backend never reads it. It only matters for how you configure the number in the Twilio Console (§4 below). |
+| `TWILIO_AUTH_TOKEN` | Verifies `X-Twilio-Signature` on both the call-status webhook (`POST /webhooks/twilio/call-status`) and the Media Streams WebSocket handshake (`/ws/twilio-media`). Fail-closed: wrong/missing → request rejected. |
+| `TWILIO_ACCOUNT_SID` | **Correction (ADR-058):** required for real this time, not just "for completeness" — the no-purchased-number REST call-placement path (§4a) actually calls `get_twilio_rest_client()`, which refuses to construct a client without it. |
+| `TWILIO_REGION` / `TWILIO_EDGE` | **Correction (ADR-058):** also actually exercised now — `get_twilio_rest_client()` uses these for the one real `calls.create()` call this test's REST-based call placement makes. Already default to `ie1`/`dublin` in code (ADR-049); only set explicitly if overriding. |
+| *(Twilio phone number)* | **Still not purchased and still not an environment variable** — this test deliberately runs without one (Verified Caller ID + REST call placement, §4a) instead of buying a number. |
 
 ### Deepgram
 | Variable | Purpose |
@@ -177,8 +177,11 @@ the real deployment above for anything beyond that.
    Account → API keys & tokens) → dort stehen "Account SID" und "Auth Token"
    (Auth Token ggf. über "View"/Augen-Symbol sichtbar machen) → in deinen
    Passwort-Manager kopieren, niemals in eine Datei in diesem Repo.
-4. **Telefonnummer**: Phone Numbers → Manage → Buy a number (falls noch keine
-   vorhanden) → eine Nummer mit aktivierter Voice-Funktion wählen.
+4. **Telefonnummer — OPTIONAL, per ADR-058 bewusst übersprungen für den ersten
+   Test**: Phone Numbers → Manage → Buy a number, falls du doch eine kaufen
+   willst. Mit einer erfolgreich hinterlegten **Verified Caller ID** (Voice →
+   Caller IDs → Verify a number) ist keine gekaufte Nummer nötig — §4a unten
+   beschreibt den Testablauf ganz ohne eine.
 5. **TwiML Bin erstellen**: Develop → TwiML Bins → "Create new TwiML Bin".
 
    **Zwischenschritt, empfohlen bevor eine zweite Testperson feststeht — Solo-
@@ -247,11 +250,15 @@ the real deployment above for anything beyond that.
    einer `ParentCallSid`, die auf den Parent/Seller-Call zurückverweist — siehe
    ADR-054 zur entsprechend korrigierten Korrelation im
    `/webhooks/twilio/call-status`-Endpoint.
-6. **Nummer mit der Bin verknüpfen**: Phone Numbers → Manage → Active Numbers
-   → deine Nummer anklicken → Abschnitt "Voice Configuration" → Feld
-   "A call comes in" → Dropdown auf "TwiML Bin" stellen → die eben erstellte
-   Bin auswählen → Speichern. (Kein separates "Call status changes"-Feld nötig
-   — der Status-Callback ist bereits Teil der Bin selbst, siehe oben.)
+6. **Nummer mit der Bin verknüpfen — nur falls du in Schritt 4 doch eine
+   Nummer gekauft hast**: Phone Numbers → Manage → Active Numbers → deine
+   Nummer anklicken → Abschnitt "Voice Configuration" → Feld "A call comes
+   in" → Dropdown auf "TwiML Bin" stellen → die eben erstellte Bin auswählen
+   → Speichern. (Kein separates "Call status changes"-Feld nötig — der
+   Status-Callback ist bereits Teil der Bin selbst, siehe oben.) **Ohne
+   gekaufte Nummer (der Weg für diesen ersten Test) entfällt dieser Schritt
+   komplett** — die Bin wird stattdessen direkt als `url`-Parameter eines
+   REST-`calls.create()`-Aufrufs verwendet, siehe §4a.
 7. **EU-Region (IE1)** — Hinweis zur Ehrlichkeit: dieser Schritt konnte hier
    nicht an einem echten Twilio-Dashboard verifiziert werden. Ob und wo eine
    explizite "IE1"/EU-Data-Residency-Auswahl im Twilio Console für einen
@@ -263,6 +270,74 @@ the real deployment above for anything beyond that.
    hinterlegt (`app/integrations/twilio_rest.py`). Falls deine
    Account-Einstellungen eine Regions-/Data-Residency-Sektion zeigen, wähle
    dort EU, ansonsten beim Twilio-Support nachfragen.
+
+### Placing the call without a purchased number (ADR-058)
+
+Confirmed prerequisites (checked live against the operator's own account):
+Pay-as-you-go active, a real balance, a **Verified Caller ID** (not a
+purchased number) on the account, and the destination country's **Voice
+Geographic Permission** enabled (Low Risk) for every number this test will
+touch — both the number the REST call rings AND the number `<Dial>`-ed out
+to as the prospect. High Risk is intentionally not enabled; don't dial a
+number Twilio classifies High Risk with this account as configured.
+
+**Topology, and why it must be this way round and not the other:** the
+already-confirmed, already-tested speaker mapping (ADR-053,
+`OutboundSalesFlowResolver`) requires the SELLER to be the party connected on
+the PARENT call leg (`inbound` track) and the PROSPECT to be the party
+`<Dial>`-ed out afterward (`outbound` track) — a live Suggestion only ever
+fires from a `prospect`-labelled turn, so getting this backwards means the
+call sounds fine on the phone but silently produces zero suggestions (or
+mislabels who-said-what). With no purchased number, "the Seller dials the
+Twilio number" (the previous plan's step 6) isn't possible — nobody can call
+a number that doesn't exist. The REST-equivalent that preserves the exact
+same topology is: **Twilio calls the SELLER via the REST API** (using the
+Verified Caller ID as `From`), the Seller answers exactly as if they'd dialed
+in, and the SAME already-written TwiML then proceeds unchanged (`<Start>
+<Stream>` immediately, then `<Dial><Number>` to the Prospect test person).
+The parent leg's connected party is still the Seller either way — only
+*how* that leg was established changes (REST-outbound instead of
+PSTN-inbound), which the Media Stream's `inbound`/`outbound` labelling does
+not depend on (see the clarifying note added to `app/streaming/
+speaker_mapping.py`'s docstring). **Do not** instead place the REST call `To`
+the Prospect test person with the Seller bridged in separately — that
+inverts which party is on the parent leg and is explicitly out of scope for
+`OutboundSalesFlowResolver` as written.
+
+**Steps:**
+1. Create the TwiML Bin exactly as in step 5 above (the "vollständige
+   Variante mit Prospect" — unchanged, still needs `<PUBLIC_HOST>` (twice),
+   `<REPLICA_CALL_ID>`, and the Prospect test person's number filled in).
+   Skip step 6 (nothing to link a Bin to — no number exists).
+2. After saving the Bin, the TwiML Bins list shows its own public **Request
+   URL** (`https://handler.twilio.com/twiml/EH...`) — copy it; this is the
+   `url=` value below.
+3. Complete preflight checklist steps 1–5 below (login, create the call, grant
+   consent, confirm permissions, open `/live/{id}` in the browser) — unchanged.
+4. Place the call via the Twilio REST API, reusing `get_twilio_rest_client()`
+   (`app/integrations/twilio_rest.py` — already EU region/edge-configured,
+   never constructs a client without `TWILIO_ACCOUNT_SID`/`TWILIO_AUTH_TOKEN`
+   set). This is a one-off operator action, not new product code — run it
+   directly from an activated venv shell, never committed anywhere:
+   ```bash
+   python3 -c "
+   from app.integrations.twilio_rest import get_twilio_rest_client
+   client = get_twilio_rest_client()
+   call = client.calls.create(
+       to='+49...',            # the SELLER's own phone (the one that should answer and speak first)
+       from_='+49...',         # the Verified Caller ID — same number as `to` is fine
+       url='https://handler.twilio.com/twiml/EH...',  # the TwiML Bin's Request URL from step 2
+   )
+   print('Call SID:', call.sid)
+   "
+   ```
+   The Seller's phone rings; answering it runs the exact same TwiML as the
+   previous plan's inbound flow — `<Start><Stream>` starts the Media Stream
+   immediately, then `<Dial><Number>` rings the Prospect test person.
+   `TWILIO_ACCOUNT_SID`/`TWILIO_AUTH_TOKEN`/`TWILIO_REGION`/`TWILIO_EDGE` must
+   already be set in the environment this command runs in (§1) — no value in
+   this command is a secret except the two phone numbers, which are not
+   secrets but also don't belong in a commit either.
 
 ### Deepgram (https://console.deepgram.com)
 
@@ -296,24 +371,29 @@ Once infra + credentials are in place, before dialing:
 5. **Open the live UI**: `https://<PUBLIC_HOST>/live/{id}` in the seller's
    browser, paste a fresh bearer token, click "Verbinden" — do this BEFORE
    placing the call, so the push connection is already live.
-6. **Place the call**: the Seller (Haydar) dials the Twilio number — **not**
-   the other way around. This is the confirmed topology for this test; do not
-   have the Prospect test person call in.
+6. **Place the call.** Two equivalent ways to get the Seller onto the parent
+   leg, pick whichever matches whether you bought a number:
+   - **With a purchased number**: the Seller (Haydar) dials the Twilio number
+     — **not** the other way around, and not the Prospect test person calling
+     in either.
+   - **Without a purchased number (ADR-058, this test)**: run the REST
+     `calls.create()` command from §4a with `to=` the Seller's own phone —
+     Twilio calls the Seller, who answers exactly as if they'd dialed in.
 
 **Speaker-role honesty note** (corrected by ADR-053, superseding ADR-043's
-original assumption): with the TwiML above, the person who **calls the
-number** — the Seller — becomes the `inbound` track (mapped to `seller` by
-`OutboundSalesFlowResolver`, `outbound_sales_flow_v2`), and the person
-**`<Dial>`-ed out to** — the consenting Prospect test person — becomes
-`outbound` (mapped to `prospect`). This mapping matches the concrete topology
-confirmed for this test (Seller calls in, TwiML `<Dial>`s the Prospect out),
-but has still never been verified against a live Twilio account — only
-against documented Twilio semantics and the unit tests in
-`tests/test_streaming_speaker_mapping.py`. After the test call, check
-`GET /api/calls/{id}/review` (existing endpoint, no new code) to confirm which
-`Turn.speaker` values actually match who said what — if inverted, that is real
-field data for a further topology correction, not something to guess-fix in
-advance.
+original assumption): with the TwiML above, the person **connected on the
+parent leg** — the Seller, however that leg was established — becomes the
+`inbound` track (mapped to `seller` by `OutboundSalesFlowResolver`,
+`outbound_sales_flow_v2`), and the person **`<Dial>`-ed out to** — the
+consenting Prospect test person — becomes `outbound` (mapped to `prospect`).
+This mapping matches the concrete topology confirmed for this test (Seller on
+the parent leg, TwiML `<Dial>`s the Prospect out), but has still never been
+verified against a live Twilio account — only against documented Twilio
+semantics and the unit tests in `tests/test_streaming_speaker_mapping.py`.
+After the test call, check `GET /api/calls/{id}/review` (existing endpoint,
+no new code) to confirm which `Turn.speaker` values actually match who said
+what — if inverted, that is real field data for a further topology
+correction, not something to guess-fix in advance.
 
 ## 6. What this test proves
 
@@ -327,7 +407,14 @@ persons only, never a real external prospect. This single test closes both
 Sprint 2B (Real Provider Verification) and Sprint 3A (Real-RSL Verification)
 at once, per the existing plan.
 
-## 7. Resume point (19.09.2026) — everything below is done, only the Twilio number purchase is blocked
+## 7. Resume point (19.09.2026) — superseded by ADR-058 (21.09.2026)
+
+**Update:** the Pay-as-you-go upgrade referenced as blocked below has since
+completed, and the operator has deliberately decided NOT to buy a number —
+a Verified Caller ID plus REST-placed call (§4a) replaces "buy a number" in
+the plan below. The rest of this section is kept as the historical record of
+what this session actually found; do not follow its closing "next session"
+list literally — follow §4a instead.
 
 No code or architecture was changed to work around the Trial limitation in
 §4 — see ADR-055. What is already configured and verified on the operator's

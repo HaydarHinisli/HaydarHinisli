@@ -231,7 +231,11 @@ pre{background:#0f141d;border:1px solid var(--border);border-radius:10px;padding
     ws.addEventListener('open', function () {
       reconnectDelayMs = 500;
       ws.send(JSON.stringify({ type: 'auth', token: token }));
-      setConnectionState('ready');
+      // Fix (ADR-058): do NOT show 'ready' here — the socket being open only
+      // means the auth frame was sent, not that the server has validated it
+      // yet. A rejected token would otherwise flash 'Bereit' for the brief
+      // window before the server's 1008 close arrives. 'ready' is set below,
+      // only once the server's explicit auth_ok confirms real success.
       sendClockSyncPings();
     });
 
@@ -240,7 +244,10 @@ pre{background:#0f141d;border:1px solid var(--border);border-radius:10px;padding
       var receivedAtEpoch = Date.now();
       var msg;
       try { msg = JSON.parse(evt.data); } catch (e) { return; }
-      if (msg.type === 'suggestion' || msg.type === 'sync') {
+      if (msg.type === 'auth_ok') {
+        setConnectionState('ready');
+      } else if (msg.type === 'suggestion' || msg.type === 'sync') {
+        setConnectionState('ready');
         handleSuggestion(msg, receivedAtPerf, receivedAtEpoch);
       } else if (msg.type === 'pong') {
         clockSyncSamples.push({
