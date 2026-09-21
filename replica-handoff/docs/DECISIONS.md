@@ -2208,3 +2208,25 @@ anywhere in the file).
 existing behavior — this is a correction confined entirely to ADR-060's own
 new code, found and fixed before a single Twilio Console resource for it was
 created.
+
+**Addendum, same investigation: the Console-side half of "fully IE1" was
+also about to be missed.** Before any Console resource was created, checked
+whether API Keys and TwiML Apps are themselves region-scoped in the Console
+UI, rather than assume the code-level fix above was the whole story.
+Confirmed against Twilio's own published documentation ([Managing Regional
+Resources in
+Console](https://www.twilio.com/docs/global-infrastructure/managing-regional-resources-in-console)):
+they are. Whichever Region the Console's Region selector is set to at the
+moment of clicking "Create" is the Region the resource is created in —
+defaulting to US1 if never touched. Creating the API Key or the TwiML App
+without first switching that selector to IE1 would have produced a US1
+resource, silently defeating the exact EU-residency intent of this whole
+ADR at the one step still left to a human clicking through a UI rather than
+running verified code. `docs/REAL_TEST_SETUP.md` §4b's Console steps were
+updated to make switching the Region selector to IE1 an explicit, ordered
+step 0 before creating either resource, with an honesty note that this
+session could not click through the current Twilio Console live to confirm
+exact wording (`www.twilio.com` was blocked by network egress policy here,
+same as during ADR-058's original Console-steps write-up) — the steps
+follow Twilio's own documented procedure, with an explicit instruction to
+verify the Region indicator actually reads IE1 before proceeding.

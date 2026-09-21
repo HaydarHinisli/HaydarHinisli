@@ -423,20 +423,43 @@ gets established changes again, this time to a WebRTC browser connection.
 §4a stays documented as a working alternative (e.g. for a fully unattended/
 scripted re-run later); it is not being removed.
 
-**One-time Twilio Console setup (steps 1–2 only ever need doing once per
-account, not per call):**
+**One-time Twilio Console setup (steps 0–2 only ever need doing once per
+account, not per call). Step 0 is not optional** — per Twilio's own
+documentation ([Managing Regional Resources in
+Console](https://www.twilio.com/docs/global-infrastructure/managing-regional-resources-in-console)),
+API Keys and TwiML Apps are themselves Region-scoped resources: whichever
+Region the Console's Region selector is set to at the moment you click
+"Create" is the Region that resource is created in, defaulting to US1 if you
+never touch it. Creating either one without switching to IE1 first would
+silently produce a US1 API Key / US1 TwiML App — exactly the kind of hidden
+non-EU dependency ADR-049/061 exist to prevent, and it would not necessarily
+even be usable together with an IE1-region Access Token. This session could
+not click through the Console live to confirm the exact current wording
+(`www.twilio.com` was blocked by network egress policy here) — the steps
+below follow Twilio's own documented procedure; verify the Region indicator
+actually reads **IE1** before proceeding with steps 1 and 2, and stop to
+re-check if it doesn't match what's described.
 
+0. **Switch the Console's Region selector to IE1**: Console → Develop → API
+   keys & creds → **API Keys & auth tokens** → find the **Region** selector
+   (a dropdown, shown alongside this page in the current Console) → select
+   **IE1**. The page reloads scoped to IE1. (Older/legacy Console layout:
+   Account menu, top right → "API keys & tokens" under Keys & Credentials →
+   Region dropdown → IE1.)
 1. **Create an API Key** (Standard, not Main — deliberately separate from the
-   Account Auth Token used for webhook signatures): Console → Account → API
-   keys & tokens → "Create API key" → Type: **Standard** → name it e.g.
-   `replica-voice-sdk` → copy the **SID** (`SK...`) and the **Secret** (shown
-   once) into your password manager, never into this repo. These become
-   `TWILIO_API_KEY_SID` / `TWILIO_API_KEY_SECRET`.
-2. **Create a TwiML Application**: Console → Voice → TwiML → **TwiML Apps** →
-   "Create new TwiML App" → name it e.g. `replica-first-test-browser` →
-   under **Voice Configuration**, set **"A call comes in"** to **Webhook**,
-   HTTP **POST**, URL `https://<PUBLIC_HOST>/webhooks/twilio/voice-outbound`
-   → Save. Copy the **Application SID** (`AP...`) shown at the top — this is
+   Account Auth Token used for webhook signatures), with the Region selector
+   still on IE1 from step 0: click **"Create API key"** → Type: **Standard**
+   → name it e.g. `replica-voice-sdk` → copy the **SID** (`SK...`) and the
+   **Secret** (shown once) into your password manager, never into this repo.
+   These become `TWILIO_API_KEY_SID` / `TWILIO_API_KEY_SECRET`.
+2. **Create a TwiML Application**, Region selector still on IE1: Console →
+   Voice → TwiML → **TwiML Apps** — confirm the Region indicator on this page
+   also reads IE1 (it is tracked per product area, not globally for the
+   whole Console session) → "Create new TwiML App" → name it e.g.
+   `replica-first-test-browser` → under **Voice Configuration**, set **"A
+   call comes in"** to **Webhook**, HTTP **POST**, URL
+   `https://<PUBLIC_HOST>/webhooks/twilio/voice-outbound` → Save. Copy the
+   **Application SID** (`AP...`) shown at the top — this is
    `TWILIO_TWIML_APP_SID`.
 3. Set the four new environment variables from §1
    (`TWILIO_API_KEY_SID`, `TWILIO_API_KEY_SECRET`, `TWILIO_TWIML_APP_SID`,
