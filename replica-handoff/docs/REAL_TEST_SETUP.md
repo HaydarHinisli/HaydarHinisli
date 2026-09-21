@@ -304,40 +304,97 @@ the Prospect test person with the Seller bridged in separately — that
 inverts which party is on the parent leg and is explicitly out of scope for
 `OutboundSalesFlowResolver` as written.
 
+**Keeping the Prospect test person's number out of the TwiML Bin entirely
+(ADR-059):** step 5's "vollständige Variante mit Prospect" TwiML Bin is
+still fine to use if you're comfortable with that number sitting in a named
+Twilio Console resource indefinitely. If the test person is someone whose
+number you'd rather not leave stored in a third-party dashboard at all (a
+family member, a friend doing you a favor — not a company test account),
+skip that Bin entirely and use the script below instead: it builds the same
+TwiML **inline**, per call, from a number that only ever lives in an
+environment variable or a non-echoed prompt on your own machine — never
+written to any file, never logged, never committed.
+
 **Steps:**
-1. Create the TwiML Bin exactly as in step 5 above (the "vollständige
-   Variante mit Prospect" — unchanged, still needs `<PUBLIC_HOST>` (twice),
-   `<REPLICA_CALL_ID>`, and the Prospect test person's number filled in).
-   Skip step 6 (nothing to link a Bin to — no number exists).
-2. After saving the Bin, the TwiML Bins list shows its own public **Request
-   URL** (`https://handler.twilio.com/twiml/EH...`) — copy it; this is the
-   `url=` value below.
+1. Save the script below as `place_test_call.py` **outside this repository**
+   (e.g. your home folder or `/tmp`) — never inside `replica-handoff/`, so it
+   can never end up staged or committed by accident.
+   ```python
+   """One-off operator script (docs/DECISIONS.md ADR-059) — never committed.
+   Places the first real test call without a purchased Twilio number and
+   without ever writing the Prospect test person's number to a file, a log,
+   or a Twilio Console resource. Run with the replica-handoff venv active
+   and its repo root on PYTHONPATH (see the command below)."""
+   import getpass
+   import os
+   import re
+   from xml.sax.saxutils import escape
+
+   from app.integrations.twilio_rest import get_twilio_rest_client
+
+   # --- fill these in for this run (not personal data about a third party) ---
+   SELLER_NUMBER = '+49...'        # your own phone — answers first, plays the seller
+   VERIFIED_CALLER_ID = '+49...'   # your Verified Caller ID (may be the same number)
+   PUBLIC_HOST = '<PUBLIC_HOST>'   # same host as REPLICA_PUBLIC_BASE_URL, no scheme
+   REPLICA_CALL_ID = '<REPLICA_CALL_ID>'  # from preflight step 2 below
+   # ---------------------------------------------------------------------------
+
+   def read_prospect_number() -> str:
+       # TEST_PROSPECT_NUMBER (env var) or a non-echoed prompt — either way this
+       # value is used once, in memory, and never printed, logged, or written
+       # to disk anywhere in this script.
+       raw = os.environ.get('TEST_PROSPECT_NUMBER') or getpass.getpass(
+           'Prospect test person\'s number (E.164, e.g. +49...), not echoed, not logged: '
+       )
+       raw = raw.strip()
+       if not re.fullmatch(r'\+[1-9]\d{6,14}', raw):
+           raise SystemExit('Not a valid E.164 number — refusing to place the call.')
+       return raw
+
+   prospect_number = read_prospect_number()
+
+   twiml = (
+       '<?xml version="1.0" encoding="UTF-8"?>'
+       '<Response>'
+       '<Start>'
+       f'<Stream url="wss://{PUBLIC_HOST}/ws/twilio-media" track="both_tracks">'
+       f'<Parameter name="replica_call_id" value="{REPLICA_CALL_ID}" />'
+       '</Stream>'
+       '</Start>'
+       '<Dial>'
+       f'<Number statusCallback="https://{PUBLIC_HOST}/webhooks/twilio/call-status" '
+       'statusCallbackMethod="POST" '
+       f'statusCallbackEvent="initiated ringing answered completed">{escape(prospect_number)}</Number>'
+       '</Dial>'
+       '</Response>'
+   )
+
+   client = get_twilio_rest_client()
+   call = client.calls.create(to=SELLER_NUMBER, from_=VERIFIED_CALLER_ID, twiml=twiml)
+   print('Call SID:', call.sid)  # deliberately never prints prospect_number or twiml
+   ```
+2. Fill in `SELLER_NUMBER`, `VERIFIED_CALLER_ID`, `PUBLIC_HOST`,
+   `REPLICA_CALL_ID` in the script (these are yours/operational, not the
+   third party's data).
 3. Complete preflight checklist steps 1–5 below (login, create the call, grant
    consent, confirm permissions, open `/live/{id}` in the browser) — unchanged.
-4. Place the call via the Twilio REST API, reusing `get_twilio_rest_client()`
-   (`app/integrations/twilio_rest.py` — already EU region/edge-configured,
-   never constructs a client without `TWILIO_ACCOUNT_SID`/`TWILIO_AUTH_TOKEN`
-   set). This is a one-off operator action, not new product code — run it
-   directly from an activated venv shell, never committed anywhere:
+4. Run it, `TWILIO_ACCOUNT_SID`/`TWILIO_AUTH_TOKEN`/`TWILIO_REGION`/
+   `TWILIO_EDGE` already set in the environment (§1):
    ```bash
-   python3 -c "
-   from app.integrations.twilio_rest import get_twilio_rest_client
-   client = get_twilio_rest_client()
-   call = client.calls.create(
-       to='+49...',            # the SELLER's own phone (the one that should answer and speak first)
-       from_='+49...',         # the Verified Caller ID — same number as `to` is fine
-       url='https://handler.twilio.com/twiml/EH...',  # the TwiML Bin's Request URL from step 2
-   )
-   print('Call SID:', call.sid)
-   "
+   cd /path/to/replica-handoff && source .venv/bin/activate
+   TEST_PROSPECT_NUMBER='+49...' python3 /path/to/place_test_call.py
+   # or, to be prompted instead (not echoed to the terminal):
+   python3 /path/to/place_test_call.py
    ```
-   The Seller's phone rings; answering it runs the exact same TwiML as the
-   previous plan's inbound flow — `<Start><Stream>` starts the Media Stream
-   immediately, then `<Dial><Number>` rings the Prospect test person.
-   `TWILIO_ACCOUNT_SID`/`TWILIO_AUTH_TOKEN`/`TWILIO_REGION`/`TWILIO_EDGE` must
-   already be set in the environment this command runs in (§1) — no value in
-   this command is a secret except the two phone numbers, which are not
-   secrets but also don't belong in a commit either.
+   The Seller's phone rings; answering it runs the exact TwiML above —
+   `<Start><Stream>` starts the Media Stream immediately, then
+   `<Dial><Number>` rings the Prospect test person. `get_twilio_rest_client()`
+   (`app/integrations/twilio_rest.py`) is already EU region/edge-configured
+   and never constructs a client without `TWILIO_ACCOUNT_SID`/
+   `TWILIO_AUTH_TOKEN` set.
+5. Clear your shell history of this run if you used the `TEST_PROSPECT_NUMBER=`
+   inline form (`history -d <line>` or equivalent) — the non-echoed prompt
+   avoids this entirely, which is why it's the safer default when in doubt.
 
 ### Deepgram (https://console.deepgram.com)
 

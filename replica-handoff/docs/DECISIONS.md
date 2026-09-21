@@ -1901,3 +1901,55 @@ involved (Seller's own, Prospect test person's) are not secrets but still
 do not belong in any commit, log line, or this document — `docs/
 REAL_TEST_SETUP.md` continues to only ever name variable *purposes*, never
 values.
+
+## ADR-059 — Prospect test person's number kept out of the Twilio Console entirely, not just out of git
+
+Status: accepted (preparation refinement — no functional code change)
+
+The operator named the actual test person for the first real call: a family
+member, not a company test account, using her own mobile number as the
+Prospect target. ADR-058's plan already kept that number out of this
+repository (the TwiML Bin content is typed directly into the Twilio Console,
+never into a file here) — but the Bin approach still leaves it sitting in a
+**named, persistent Twilio Console resource** indefinitely. The operator
+asked for it not to be hardcoded, committed, or logged; this ADR goes one
+step further than strictly asked, since a third party's own number sitting
+indefinitely in a dashboard neither of them controls is the same class of
+concern as a commit or a log line.
+
+**Decision:** for a real (non-company) test person's number specifically,
+replace the TwiML-Bin-based two-person variant with a one-off local script
+(`docs/REAL_TEST_SETUP.md` §4a, updated) that builds the same TwiML
+**inline** via `twilio.rest.Client.calls.create(twiml=...)` (confirmed
+present on the installed SDK's `CallList.create()` signature) instead of
+`url=<Bin>`. The number is sourced from `TEST_PROSPECT_NUMBER` (an
+environment variable, per the operator's first suggested option) or,
+if unset, a `getpass.getpass()` prompt (the operator's second suggested
+option, "Eingabefeld beim Start des Testcalls" — realized as a non-echoed
+terminal prompt in this one-off script, not a new web form/endpoint, which
+would itself be exactly the kind of new product feature this whole
+preparation effort has been asked repeatedly not to build). Either way the
+value: is validated against a plain E.164 regex before use (rejected inputs
+raise `SystemExit` with a static message that never echoes the rejected
+value back); is XML-escaped before being embedded in the TwiML string
+(`xml.sax.saxutils.escape`); is never passed to `print()`, `logger.*()`, or
+written to any file; and only ever exists for the lifetime of that one
+Python process. The solo-verification Bin (no `<Dial>`, no third-party
+number at all) is unaffected and remains fine to keep as a persistent
+Console resource, since it contains no one's personal data.
+
+**Verified before documenting it** (this project's standing discipline,
+ADR-043/053/055/057/058): the script's TwiML-construction and E.164-
+validation logic was actually run in this session — a valid number produces
+byte-for-byte the same `<Start><Stream>`/`<Dial><Number>` shape as the
+existing documented Bin content (confirmed via `xml.dom.minidom` parsing),
+and an invalid one is rejected without the rejected value ever appearing in
+the error message.
+
+**What did NOT change:** no new REPLICA endpoint, no new `Settings` field,
+no change to `OutboundSalesFlowResolver`, the Media Stream pipeline, or any
+committed test. The script itself is explicitly never committed (`docs/
+REAL_TEST_SETUP.md` instructs saving it outside the repository), consistent
+with ADR-058's one-off operator script and this whole document's standing
+"never a real secret value in this file" rule extended here to a third
+party's personal data, not only to REPLICA's own credentials.
