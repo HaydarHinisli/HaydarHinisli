@@ -26,6 +26,11 @@ pre{background:#0f141d;border:1px solid var(--border);border-radius:10px;padding
 .kv .v{margin-top:3px;font-weight:600;word-break:break-all}
 .notice{margin-top:10px;font-size:12px;color:var(--muted)}
 [hidden]{display:none !important}
+/* Accessible label text: placeholders alone disappear on input and are
+   unreliable for screen readers, but the calm visual design (labels
+   implied by placeholder) shouldn't change — keep the real <label> visually
+   hidden while still exposed to assistive tech. */
+.visually-hidden{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 
 /* Seller v1: dezente Statuszeile ganz oben — Verbindungsstatus ist die
    einzige Information hier, keine call_id, keine technischen Begriffe. */
@@ -102,7 +107,9 @@ pre{background:#0f141d;border:1px solid var(--border);border-radius:10px;padding
   <div class="card" id="connectCard">
     <div class="hint">Verbindung</div>
     <div class="row" style="margin-top:8px">
+      <label for="callId" class="visually-hidden">Call-ID</label>
       <input id="callId" type="number" placeholder="call_id" />
+      <label for="token" class="visually-hidden">Bearer-Token (JWT)</label>
       <input id="token" type="password" placeholder="Bearer-Token (JWT)" />
       <button id="connectBtn" class="btn">Verbinden</button>
     </div>
@@ -130,6 +137,7 @@ pre{background:#0f141d;border:1px solid var(--border);border-radius:10px;padding
       <div class="voice-test" id="voiceTest">
         <div class="hint">Echter Testcall (Twilio Voice SDK, ADR-060)</div>
         <div class="row" style="margin-top:8px">
+          <label for="prospectNumber" class="visually-hidden">Zielnummer für den Testanruf</label>
           <input id="prospectNumber" type="tel" placeholder="+49… (Testperson, wird nicht gespeichert)" autocomplete="off" autocorrect="off" spellcheck="false" />
           <button id="voiceCallBtn" class="btn">Testcall starten</button>
           <button id="voiceHangupBtn" class="btn" hidden>Auflegen</button>
