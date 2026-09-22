@@ -2719,3 +2719,85 @@ found in this pass. Nothing about `/api/voice/access-token`,
 browser-call path needed to change — this ADR is confined entirely to
 `POST /webhooks/twilio/voice-outbound`'s own request-handling and the two
 new small guard structures it now calls.
+
+## ADR-065 — The concurrency lock's only release path required `/ws/twilio-media` to connect at all; a call that never gets that far would hold it for the full 30-minute TTL
+
+Status: accepted (a residual gap the operator asked to specifically check
+for, ahead of the actual first real call using a live TwiML App)
+
+With the real IE1 TwiML App now created and its Voice Request URL pointed
+at this deployment's tunnel, the operator asked two narrow questions: is
+the tunnel currently reachable, and is `VoiceCallConcurrencyLock`'s release
+path (ADR-064) actually closed for every way a real call can end — not just
+the ones already tested.
+
+**Tunnel reachability could not be checked from this session.** This
+session's own outbound network egress policy blocks `trycloudflare.com`
+entirely (confirmed via the proxy's own diagnostic status endpoint —
+`connect_rejected`/403 on the CONNECT, the exact same class of egress
+denial already documented for `www.twilio.com` earlier in this project) —
+not a statement about the tunnel or the server being down, simply that this
+sandboxed environment cannot reach that domain at all. The operator's own
+machine — where the tunnel actually terminates — is the only place this can
+be confirmed; `curl https://bold-pmc-passage-assured.trycloudflare.com/api/health`
+(expect `{"status":"ok",...}`) or opening that URL in a browser is
+sufficient.
+
+**The lock-lifecycle question was a real, confirmed gap.** Every test added
+for ADR-064 proved the lock releases correctly once `/ws/twilio-media`
+connects — but the webhook acquires the lock at TwiML-generation time,
+BEFORE Twilio has attempted the `<Dial>` or the `<Stream>` WebSocket
+handshake at all. A call that fails before ever reaching that
+WebSocket — busy, no-answer, a rejected dial, or the `<Stream>` handshake
+itself failing (TLS/DNS/tunnel hiccup, exactly the kind of failure a fresh
+`trycloudflare.com` tunnel is prone to) — left the ONLY release path
+(`/ws/twilio-media`'s own `finally` block) never reached, holding the lock
+for its full 30-minute safety-net TTL. Confirmed via Twilio's own
+documented `<Stream statusCallback>` mechanism (`StreamEvent` values
+`stream-started`/`stream-stopped`/`stream-error`, delivered independently
+of whether the Media Stream WebSocket itself ever connects) that this
+mechanism exists specifically to cover this blind spot.
+
+**Fix, exactly as scoped by the operator, nothing broader:**
+`twilio_voice_outbound()`'s generated `<Stream>` now carries
+`statusCallback`/`statusCallbackMethod="POST"`, pointed at a new
+`POST /webhooks/twilio/stream-status` endpoint — `replica_call_id` travels
+in that URL's own query string (Twilio's statusCallback payload has no
+notion of our custom `<Parameter>` values; those only ever reach the Media
+Stream WebSocket's `start` event), verified the same way every other
+webhook here verifies a signed URL that includes a query string. On
+`stream-stopped` or `stream-error`, it calls
+`VoiceCallConcurrencyLock.release()` — a no-op by construction for an
+already-released or never-held call_id, so this is safe to call
+idempotently (Twilio's own retries included) and safe to race against
+`/ws/twilio-media`'s own release of the very same lock. `stream-started` is
+acknowledged and otherwise ignored — the lock is already held from the
+moment TwiML was returned. The 30-minute TTL remains as the final,
+last-resort fallback for the (now much narrower) case where neither this
+callback nor the Media Stream WebSocket's own lifecycle ever fires at all.
+
+**What did NOT change**: no new product feature, no change to the ticket/
+replay logic from ADR-064, no change to `/ws/twilio-media` itself (its own
+`finally`-block release stays exactly as it was — this is a second,
+independent release path, not a replacement) — this new endpoint's ONLY
+job is releasing the lock for the one gap that path could not cover. The
+§4a REST-based test path (a manually-configured Twilio Console TwiML Bin)
+is unaffected: it never acquires `VoiceCallConcurrencyLock` in the first
+place (that lock is only ever taken inside `twilio_voice_outbound()`, the
+ADR-060 browser-ticket path's own webhook), so it needs no `statusCallback`
+addition for this purpose.
+
+**Regression coverage**: 7 new tests in `tests/test_voice_outbound.py` —
+missing/wrong signature rejected; the exact scenario this ADR exists for
+(`stream-error` after a webhook call that never reaches `/ws/twilio-media`
+releases the lock, confirmed by a subsequent call succeeding where it would
+otherwise 409); `stream-stopped` also releases; `stream-started` does NOT
+release (still 409s); three repeated `stream-error` calls for the same
+call_id are all accepted without error (idempotency); and a missing/
+malformed `replica_call_id` query parameter is handled without a crash.
+Full suite: 373/373 (up from ADR-064's 366/366), run three times
+consecutively, zero regressions.
+
+**Verdict for Call #1: NOT READY yet — pending the operator's own
+confirmation of tunnel reachability (this session cannot check it); the
+lock-lifecycle question itself is now fully closed and regression-tested.**

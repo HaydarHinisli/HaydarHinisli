@@ -309,6 +309,10 @@ def test_voice_outbound_accepts_valid_signature_and_returns_correct_twiml(client
     assert 'callerId="+491700000000"' in body
     assert '<Number>+49170123456</Number>' in body
     assert '/ws/twilio-media' in body
+    # ADR-065: statusCallback is the ONLY way the concurrency lock is ever
+    # released for a call that never reaches /ws/twilio-media at all.
+    assert f'statusCallback="https://127.0.0.1:8000/webhooks/twilio/stream-status?replica_call_id={call_id}"' in body
+    assert 'statusCallbackMethod="POST"' in body
 
 
 def test_voice_outbound_full_real_flow_through_the_actual_access_token_endpoint(client, monkeypatch):
@@ -589,6 +593,114 @@ def test_a_second_independent_call_attempt_succeeds_once_the_lock_is_released(cl
     params_c = {'To': '+49170123458', 'replica_voice_ticket': _ticket(call_id=call_id), 'CallSid': _fresh_call_sid()}
     sig_c = _sig(BASE + VOICE_PATH, params_c)
     assert client.post(VOICE_PATH, data=params_c, headers={'X-Twilio-Signature': sig_c}).status_code == 200
+
+
+# --- POST /webhooks/twilio/stream-status (ADR-065) ------------------------------------
+
+STREAM_STATUS_PATH = '/webhooks/twilio/stream-status'
+
+
+def _stream_status_sig(call_id, extra_params=None):
+    url = f'{BASE}{STREAM_STATUS_PATH}?replica_call_id={call_id}'
+    params = dict(extra_params or {})
+    return url, _sig(url, params)
+
+
+def test_stream_status_rejects_missing_signature(client, monkeypatch):
+    _configure_webhook_settings(monkeypatch)
+    r = client.post(f'{STREAM_STATUS_PATH}?replica_call_id=1', data={'StreamEvent': 'stream-stopped'})
+    assert r.status_code == 403
+
+
+def test_stream_status_rejects_wrong_signature(client, monkeypatch):
+    _configure_webhook_settings(monkeypatch)
+    r = client.post(
+        f'{STREAM_STATUS_PATH}?replica_call_id=1', data={'StreamEvent': 'stream-stopped'},
+        headers={'X-Twilio-Signature': 'totally-wrong=='},
+    )
+    assert r.status_code == 403
+
+
+def test_stream_status_stream_error_releases_the_lock_even_though_media_stream_never_connected(client, monkeypatch):
+    """THE core scenario this ADR exists for: a call that never reaches
+    /ws/twilio-media at all (busy/no-answer/failed <Stream> handshake) must
+    still release the lock — via this callback alone, not the media-stream
+    WebSocket's own `finally` block."""
+    _configure_webhook_settings(monkeypatch)
+    headers = auth_headers(client, 'haydar@replica-pilot.example')
+    call_id = _create_call(client, headers)
+
+    params_a = {'To': '+49170123456', 'replica_voice_ticket': _ticket(call_id=call_id), 'CallSid': _fresh_call_sid()}
+    sig_a = _sig(BASE + VOICE_PATH, params_a)
+    assert client.post(VOICE_PATH, data=params_a, headers={'X-Twilio-Signature': sig_a}).status_code == 200
+
+    params_b = {'To': '+49170123457', 'replica_voice_ticket': _ticket(call_id=call_id), 'CallSid': _fresh_call_sid()}
+    sig_b = _sig(BASE + VOICE_PATH, params_b)
+    assert client.post(VOICE_PATH, data=params_b, headers={'X-Twilio-Signature': sig_b}).status_code == 409  # still locked
+
+    url, sig = _stream_status_sig(call_id, {'StreamEvent': 'stream-error', 'StreamError': 'WebSocket - Handshake Error'})
+    r = client.post(url, data={'StreamEvent': 'stream-error', 'StreamError': 'WebSocket - Handshake Error'}, headers={'X-Twilio-Signature': sig})
+    assert r.status_code == 200, r.text
+
+    params_c = {'To': '+49170123458', 'replica_voice_ticket': _ticket(call_id=call_id), 'CallSid': _fresh_call_sid()}
+    sig_c = _sig(BASE + VOICE_PATH, params_c)
+    assert client.post(VOICE_PATH, data=params_c, headers={'X-Twilio-Signature': sig_c}).status_code == 200  # lock released
+
+
+def test_stream_status_stream_stopped_releases_the_lock(client, monkeypatch):
+    _configure_webhook_settings(monkeypatch)
+    headers = auth_headers(client, 'haydar@replica-pilot.example')
+    call_id = _create_call(client, headers)
+    params_a = {'To': '+49170123456', 'replica_voice_ticket': _ticket(call_id=call_id), 'CallSid': _fresh_call_sid()}
+    sig_a = _sig(BASE + VOICE_PATH, params_a)
+    assert client.post(VOICE_PATH, data=params_a, headers={'X-Twilio-Signature': sig_a}).status_code == 200
+
+    url, sig = _stream_status_sig(call_id, {'StreamEvent': 'stream-stopped'})
+    assert client.post(url, data={'StreamEvent': 'stream-stopped'}, headers={'X-Twilio-Signature': sig}).status_code == 200
+
+    params_b = {'To': '+49170123457', 'replica_voice_ticket': _ticket(call_id=call_id), 'CallSid': _fresh_call_sid()}
+    sig_b = _sig(BASE + VOICE_PATH, params_b)
+    assert client.post(VOICE_PATH, data=params_b, headers={'X-Twilio-Signature': sig_b}).status_code == 200
+
+
+def test_stream_status_stream_started_does_not_release_the_lock(client, monkeypatch):
+    _configure_webhook_settings(monkeypatch)
+    headers = auth_headers(client, 'haydar@replica-pilot.example')
+    call_id = _create_call(client, headers)
+    params_a = {'To': '+49170123456', 'replica_voice_ticket': _ticket(call_id=call_id), 'CallSid': _fresh_call_sid()}
+    sig_a = _sig(BASE + VOICE_PATH, params_a)
+    assert client.post(VOICE_PATH, data=params_a, headers={'X-Twilio-Signature': sig_a}).status_code == 200
+
+    url, sig = _stream_status_sig(call_id, {'StreamEvent': 'stream-started'})
+    assert client.post(url, data={'StreamEvent': 'stream-started'}, headers={'X-Twilio-Signature': sig}).status_code == 200
+
+    params_b = {'To': '+49170123457', 'replica_voice_ticket': _ticket(call_id=call_id), 'CallSid': _fresh_call_sid()}
+    sig_b = _sig(BASE + VOICE_PATH, params_b)
+    assert client.post(VOICE_PATH, data=params_b, headers={'X-Twilio-Signature': sig_b}).status_code == 409  # still locked
+
+
+def test_stream_status_is_idempotent_across_repeated_calls(client, monkeypatch):
+    """Twilio may retry this callback too — releasing an already-released
+    (or never-held) lock must never raise or behave differently."""
+    _configure_webhook_settings(monkeypatch)
+    headers = auth_headers(client, 'haydar@replica-pilot.example')
+    call_id = _create_call(client, headers)
+    params_a = {'To': '+49170123456', 'replica_voice_ticket': _ticket(call_id=call_id), 'CallSid': _fresh_call_sid()}
+    sig_a = _sig(BASE + VOICE_PATH, params_a)
+    assert client.post(VOICE_PATH, data=params_a, headers={'X-Twilio-Signature': sig_a}).status_code == 200
+
+    url, sig = _stream_status_sig(call_id, {'StreamEvent': 'stream-error'})
+    for _ in range(3):
+        r = client.post(url, data={'StreamEvent': 'stream-error'}, headers={'X-Twilio-Signature': sig})
+        assert r.status_code == 200, r.text
+
+
+def test_stream_status_missing_replica_call_id_does_not_crash(client, monkeypatch):
+    _configure_webhook_settings(monkeypatch)
+    url = f'{BASE}{STREAM_STATUS_PATH}'  # no ?replica_call_id=... at all
+    sig = _sig(url, {'StreamEvent': 'stream-error'})
+    r = client.post(STREAM_STATUS_PATH, data={'StreamEvent': 'stream-error'}, headers={'X-Twilio-Signature': sig})
+    assert r.status_code == 200
 
 
 # --- GET /api/voice/preflight (ADR-062) -----------------------------------------------

@@ -945,11 +945,23 @@ async def twilio_voice_outbound(request: Request, db: Session = Depends(get_db))
         return xml_escape(value, {'"': '&quot;'})
 
     public_host = settings.replica_public_base_url.split('://', 1)[-1].rstrip('/')
+    # Red-team hardening (docs/DECISIONS.md ADR-065): the ONLY release path for
+    # the VoiceCallConcurrencyLock acquired just above was, until now,
+    # /ws/twilio-media's own `finally` block — meaning a call that never even
+    # reaches that WebSocket (busy/no-answer/failed dial, or the <Stream>
+    # handshake itself never completing) left the lock held for its full
+    # 30-minute safety-net TTL. Twilio's own `<Stream statusCallback>` fires
+    # regardless of whether the Media Stream WebSocket ever connects at all —
+    # `replica_call_id` travels in the URL's OWN query string (not something
+    # Twilio's statusCallback payload carries), verified the same way every
+    # other webhook here verifies its query string as part of the signed URL.
+    stream_status_url = f'https://{public_host}/webhooks/twilio/stream-status?replica_call_id={replica_call_id}'
     twiml = (
         '<?xml version="1.0" encoding="UTF-8"?>'
         '<Response>'
         '<Start>'
-        f'<Stream url="wss://{public_host}/ws/twilio-media" track="both_tracks">'
+        f'<Stream url="wss://{public_host}/ws/twilio-media" track="both_tracks" '
+        f'statusCallback="{xml_attr_escape(stream_status_url)}" statusCallbackMethod="POST">'
         f'<Parameter name="replica_call_id" value="{xml_attr_escape(str(replica_call_id))}" />'
         '</Stream>'
         '</Start>'
@@ -959,6 +971,65 @@ async def twilio_voice_outbound(request: Request, db: Session = Depends(get_db))
         '</Response>'
     )
     return Response(content=twiml, media_type='application/xml')
+
+
+@app.post('/webhooks/twilio/stream-status')
+async def twilio_stream_status(request: Request):
+    """docs/DECISIONS.md ADR-065: releases `VoiceCallConcurrencyLock`
+    (app/services/voice_call_guard.py) even when `/ws/twilio-media` is NEVER
+    connected at all — e.g. the dialed number is busy/no-answer, or the
+    `<Stream>` WebSocket handshake itself never completes. Without this, the
+    only release path was that endpoint's own `finally` block, so a call
+    that never got that far would hold the lock for its full 30-minute
+    safety-net TTL — locking the operator out of retrying their own first
+    real call for no real reason.
+
+    Same authentication posture as every other Twilio webhook here:
+    X-Twilio-Signature is the only authentication available, verified
+    against the full request URL INCLUDING its query string (Twilio signs
+    exactly the URL it was given) — `replica_call_id` travels there, in the
+    URL `twilio_voice_outbound()` itself generated moments earlier, because
+    Twilio's own `<Stream statusCallback>` payload has no notion of our
+    custom `<Parameter>` values (those only ever reach the Media Stream
+    WebSocket's own `start` event, never this callback).
+
+    Idempotent by construction: `VoiceCallConcurrencyLock.release()` is a
+    no-op for a call_id that is already released or was never held — this
+    endpoint can safely be called multiple times (Twilio may retry it) or
+    arrive after `/ws/twilio-media` already released the same lock itself.
+    Only `stream-stopped`/`stream-error` release anything; `stream-started`
+    is acknowledged and otherwise ignored (the lock is already held from
+    the moment TwiML was returned — nothing to (re)acquire here).
+    """
+    form = await request.form()
+    params = {key: str(value) for key, value in form.items()}
+    signature = request.headers.get('x-twilio-signature')
+
+    try:
+        auth_token = get_secrets_provider().get('TWILIO_AUTH_TOKEN', settings.twilio_auth_token)
+    except NotImplementedError as exc:
+        logger.error('secrets backend error while resolving Twilio auth token', extra={'fields': {'error': str(exc)}})
+        raise HTTPException(403, 'Webhook verification unavailable') from exc
+
+    query = f'?{request.url.query}' if request.url.query else ''
+    url = f'{settings.replica_public_base_url.rstrip("/")}{request.url.path}{query}'
+    if not verify_twilio_signature(url, params, signature, auth_token):
+        logger.warning('twilio stream-status webhook signature verification failed', extra={'fields': {'path': request.url.path}})
+        raise HTTPException(403, 'Invalid webhook signature')
+
+    stream_event = params.get('StreamEvent', '')
+    try:
+        replica_call_id = int(request.query_params.get('replica_call_id', ''))
+    except (TypeError, ValueError):
+        logger.warning('twilio stream-status webhook: missing/invalid replica_call_id', extra={'fields': {'stream_event': stream_event}})
+        return {'ok': True}  # signature already proved this is genuinely from Twilio; just nothing to release
+
+    if stream_event in ('stream-stopped', 'stream-error'):
+        get_voice_call_lock().release(call_id=replica_call_id)
+        logger.info('twilio stream-status: released voice-call concurrency lock', extra={
+            'fields': {'call_id': replica_call_id, 'stream_event': stream_event},
+        })
+    return {'ok': True}
 
 
 @app.get('/api/voice/preflight')

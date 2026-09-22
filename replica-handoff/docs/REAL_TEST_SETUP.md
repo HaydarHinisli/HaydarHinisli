@@ -679,6 +679,14 @@ here).
   `call_id` (e.g. two browser tabs) cannot both place a real call at
   once — the second is refused (409) until the first call's Media Stream
   ends, then a new one is accepted again automatically.
+- Lock lifecycle closed for every real-call outcome, including one that
+  never reaches the Media Stream at all (ADR-065): the generated `<Stream>`
+  now carries a `statusCallback` Twilio calls independently of whether the
+  WebSocket ever connects — busy/no-answer/a failed `<Stream>` handshake
+  (e.g. a flaky tunnel) now releases the lock immediately via
+  `stream-error`/`stream-stopped`, instead of leaving it held for the
+  30-minute safety-net TTL. No Console configuration needed for this —
+  it's part of the same TwiML this server already generates.
 - New end-to-end test (`tests/test_voice_call_flow_e2e.py`, ADR-062) proves
   the entire flow without a real Twilio/Deepgram account or phone: token
   region/edge → webhook TwiML → the same `call_id` driven through the real
