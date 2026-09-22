@@ -605,6 +605,14 @@ pre{background:#0f141d;border:1px solid var(--border);border-radius:10px;padding
   // Renders per-item ✓/✗ by label only — never a secret value; the server
   // itself (`GET /api/voice/preflight`) never returns one either.
   function renderPreflight(checks) {
+    // Everything ready is the common case and not itself interesting to look
+    // at on every page load — one calm line. The full per-item breakdown only
+    // earns its screen space when there's actually something to diagnose.
+    if (checks.every(function (c) { return c.ok; })) {
+      els.voicePreflight.innerHTML = '<div class="preflight-chip ok" style="display:inline-flex">'
+        + '<span class="preflight-mark">✓</span><span class="preflight-label">Konfiguration bereit</span></div>';
+      return;
+    }
     els.voicePreflight.innerHTML = '<div class="preflight-grid">' + checks.map(function (c) {
       var extra = c.value ? escapeHtml(c.value) : (c.detail ? escapeHtml(c.detail) : '');
       return '<div class="preflight-chip ' + (c.ok ? 'ok' : 'bad') + '">'
