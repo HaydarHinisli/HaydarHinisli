@@ -881,10 +881,12 @@ async def twilio_voice_outbound(request: Request, db: Session = Depends(get_db))
         diag = {
             'path': request.url.path,
             'computed_url': url,
+            'computed_url_sha256': hashlib.sha256(url.encode()).hexdigest(),
             'params': redacted_params,
             'received_signature': signature,
             'our_expected_signature': our_expected_signature,
             'auth_token_len': len(auth_token) if auth_token else 0,
+            'auth_token_sha256': hashlib.sha256(auth_token.encode()).hexdigest() if auth_token else None,
             'auth_token_from_os_environ': os.environ.get('TWILIO_AUTH_TOKEN') is not None,
         }
         logger.warning('twilio voice webhook signature verification failed | diag=%s', json.dumps(diag))
