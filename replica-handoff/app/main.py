@@ -1163,8 +1163,15 @@ def voice_preflight(current_user: AuthContext = Depends(require_role('seller', '
         {'key': 'twilio_api_key_secret', 'label': 'TWILIO_API_KEY_SECRET', 'ok': present(settings.twilio_api_key_secret)},
         {'key': 'twilio_twiml_app_sid', 'label': 'TWILIO_TWIML_APP_SID', 'ok': present(settings.twilio_twiml_app_sid)},
         {'key': 'twilio_verified_caller_id', 'label': 'TWILIO_VERIFIED_CALLER_ID', 'ok': present(settings.twilio_verified_caller_id)},
-        {'key': 'twilio_region', 'label': 'TWILIO_REGION', 'ok': settings.twilio_region == 'ie1', 'value': settings.twilio_region},
-        {'key': 'twilio_edge', 'label': 'TWILIO_EDGE', 'ok': settings.twilio_edge == 'dublin', 'value': settings.twilio_edge},
+        # TEMPORARY (operator-approved, one real-call proof-of-concept only):
+        # IE1 does not support Verified Caller IDs at all (confirmed against
+        # Twilio's own regional feature-availability docs), so the operator
+        # deliberately tests via US1 first to prove the pipeline end-to-end,
+        # then returns to ie1/dublin once a Voice-capable Twilio number
+        # replaces the externally-verified caller ID. Revert this pair back
+        # to 'ie1'/'dublin'-only once that number is in place.
+        {'key': 'twilio_region', 'label': 'TWILIO_REGION', 'ok': settings.twilio_region in ('ie1', 'us1'), 'value': settings.twilio_region},
+        {'key': 'twilio_edge', 'label': 'TWILIO_EDGE', 'ok': settings.twilio_edge in ('dublin', 'ashburn'), 'value': settings.twilio_edge},
         {'key': 'deepgram_api_key', 'label': 'DEEPGRAM_API_KEY', 'ok': present(settings.deepgram_api_key)},
         {'key': 'replica_public_base_url', 'label': 'REPLICA_PUBLIC_BASE_URL', 'ok': present(settings.replica_public_base_url), 'value': settings.replica_public_base_url},
         {

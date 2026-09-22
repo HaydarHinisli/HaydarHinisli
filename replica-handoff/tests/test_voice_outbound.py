@@ -783,15 +783,32 @@ def test_preflight_reports_missing_items_by_label_when_unconfigured(client, monk
 
 def test_preflight_flags_wrong_region_or_edge_and_still_shows_the_actual_value(client, monkeypatch):
     """Region/edge are not secrets — showing the actual (wrong) value is the
-    point, so the operator can see exactly what's misconfigured."""
-    _configure_preflight_settings(monkeypatch, twilio_region='us1', twilio_edge='ashburn')
+    point, so the operator can see exactly what's misconfigured. ie1/dublin
+    (production) and us1/ashburn (temporary real-call proof-of-concept, since
+    IE1 doesn't support Verified Caller IDs at all — see app/main.py's
+    voice_preflight comment) are both accepted; anything else is not."""
+    _configure_preflight_settings(monkeypatch, twilio_region='au1', twilio_edge='sydney')
     headers = auth_headers(client, 'haydar@replica-pilot.example')
     r = client.get(PREFLIGHT_PATH, headers=headers)
     body = r.json()
     assert body['ready'] is False
     by_key = {c['key']: c for c in body['checks']}
-    assert by_key['twilio_region'] == {'key': 'twilio_region', 'label': 'TWILIO_REGION', 'ok': False, 'value': 'us1'}
-    assert by_key['twilio_edge'] == {'key': 'twilio_edge', 'label': 'TWILIO_EDGE', 'ok': False, 'value': 'ashburn'}
+    assert by_key['twilio_region'] == {'key': 'twilio_region', 'label': 'TWILIO_REGION', 'ok': False, 'value': 'au1'}
+    assert by_key['twilio_edge'] == {'key': 'twilio_edge', 'label': 'TWILIO_EDGE', 'ok': False, 'value': 'sydney'}
+
+
+def test_preflight_accepts_us1_ashburn_as_a_temporary_real_call_proof_of_concept(client, monkeypatch):
+    """IE1 does not support Verified Caller IDs (confirmed against Twilio's
+    own regional feature-availability docs) — the operator deliberately
+    tests via US1 first, with the plan to return to ie1/dublin once a
+    Voice-capable Twilio number replaces the externally-verified caller ID."""
+    _configure_preflight_settings(monkeypatch, twilio_region='us1', twilio_edge='ashburn')
+    headers = auth_headers(client, 'haydar@replica-pilot.example')
+    r = client.get(PREFLIGHT_PATH, headers=headers)
+    body = r.json()
+    by_key = {c['key']: c for c in body['checks']}
+    assert by_key['twilio_region'] == {'key': 'twilio_region', 'label': 'TWILIO_REGION', 'ok': True, 'value': 'us1'}
+    assert by_key['twilio_edge'] == {'key': 'twilio_edge', 'label': 'TWILIO_EDGE', 'ok': True, 'value': 'ashburn'}
 
 
 def test_preflight_ws_origin_check_is_satisfied_in_local_env_regardless_of_allowlist(client, monkeypatch):
