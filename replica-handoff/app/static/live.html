@@ -195,6 +195,17 @@ pre{background:#0f141d;border:1px solid var(--border);border-radius:10px;padding
   var pathMatch = window.location.pathname.match(/\/live\/(\d+)/);
   if (pathMatch) els.callId.value = pathMatch[1];
 
+  // Pre-fill the bearer token if the dashboard (app/static/index.html) just
+  // logged in and handed one off via sessionStorage — removes the manual
+  // copy-paste-from-curl step that was the main source of expired/stale-token
+  // mistakes during real-call testing. Still just pre-fills the field (never
+  // auto-connects): the seller/tester clicks "Verbinden" themselves, same as
+  // with a manually pasted token.
+  try {
+    var handedOffToken = sessionStorage.getItem('replica_bearer_token');
+    if (handedOffToken) els.token.value = handedOffToken;
+  } catch (e) { /* private mode etc. — falls back to manual paste */ }
+
   var ws = null;
   var reconnectDelayMs = 500;
   var reconnectTimer = null;
