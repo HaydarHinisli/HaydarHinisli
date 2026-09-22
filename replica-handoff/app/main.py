@@ -3,6 +3,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import re
 import time
 from contextlib import asynccontextmanager
@@ -865,7 +866,20 @@ async def twilio_voice_outbound(request: Request, db: Session = Depends(get_db))
     query = f'?{request.url.query}' if request.url.query else ''
     url = f'{settings.replica_public_base_url.rstrip("/")}{request.url.path}{query}'
     if not verify_twilio_signature(url, params, signature, auth_token):
-        logger.warning('twilio voice webhook signature verification failed', extra={'fields': {'path': request.url.path}})
+        logger.warning(
+            'twilio voice webhook signature verification failed',
+            extra={'fields': {
+                'path': request.url.path,
+                # Temporary red-team diagnostic (no secret values, only shape/metadata)
+                # for the persistent real-call 403 investigation. Remove once resolved.
+                'computed_url': url,
+                'param_keys': sorted(params.keys()),
+                'signature_header_present': bool(signature),
+                'signature_header_len': len(signature) if signature else 0,
+                'auth_token_len': len(auth_token) if auth_token else 0,
+                'auth_token_from_os_environ': os.environ.get('TWILIO_AUTH_TOKEN') is not None,
+            }},
+        )
         raise HTTPException(403, 'Invalid webhook signature')
 
     to_number = params.get('To', '').strip()
