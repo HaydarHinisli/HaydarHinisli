@@ -1535,12 +1535,10 @@ async def live_suggestions(websocket: WebSocket, call_id: int):
         # copy-paste) indistinguishable from a genuinely expired one. Logging the
         # real exception class plus non-secret token shape/fingerprint metadata
         # (never the token itself) lets this be diagnosed from server logs alone.
-        logger.warning('live suggestions: token rejected', extra={'fields': {
-            'exception': type(exc).__name__,
-            'token_len': len(token),
-            'token_segments': token.count('.') + 1,
-            'token_sha256_prefix': hashlib.sha256(token.encode('utf-8')).hexdigest()[:12],
-        }})
+        logger.warning(
+            'live suggestions: token rejected | exception=%s token_len=%s token_segments=%s',
+            type(exc).__name__, len(token), token.count('.') + 1,
+        )
         await websocket.close(code=1008)
         return
 

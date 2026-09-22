@@ -146,10 +146,9 @@ def test_ws_rejected_token_logs_the_real_exception_class_not_a_generic_message(c
                 ws.receive_text()
     rejected = [r for r in caplog.records if 'token rejected' in r.message]
     assert rejected, 'expected a "token rejected" log record'
-    fields = rejected[0].fields
-    assert fields['exception'] in ('DecodeError', 'InvalidSignatureError')
-    assert fields['token_len'] == len(broken_token)
-    assert 'token_sha256_prefix' in fields
+    message = rejected[0].getMessage()
+    assert 'exception=DecodeError' in message or 'exception=InvalidSignatureError' in message
+    assert f'token_len={len(broken_token)}' in message
     assert broken_token not in caplog.text
     assert token not in caplog.text
 
