@@ -624,7 +624,18 @@ pre{background:#0f141d;border:1px solid var(--border);border-radius:10px;padding
   }
 
   async function ensureVoiceDevice(tokenBody) {
-    if (voiceDevice) return voiceDevice;
+    // Fix: the Access Token has a finite TTL (1h, see /api/voice/access-token's
+    // ttl_seconds) — a Device created once and then reused indefinitely for every
+    // later connect() would silently keep using that first, eventually-expired
+    // token, causing every call placed after expiry to fail immediately client-
+    // side (no ringing, no Twilio Call record at all) instead of placing a real
+    // call. Every attempt fetches a fresh token (fetchVoiceAccessToken(), called
+    // right before this), so an existing Device must be updated with it, not
+    // just returned as-is.
+    if (voiceDevice) {
+      voiceDevice.updateToken(tokenBody.token);
+      return voiceDevice;
+    }
     if (typeof Twilio === 'undefined' || !Twilio.Device) {
       throw new Error('Twilio Voice SDK nicht geladen (app/static/vendor/twilio-voice-sdk.min.js fehlt?).');
     }
