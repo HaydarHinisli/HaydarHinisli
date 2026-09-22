@@ -1,6 +1,7 @@
 from __future__ import annotations
 import asyncio
 import hashlib
+import itertools
 import json
 import logging
 import os
@@ -879,23 +880,28 @@ async def twilio_voice_outbound(request: Request, db: Session = Depends(get_db))
         except Exception as exc:  # noqa: BLE001 — diagnostic only, never let this hide the real 403
             our_expected_signature = f'<error computing: {exc!r}>'
 
-        # Brute-force which single param (if any) explains the mismatch, since URL and
-        # auth token are already proven byte-identical (sha256 match) — narrows the
-        # remaining unknown to "which param value differs from what Twilio actually
-        # signed" without relying on manually re-typing/copy-pasting the full param set.
+        # Brute-force which SUBSET of params (if any) explains the mismatch, since URL
+        # and auth token are already proven byte-identical (sha256 match) — narrows the
+        # remaining unknown to "which param(s) Twilio did/didn't include when it signed"
+        # without relying on manually re-typing/copy-pasting the full param set. Single-
+        # key drops alone didn't find it, so try the full powerset (cheap: <=2^12 HMACs).
         matching_variant = None
         if auth_token:
-            for dropped_key in list(params.keys()) + [None]:
-                trial_params = {k: v for k, v in params.items() if k != dropped_key}
-                try:
-                    trial_sig = compute_twilio_signature(url, trial_params, auth_token)
-                except Exception:  # noqa: BLE001 — diagnostic only
-                    continue
-                if trial_sig == signature:
-                    matching_variant = f'drop:{dropped_key}' if dropped_key else 'full_params_but_trailing_slash_url'
+            keys = list(params.keys())
+            for r in range(len(keys) + 1):
+                for combo in itertools.combinations(keys, r):
+                    trial_params = {k: v for k, v in params.items() if k not in combo}
+                    try:
+                        trial_sig = compute_twilio_signature(url, trial_params, auth_token)
+                    except Exception:  # noqa: BLE001 — diagnostic only
+                        continue
+                    if trial_sig == signature:
+                        matching_variant = f'drop:{sorted(combo)}' if combo else 'full_params'
+                        break
+                if matching_variant is not None:
                     break
             if matching_variant is None:
-                # Also try with a trailing-slash URL variant, in case Twilio signs with one.
+                # Also try trailing-slash URL variants combined with the full param set.
                 for candidate_url in (url + '/', url.rstrip('/')):
                     try:
                         trial_sig = compute_twilio_signature(candidate_url, params, auth_token)
