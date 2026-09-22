@@ -67,13 +67,13 @@ def test_empty_state_placeholder_is_exact_neutral_wording():
     assert 'Noch keine Suggestion empfangen' not in html
 
 
-def test_debug_disclosure_is_closed_by_default_and_placed_last():
+def test_debug_disclosure_is_placed_last():
+    # Product decision reversed during active real-call testing: the debug/
+    # test-harness view is now open by default (the extra click was pure
+    # friction while actively debugging a real call), but it must still be
+    # placed after the calm seller UI, never as the visual center of the page.
     html = _read()
     details_tag_start = html.index('<details class="debug-toggle"')
-    details_tag_end = html.index('>', details_tag_start)
-    opening_tag = html[details_tag_start:details_tag_end + 1]
-    assert 'open' not in opening_tag, 'debug view must be collapsed by default'
-    # It must come after the main copilot area and the history section.
     assert html.index('class="copilot"') < details_tag_start
     assert html.index('id="historySection"') < details_tag_start
 

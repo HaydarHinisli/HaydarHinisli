@@ -76,6 +76,18 @@ pre{background:#0f141d;border:1px solid var(--border);border-radius:10px;padding
    product feature. */
 .voice-test{margin-top:20px;padding-top:14px;border-top:1px solid var(--border)}
 
+/* Preflight checklist: compact chips instead of a stacked plain-text list. */
+.preflight-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-top:8px}
+.preflight-chip{display:flex;align-items:baseline;gap:6px;font-size:12px;padding:6px 9px;border-radius:8px;background:#0f141d;border:1px solid var(--border);overflow:hidden}
+.preflight-chip.ok{color:var(--muted)}
+.preflight-chip.ok .preflight-mark{color:var(--good)}
+.preflight-chip.bad{border-color:var(--bad);color:var(--text)}
+.preflight-chip.bad .preflight-mark{color:var(--bad)}
+.preflight-mark{flex:0 0 auto;font-weight:700}
+.preflight-label{flex:0 1 auto;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.preflight-value{flex:0 1 auto;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:11px}
+@media(max-width:600px){.preflight-grid{grid-template-columns:1fr}}
+
 @media(max-width:600px){.debug-grid{grid-template-columns:1fr}.sag{font-size:26px}.sag.empty{font-size:18px}}
 </style>
 </head>
@@ -109,7 +121,7 @@ pre{background:#0f141d;border:1px solid var(--border);border-radius:10px;padding
     <div id="historyText" class="history-text"></div>
   </section>
 
-  <details class="debug-toggle" id="debugToggle">
+  <details class="debug-toggle" id="debugToggle" open>
     <summary>Debug-Ansicht</summary>
     <div class="debug-body">
       <div id="debugPanel" class="debug-grid"></div>
@@ -593,10 +605,14 @@ pre{background:#0f141d;border:1px solid var(--border);border-radius:10px;padding
   // Renders per-item ✓/✗ by label only — never a secret value; the server
   // itself (`GET /api/voice/preflight`) never returns one either.
   function renderPreflight(checks) {
-    els.voicePreflight.innerHTML = checks.map(function (c) {
-      var extra = c.value ? ' (' + escapeHtml(c.value) + ')' : (c.detail ? ' (' + escapeHtml(c.detail) + ')' : '');
-      return '<div>' + (c.ok ? '✓' : '✗') + ' ' + escapeHtml(c.label) + extra + '</div>';
-    }).join('');
+    els.voicePreflight.innerHTML = '<div class="preflight-grid">' + checks.map(function (c) {
+      var extra = c.value ? escapeHtml(c.value) : (c.detail ? escapeHtml(c.detail) : '');
+      return '<div class="preflight-chip ' + (c.ok ? 'ok' : 'bad') + '">'
+        + '<span class="preflight-mark">' + (c.ok ? '✓' : '✗') + '</span>'
+        + '<span class="preflight-label">' + escapeHtml(c.label) + '</span>'
+        + (extra ? '<span class="preflight-value">' + extra + '</span>' : '')
+        + '</div>';
+    }).join('') + '</div>';
   }
 
   async function refreshVoicePreflight(bearer) {
