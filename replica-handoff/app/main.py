@@ -855,6 +855,7 @@ async def twilio_voice_outbound(request: Request, db: Session = Depends(get_db))
     could never spoof an arbitrary caller ID.
     """
     form = await request.form()
+    raw_form_items = list(form.multi_items())
     params = {key: str(value) for key, value in form.items()}
     signature = request.headers.get('x-twilio-signature')
 
@@ -911,11 +912,22 @@ async def twilio_voice_outbound(request: Request, db: Session = Depends(get_db))
                         matching_variant = f'url_variant:{candidate_url}'
                         break
 
+        try:
+            raw_body = await request.body()
+        except Exception:  # noqa: BLE001 — diagnostic only, body already consumed is fine
+            raw_body = b''
         diag = {
             'path': request.url.path,
             'computed_url': url,
             'computed_url_sha256': hashlib.sha256(url.encode()).hexdigest(),
             'params': redacted_params,
+            'raw_form_item_count': len(raw_form_items),
+            'unique_param_count': len(params),
+            'has_duplicate_keys': len(raw_form_items) != len(params),
+            'content_type_header': request.headers.get('content-type'),
+            'content_length_header': request.headers.get('content-length'),
+            'raw_body_len': len(raw_body),
+            'x_home_region_header': request.headers.get('x-home-region'),
             'received_signature': signature,
             'our_expected_signature': our_expected_signature,
             'matching_variant_found': matching_variant,
