@@ -65,7 +65,7 @@ from .auth.security import (
 from .logging_config import RequestContextMiddleware, configure_logging
 from .webhooks.call_status import get_or_create_provider_status, is_newer_event, parse_sequence_number
 from .webhooks.idempotency import claim_webhook_delivery
-from .webhooks.security import verify_twilio_signature
+from .webhooks.security import compute_twilio_signature, verify_twilio_signature
 
 logger = logging.getLogger('replica.webhooks')
 
@@ -870,12 +870,20 @@ async def twilio_voice_outbound(request: Request, db: Session = Depends(get_db))
         # persistent real-call 403 investigation. Put directly in the message text
         # (not just `extra`) since this logger's handler doesn't render extra fields.
         # Remove once resolved.
+        redacted_params = {
+            key: (f'<{len(value)} chars, starts {value[:8]!r}>' if key == 'replica_voice_ticket' else value)
+            for key, value in params.items()
+        }
+        try:
+            our_expected_signature = compute_twilio_signature(url, params, auth_token) if auth_token else None
+        except Exception as exc:  # noqa: BLE001 — diagnostic only, never let this hide the real 403
+            our_expected_signature = f'<error computing: {exc!r}>'
         diag = {
             'path': request.url.path,
             'computed_url': url,
-            'param_keys': sorted(params.keys()),
-            'signature_header_present': bool(signature),
-            'signature_header_len': len(signature) if signature else 0,
+            'params': redacted_params,
+            'received_signature': signature,
+            'our_expected_signature': our_expected_signature,
             'auth_token_len': len(auth_token) if auth_token else 0,
             'auth_token_from_os_environ': os.environ.get('TWILIO_AUTH_TOKEN') is not None,
         }
