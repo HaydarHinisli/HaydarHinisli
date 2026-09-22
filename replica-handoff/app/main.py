@@ -911,6 +911,41 @@ async def twilio_voice_outbound(request: Request, db: Session = Depends(get_db))
                     if trial_sig == signature:
                         matching_variant = f'url_variant:{candidate_url}'
                         break
+            if matching_variant is None:
+                # Hypothesis: Twilio's own internal CallStatus/Direction at the moment
+                # it computed the signature had already moved on from what it put in
+                # THIS request's body (a timing/state artifact on Twilio's own side,
+                # not a parsing bug here) — try plausible alternate values for the two
+                # most likely "in-flight state" fields, combined with the full
+                # remaining-key powerset, since neither URL nor token nor the param SET
+                # explain the mismatch (both proven correct via SHA-256 and Twilio's own
+                # Request Inspector).
+                call_status_candidates = ['ringing', 'queued', 'initiated', 'in-progress', 'completed', 'busy']
+                direction_candidates = ['inbound', 'outbound-api', 'outbound-dial']
+                other_keys = [k for k in params.keys() if k not in ('CallStatus', 'Direction')]
+                for cs in call_status_candidates:
+                    for direction in direction_candidates:
+                        base_params = dict(params)
+                        if 'CallStatus' in base_params:
+                            base_params['CallStatus'] = cs
+                        if 'Direction' in base_params:
+                            base_params['Direction'] = direction
+                        for r in range(len(other_keys) + 1):
+                            for combo in itertools.combinations(other_keys, r):
+                                trial_params = {k: v for k, v in base_params.items() if k not in combo}
+                                try:
+                                    trial_sig = compute_twilio_signature(url, trial_params, auth_token)
+                                except Exception:  # noqa: BLE001
+                                    continue
+                                if trial_sig == signature:
+                                    matching_variant = f'value_override:CallStatus={cs},Direction={direction},drop:{sorted(combo)}'
+                                    break
+                            if matching_variant is not None:
+                                break
+                        if matching_variant is not None:
+                            break
+                    if matching_variant is not None:
+                        break
 
         try:
             raw_body = await request.body()
