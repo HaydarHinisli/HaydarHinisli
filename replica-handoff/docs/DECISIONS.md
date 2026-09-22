@@ -2801,3 +2801,342 @@ consecutively, zero regressions.
 **Verdict for Call #1: NOT READY yet — pending the operator's own
 confirmation of tunnel reachability (this session cannot check it); the
 lock-lifecycle question itself is now fully closed and regression-tested.**
+
+## ADR-066 — Foresight: a predictive conversation decision engine, documented as a planning-only architecture ahead of implementation
+
+Status: **proposed / documentation only — no code, no migration, no
+production path change**. This ADR exists so that once Call #1's baseline
+is proven (see "Sequencing" below), Foresight V1 can begin implementation
+directly, without re-litigating the concept. Nothing in this ADR is built
+yet. It must not become the reason the first real call gets delayed.
+
+### Why this ADR exists now, not later
+
+The operator, after reviewing REPLICA against the closest real
+competitors (Clari Copilot/Wingman, Gong, Balto, Dialpad AI Live Coach,
+Avoma, Convo, Cresta — see the same conversation's competitive research),
+concluded that REPLICA's most differentiated, most defensible future
+capability is not a better cue-card retriever, but a system that reasons
+about **which seller action to take next by estimating its likely effect
+on the prospect**, before the seller speaks — not just "what should the
+seller say" but "if the seller uses strategy X vs. Y vs. Z, which one most
+likely moves the conversation state forward." That idea, and its full
+technical specification (data model, evaluation methodology, safety
+constraints), is captured here in full so it survives to when it's
+actually built.
+
+### The core shift: HEAR → UNDERSTAND → PREDICT → DECIDE → OBSERVE → LEARN
+
+Today's loop is `Prospect speaks → REPLICA understands → REPLICA shows
+"SAG JETZT"`. Foresight adds two new stages *before* the existing decision
+and two new stages *after* it, without replacing anything: the system
+additionally asks "what would each plausible seller action likely produce
+next," decides among candidates using that estimate (in shadow mode only —
+never surfaced to the seller in V1), then observes what actually happened
+and learns from the gap between prediction and reality.
+
+We are explicitly **not** predicting the prospect's next sentence.
+We predict **semantic reaction classes / conversation-state transitions**
+(e.g. `reveals_budget`, `skepticism`, `disengagement`) — a classification
+problem, not a language-generation problem.
+
+### The central design principle: Decision Intelligence, not Conversation Prediction
+
+This is the single most important architectural rule in this ADR, added
+explicitly per the operator's own correction during this ADR's drafting —
+it is a first-class design principle, not an implementation detail buried
+in a schema:
+
+> Foresight never predicts a single, global "what will the prospect do
+> next" for the conversation. It predicts a **separate reaction
+> distribution for each candidate seller action**:
+> `P(prospect_reaction | conversation_state, candidate_seller_action)`.
+>
+> Not: *"the prospect will probably be skeptical."*
+> But: *"IF the seller uses candidate A → 18% skepticism, 52% elaborates.
+> IF the seller uses candidate B → 47% skepticism, 21% elaborates."*
+
+This counterfactual separation — one prediction per candidate action, not
+one prediction per conversation — is what turns a cue-card retriever
+(content lookup) into a decision-support system (comparing the likely
+consequences of different moves before choosing one). No competitor
+researched has a documented public implementation of this specific
+mechanic; it is treated here as REPLICA's most valuable and most
+defensible differentiator, and the data model below (`reaction_prediction`
+keyed 1:1 on `decision_candidate_id`, never on the decision alone) exists
+specifically to make this structurally impossible to collapse back into a
+single global prediction later.
+
+### Reaction Ontology V1 (versioned, fixed — not free-text per call)
+
+`elaborates`, `reveals_pain`, `reveals_budget`, `reveals_authority`,
+`reveals_timing`, `asks_question`, `positive_engagement`, `skepticism`,
+`price_resistance`, `competitor_defense`, `deflection`, `disengagement`,
+`next_step_acceptance`, `other`, `uncertain`. Every prediction and every
+observed reaction is tagged with `reaction_ontology_version`; the ontology
+may grow later, but a historical prediction must always remain
+reproducible against the ontology version it was made under — never
+silently reinterpreted against a newer one. A reaction has exactly one
+`primary_reaction` and zero or more `secondary_reactions` (e.g. "sounds
+interesting, but no budget this year" → primary `reveals_budget`,
+secondary `positive_engagement`) — deliberately not an unbounded
+multi-label free-for-all.
+
+### Seller Action Ontology V1 (versioned strategy types, not raw sentences)
+
+`clarify`, `discover_pain`, `discover_impact`, `discover_budget`,
+`discover_authority`, `discover_timing`, `reframe_value`,
+`provide_evidence`, `social_proof`, `differentiate_competitor`, `de_risk`,
+`handle_price`, `challenge_assumption`, `advance_next_step`,
+`hold_position`, `intentional_silence`. The concrete sentence is the
+*wording* realizing a strategy type — this lets later analysis ask "does
+`clarify` work better than `differentiate_competitor` here" instead of
+being stuck comparing individual, non-reusable sentences.
+
+### Candidate generation, prediction, and the temporal-integrity rule
+
+At a decision point, Foresight generates **2–4** plausible candidate
+seller actions (never 10–20) from conversation state, phase, detected
+objection/intent, prior turns, already-asked questions, tenant playbook
+rules, and compliance constraints — combining the existing `SalesBrain`
+rule engine with an LLM constrained to an allowed strategy library (never
+a free-form strategy). For each candidate, a reaction predictor computes a
+full probability distribution over the reaction ontology (must sum to
+1.0, schema-validated; an invalid distribution is discarded, not
+coerced). These V1 numbers are **model estimates, not calibrated
+probabilities** — a stated "72%" does not mean real-world 72% until
+`expected_calibration_error` is later measured against outcomes and
+explicitly reported as such; they must never be shown to the seller as if
+they were real probabilities.
+
+**Temporal integrity is a hard, non-negotiable rule.** A prediction must
+be provably sealed — `prediction_sealed_at` — before the prospect's actual
+next turn begins (`first_target_audio_at`, or the earliest provable
+prospect-turn time if audio timing isn't reliably available). Every
+prediction carries `prediction_created_at`, `prediction_sealed_at`,
+`input_cutoff_timestamp`, `source_turn_id`, `target_turn_index`,
+`first_target_audio_at`, `first_target_transcript_at`. If
+`prediction_sealed_at >= first_target_audio_at` (or the fallback), that
+prediction is disqualified from evaluation and marketing claims —
+`valid_for_evaluation = false`, with `invalid_reason` recorded — no
+exceptions, no silent inclusion. This is the single mechanism that
+prevents any future claim of "REPLICA predicted the next reaction" from
+being unfalsifiable leakage.
+
+### Shadow Mode is mandatory for V1 — no exceptions
+
+`FORESIGHT_MODE` defaults to `shadow` (`off` | `shadow` | `live`).
+In shadow mode, Foresight computes and stores everything above, observes
+the actual seller action and actual prospect reaction, and scores its own
+predictions after the fact — but **never touches the existing `SAG
+JETZT` path**. The seller sees nothing different. The existing live-
+suggestion pipeline (`app/services/sales_brain.py` +
+`app/services/conversation_state.py` + `app/services/live_push.py`)
+remains the sole source of truth for what the seller actually sees, for
+the entire V1 phase. This is what lets us later measure "what would
+Foresight have recommended" without changing seller behavior or risking
+the one thing that must work: the existing suggestion path.
+
+### Seller adherence — never attribute an outcome to an unused recommendation
+
+Every decision distinguishes `recommended_action` (Foresight's
+candidate) from `actual_seller_action` (what the seller really said,
+reclassified into the same strategy ontology), with an explicit
+`adherence_type`: `exact`, `semantic` (same strategy, different wording),
+`partial`, `ignored`, `unknown`. REPLICA must never claim "our
+recommendation caused outcome X" when the seller didn't use it — this
+field is what makes that claim falsifiable.
+
+### Reaction Delta V1 — observable state changes, not invented psychological scores
+
+No fabricated composite metrics like `trust = 0.73` without a real
+measurement method behind them. V1's Reaction Delta is based on discrete,
+observable state changes only (e.g. objection present → budget stated;
+no next step → meeting accepted; conversation deepens vs. ends).
+Probabilistic/composite scores are an explicit later stage, not V1.
+
+### Data model (six logically separate entities — never one giant JSON blob)
+
+Adapted to this codebase's naming conventions, all under `company_id`
+tenant scoping like every other table in `app/models.py`:
+
+- **`conversation_decision`** — one per decision point: `call_id`,
+  `source_prospect_turn_id`, `conversation_state_version`,
+  `state_snapshot`, `sales_phase`, `objection_type`, `intent_type`,
+  `mode` (`shadow`/`live`), `engine_version`, `created_at`.
+- **`decision_candidate`** — 2-4 rows per decision: `decision_id`,
+  `strategy_type`, `strategy_version`, `proposed_wording`,
+  `candidate_rank`, `generated_at`.
+- **`reaction_prediction`** — **exactly one row per `decision_candidate`**
+  (the counterfactual-separation principle above, enforced structurally
+  via this foreign key, never denormalized onto `conversation_decision`):
+  `decision_candidate_id`, `prediction_distribution` (JSON, sums to 1.0),
+  `top_reaction`, `model_provider`, `model_name`, `model_version`,
+  `prompt_version`, `ontology_version`, `generation_latency_ms`,
+  `created_at`, `sealed_at`, `input_cutoff_at`, `valid_for_evaluation`,
+  `invalid_reason`.
+- **`seller_action_observation`** — one per decision once the seller has
+  spoken: `decision_id`, `seller_turn_id`, `actual_strategy_type`,
+  `matched_candidate_id` (nullable), `adherence_type`,
+  `classification_confidence`, `observed_at`.
+- **`prospect_reaction_observation`** — one per decision once the
+  prospect has responded: `decision_id`, `prospect_turn_id`,
+  `primary_reaction`, `secondary_reactions`, `ontology_version`,
+  `classification_confidence`, `ground_truth_source` (`automatic` /
+  `human_reviewed` / `adjudicated`), `observed_at`.
+- **`decision_outcome`** — attached later from existing call-outcome data:
+  `decision_id`, `immediate_outcome`, `meeting_booked`, `meeting_held`,
+  `opportunity_created`, `opportunity_won`, `revenue`, `updated_at`.
+
+No accuracy claim may be published from `automatic` ground truth alone —
+a small human-reviewed gold set (`human_reviewed`/`adjudicated`) is
+required before any calibration or accuracy number leaves this system.
+
+### Evaluation — instrumented from day one, with mandatory baselines
+
+Metrics: `top_1_accuracy`, `top_3_recall`, `brier_score`, `log_loss`,
+`expected_calibration_error`, `coverage`, `abstention_rate`,
+`prediction_latency_ms`, `sealed_before_target_rate`. Two baselines are
+**mandatory**, not optional: `majority_reaction_baseline` (always predict
+the most common reaction) and `state_only_baseline` (predict from
+conversation state alone, withholding the candidate seller action). If
+Foresight's full model doesn't clearly beat `state_only_baseline`, the
+seller-action signal isn't adding real predictive value and the whole
+premise needs revisiting — before any uplift claim is made anywhere.
+
+### Abstention is a feature, not a failure mode
+
+When state is unclear, prediction is too diffuse/high-entropy, speaker
+mapping or transcript confidence is low, candidates are too similar, or
+grounding is missing, Foresight sets `abstain = true` rather than forcing
+a low-confidence guess. Long-term, this same "know when not to say
+anything" capability is meant to inform the *live* intervention policy
+too — REPLICA should learn not just what to say, but when to stay silent,
+directly continuing the product's existing "one SAG JETZT, not constant
+noise" philosophy (ADR-063's stale-suggestion handling is the closest
+existing precedent for this kind of restraint).
+
+### Explicitly out of scope for V1 (do not build yet)
+
+Exact next-sentence prediction (semantic reaction class only — never
+generate the prospect's likely words); multi-turn lookahead beyond one
+turn; reinforcement learning of any kind; self-modifying prompts;
+contextual bandits or automatic strategy optimization in the production
+path; any causal claim from a single observed (action → reaction) pair —
+unchosen candidates' predicted outcomes are counterfactual estimates,
+never observed reality, and a real causal claim needs controlled
+experiments/randomization/bandits/uplift modeling, explicitly a later
+stage (Stage 5–7 below), not V1.
+
+### Staged long-term evolution (documented, not scheduled)
+
+1. Reaction prediction (this ADR's V1 scope). 2. Candidate action
+simulation. 3. Calibrated reaction predictor. 4. Customer/segment-specific
+prediction. 5. Intervention policy. 6. Contextual bandits/uplift learning
+among already-approved strategies. 7. Causal outcome optimization. Stages
+5–7 are explicitly not current implementation scope and are not
+authorized by this ADR.
+
+### Mapped against the existing codebase
+
+**Reusable as-is (no change needed):**
+- `app/services/sales_brain.py` (`classify_sales_event`, `resolve_phase`,
+  `decide`) — becomes one of Foresight's candidate-generation inputs, used
+  read-only; its own behavior and the existing `SAG JETZT` output are
+  untouched.
+- `app/services/conversation_state.py` / `conversation_state_store.py` —
+  the existing `ConversationState`/`ConversationStateEvent` history is
+  exactly the "what did REPLICA know at this point" record Foresight
+  needs as `state_snapshot` input; no schema change required to consume
+  it.
+- `app/models.Suggestion.feedback` (good/usable/bad) and `Turn` — already
+  exactly the kind of seller-facing outcome signal `decision_outcome`
+  will eventually want to correlate against; already collected today,
+  independent of Foresight.
+- `app/services/live_push.LiveSuggestionHub` — untouched; Foresight in
+  shadow mode never publishes through it.
+- Speaker-mapping (`app/streaming/speaker_mapping.py`) and the Deepgram
+  pipeline (`app/streaming/pipeline.py`, `deepgram_provider.py`) — pure
+  inputs, read-only, no change.
+
+**Would need extending (later, not now):**
+- `app/streaming/pipeline.MediaStreamPipeline._process_turn` (or an
+  equivalent turn-finalization hook) — the natural integration point
+  where a decision point would be raised, strictly as an async,
+  non-blocking side-call so it can never add latency to the existing
+  `SAG JETZT` render path (ADR-063/ADR-051's latency-measurement work is
+  directly reusable for `total_foresight_ms` instrumentation).
+- `app/config.Settings` — new settings (`FORESIGHT_ENABLED`,
+  `FORESIGHT_MODE`, later `FORESIGHT_CANDIDATE_SIMULATION_ENABLED`,
+  `FORESIGHT_DEBUG_UI_ENABLED`) alongside the existing
+  `REPLICA_ASR_PROVIDER`-style provider-selection pattern already
+  established there.
+
+**Entirely new components (none exist yet):**
+- The six tables above, plus corresponding SQLAlchemy models in
+  `app/models.py` and one Alembic migration (not run — this ADR
+  authorizes documentation, not the migration itself).
+- A `ForesightEngine` service (name to be finalized) implementing
+  candidate generation + reaction prediction, isolated from the existing
+  suggestion path — likely `app/services/foresight/` given this
+  codebase's existing `app/services/` convention.
+- A minimal, developer-only debug panel inside `live.html`'s existing
+  `<details>` debug block (ADR-063's precedent) — never a new top-level
+  seller-facing UI in V1.
+
+**Migrations needed later (not now):** one Alembic revision adding all
+six tables, tenant-scoped (`company_id`) and foreign-keyed to `Call`,
+matching this codebase's existing migration style (see
+`migrations/versions/0cd3645f7d6d_add_conversation_states.py` for the
+precedent this would follow).
+
+**Tests that will be needed (not written yet):** schema validation
+(distribution sums to 1.0, invalid distributions discarded); the
+temporal-integrity rule as an executable invariant (`prediction_sealed_at
+< first_target_audio_at`, with a regression test proving a violating
+prediction is excluded from evaluation); shadow-mode isolation (a
+Foresight failure/exception must never affect the existing `SAG JETZT`
+path — fail-open for Foresight, fail-closed remains exactly as strict for
+security/consent per ADR-063); adherence classification; baseline
+comparison plumbing.
+
+**Integration points identified, no code touched:** turn finalization in
+`MediaStreamPipeline`; `ConversationState` as the state-snapshot source;
+`Suggestion.feedback` and eventual `Meeting`/`Deal` records as
+`decision_outcome` inputs; `TurnLatencyTrace`'s existing latency-metric
+pattern as the template for Foresight's own timing instrumentation.
+
+### What must NOT change when Foresight V1 eventually starts
+
+Call state, analysis state, tenant isolation, voice-ticket security,
+consent checks, speaker mapping, the Deepgram pipeline, live push, the
+existing `SAG JETZT` path, Render-ACK, current latency measurement, Call
+Review, and the existing test suite — all exactly as they are today.
+Foresight runs parallel and fail-open (a Foresight crash never affects
+the call or the existing suggestion pipeline); fail-closed remains
+absolute for security/consent, unchanged.
+
+### Sequencing — this is the actual decision this ADR makes
+
+**Nothing above is implemented. No table is created. No migration runs.
+No LLM call is added. The existing `SAG JETZT` path is not touched.**
+
+The operator explicitly wants an unmodified, measured baseline of the
+current system before Foresight exists at all — otherwise there is no
+clean before/after to measure Foresight's actual effect against. Before
+any Foresight code is written, the following must be demonstrated on a
+real end-to-end call:
+
+1. A real human-to-human call actually connects.
+2. Both speakers are received and correctly attributed.
+3. Deepgram delivers real transcripts.
+4. Prospect turns are correctly detected.
+5. The existing `SalesBrain` processes the call.
+6. `SAG JETZT` is actually delivered live.
+7. Render-ACK and real RSL/latency data are recorded.
+8. The call and analysis run stably through to the end.
+9. The resulting stored call data is traceable/reconstructable.
+
+Only after these nine are met does Foresight V1 begin, as its own
+clearly separated development track, starting exclusively in shadow
+mode.
