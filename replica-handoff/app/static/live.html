@@ -687,9 +687,17 @@ pre{background:#0f141d;border:1px solid var(--border);border-radius:10px;padding
     // not necessarily the EU edge this account is pinned to everywhere else
     // (TWILIO_EDGE). Read from the token response rather than hardcoded here,
     // so this file can never drift out of sync with the server's own config.
-    voiceDevice = new Twilio.Device(tokenBody.token, { edge: tokenBody.edge });
+    // Diagnostic only (temporary): without this flag Twilio collapses many
+    // distinct signaling failures (wrong-region TwiML App, expired/invalid
+    // token, real network/firewall issues, ...) into the single generic
+    // ConnectionError (53000), which hides which one we're actually hitting.
+    voiceDevice = new Twilio.Device(tokenBody.token, { edge: tokenBody.edge, enableImprovedSignalingErrorPrecision: true });
     voiceDevice.on('error', function (err) {
-      setCallState('failed', { error: err && err.message ? err.message : 'unbekannt' });
+      var label = 'unbekannt';
+      if (err) {
+        label = err.code ? ('(' + err.code + ') ' + err.message) : (err.message || 'unbekannt');
+      }
+      setCallState('failed', { error: label });
     });
     return voiceDevice;
   }
