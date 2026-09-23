@@ -1,261 +1,221 @@
-"""End-to-End-Tests der Browser-Automatisierung gegen nachgebaute Plattform-Formulare.
+"""End-to-End-Tests gegen einen nachgebauten Wäsche-Marktplatz.
 
-Die echten Webseiten werden per Playwright-Routing durch lokale HTML-Seiten
-ersetzt, die dieselben Feld-IDs verwenden. So wird der komplette Ablauf
-(Formular füllen, Kategorie wählen, Fotos, Absenden, ID auslesen,
-Preis ändern, Statistik lesen) ohne echtes Konto geprüft.
+Die Seiten werden per Playwright-Routing durch lokale HTML-Seiten ersetzt.
+Geprüft wird der komplette Ablauf: Formular per Klick anlernen (Assistent),
+Angebot einstellen, Preis senken, Verkauf erkennen.
 """
-import json
 from datetime import datetime, timedelta
 from urllib.parse import parse_qs, urlparse
 
 import pytest
+import yaml
 from PIL import Image
 
 pytest.importorskip("playwright")
 from playwright.sync_api import sync_playwright  # noqa: E402
 
 from verkaufsagent.agent import Agent  # noqa: E402
+from verkaufsagent.anlernen import Assistent  # noqa: E402
 from verkaufsagent.konfiguration import BrowserEinstellungen, KiEinstellungen, Konfiguration  # noqa: E402
-from verkaufsagent.modelle import Plattform, Produkt  # noqa: E402
-from verkaufsagent.plattformen import KLASSEN  # noqa: E402
+from verkaufsagent.modelle import Produkt  # noqa: E402
+from verkaufsagent.plattformdef import Register  # noqa: E402
+from verkaufsagent.plattformen import Marktplatz  # noqa: E402
 from verkaufsagent.speicher import Speicher  # noqa: E402
 from verkaufsagent.texte import TextGenerator  # noqa: E402
 
-KA_FORM = """<!doctype html><html><body>
-<div id="gdpr"><button id="gdpr-banner-accept" onclick="document.getElementById('gdpr').remove()">Alle akzeptieren</button></div>
-<form action="/p-anzeige-aufgeben-bestaetigung.html" method="get">
- <label for="postad-title">Titel</label><input id="postad-title" name="title">
- <span id="postad-category-path"></span><input type="hidden" id="cat" name="cat">
- <a id="pstad-lnk-chngeCtgry" href="#" onclick="document.getElementById('cats').style.display='block';return false">Ändern</a>
- <div id="cats" style="display:none">
-  <span onclick="window.p=(window.p||[]).concat(this.textContent)">Mode &amp; Beauty</span>
-  <span onclick="window.p=(window.p||[]).concat(this.textContent)">Herrenbekleidung</span>
-  <button type="button" id="postad-step1-sbmt" onclick="document.getElementById('postad-category-path').textContent=window.p.join(' > ');document.getElementById('cat').value=window.p.join('>');document.getElementById('cats').style.display='none'">Weiter</button>
- </div>
- <textarea id="pstad-descrptn" name="desc"></textarea>
- <input id="pstad-price" name="price">
- <select id="priceType" name="priceType"><option value="FIXED">Festpreis</option><option value="NEGOTIABLE">VB</option></select>
- <select name="attributeMap[kleidung.condition_s]" id="condition"><option value="">-</option><option value="like_new">Sehr Gut</option><option value="good">Gut</option></select>
- <input type="radio" id="ad-shipping-enabled-true" name="ship" value="ja"><input type="radio" id="ad-shipping-enabled-false" name="ship" value="nein">
- <div id="plupld"><input type="file" name="fotos" multiple accept="image/*"></div>
- <input id="pstad-zip" name="zip"><input id="postad-contactname" name="name">
- <input type="hidden" name="adId" value="4711">
- <button id="pstad-submit" type="submit">Anzeige aufgeben</button>
+BASIS = "https://www.waesche-markt.test"
+
+NEU = """<!doctype html><html><body>
+<h1>Neues Angebot</h1>
+<form action="/angebot/speichern" method="get">
+ <div class="upload"><button type="button" onclick="document.getElementById('datei-input').click()">Fotos hinzufügen</button>
+   <input type="file" id="datei-input" name="fotos" multiple hidden></div>
+ <input id="titel" name="titel" placeholder="Titel">
+ <textarea name="text"></textarea>
+ <input id="preis" name="preis">
+ <div class="dd" role="button" data-testid="kategorie-auswahl"
+      onclick="document.getElementById('kat-liste').style.display='block'">Kategorie wählen</div>
+ <ul id="kat-liste" style="display:none">
+   <li onclick="kat.value=this.textContent; this.parentNode.style.display='none'">Slips</li>
+   <li onclick="kat.value=this.textContent; this.parentNode.style.display='none'">BHs</li>
+ </ul>
+ <input type="hidden" id="kat" name="kategorie">
+ <select name="groesse"><option value="">-</option><option>S</option><option>M</option><option>L</option></select>
+ <input id="tragedauer" name="tragedauer" placeholder="Tragedauer">
+ <button type="submit" class="los">Angebot veröffentlichen</button>
 </form></body></html>"""
 
-KA_EDIT = """<!doctype html><form action="/m-meine-anzeigen.html" method="get">
-<input id="pstad-price" name="price" value="45"><button id="pstad-submit" type="submit">Speichern</button></form>"""
+ANSICHT = """<!doctype html><html><body><h1>Spitzenslip</h1>{verkauft}
+<p>Aufrufe: <span class="aufrufe">{aufrufe}</span></p><p>Merkliste: <span id="merkliste">{merk}</span></p>
+</body></html>"""
 
-VINTED_FORM = """<!doctype html><html><body>
-<form action="/items/987654" method="get">
-<input type="file" name="fotos" multiple accept="image/*">
-<input data-testid="title--input" name="title"><textarea data-testid="description--input" name="desc"></textarea>
-<script>
-function dd(name, optionen){
-  const w=document.createElement('div');
-  w.innerHTML='<input data-testid="'+name+'-select-dropdown-input" readonly name="'+name+'"><input type="hidden" name="'+name+'_pfad">';
-  const inp=w.children[0], pfad=w.children[1];
-  inp.onclick=()=>{ const c=document.createElement('div'); c.setAttribute('data-testid',name+'-select-dropdown-content');
-    let ebene=optionen;
-    const zeige=()=>{ c.innerHTML=''; Object.keys(ebene).forEach(k=>{ const r=document.createElement('div'); r.textContent=k;
-      r.onclick=()=>{ pfad.value+=(pfad.value?'>':'')+k; inp.value=k; if(ebene[k]){ebene=ebene[k]; zeige();} else c.remove(); };
-      c.appendChild(r);});};
-    zeige(); w.appendChild(c); };
-  document.currentScript.parentNode.appendChild(w);
-}
-</script>
-<script>dd('catalog', {'Herren': {'Kleidung': {'Jacken & Mäntel': null, 'Hosen': null}}, 'Damen': null})</script>
-<script>dd('brand', {'Nike': null, 'Adidas': null})</script>
-<script>dd('size', {'S': null, 'M': null, 'L': null})</script>
-<script>dd('status', {'Neu mit Etikett': null, 'Sehr gut': null, 'Gut': null})</script>
-<script>dd('color', {'Schwarz': null, 'Weiß': null})</script>
-<input data-testid="price-input--input" name="price">
-<label><input type="radio" name="paket" value="S">Klein</label><label><input type="radio" name="paket" value="M"><span>Mittel</span></label>
-<button data-testid="upload-form-save-button" type="submit">Hochladen</button>
-</form></body></html>"""
+BEARBEITEN = """<!doctype html><html><body><form action="/angebot/aktualisieren" method="get">
+<input type="hidden" name="id" value="{id}"><input id="preis" name="preis" value="25">
+<button type="submit" class="speichern">Änderungen speichern</button></form></body></html>"""
 
 
-class MockSeiten:
+class Markt:
     def __init__(self):
         self.gesendet: list[dict] = []
-        self.statistik = {"viewCount": 12, "watchCount": 0}
-        self.foto = b""
+        self.aufrufe, self.merk, self.verkauft = 3, 0, False
 
     def route(self, route):
         url = urlparse(route.request.url)
         q = {k: v[0] for k, v in parse_qs(url.query).items()}
         html = lambda body: route.fulfill(status=200, content_type="text/html; charset=utf-8", body=body)  # noqa: E731
-        if url.path == "/p-anzeige-aufgeben-schritt2.html":
-            return html(KA_FORM)
-        if url.path == "/p-anzeige-bearbeiten.html":
-            return html(KA_EDIT)
-        if url.path == "/items/new":
-            return html(VINTED_FORM)
-        if url.path.endswith("/edit"):
-            return html(VINTED_FORM.replace('action="/items/987654"', 'action="/items/987654/fertig"'))
-        if url.path == "/m-meine-anzeigen-verwalten.json":
-            return route.fulfill(status=200, content_type="application/json",
-                                 body=json.dumps({"ads": [dict(id=4711, state="ACTIVE", **self.statistik)]}))
-        if url.path == "/api/v2/items/10111548720":
-            return route.fulfill(status=200, content_type="application/json", body=json.dumps({"item": {
-                "id": 10111548720, "title": "Unterwäsche", "status": "Neu mit Etikett",
-                "description": "Originalverpackt, nie getragen. Größe M.",
-                "price": {"amount": "12.0", "currency_code": "EUR"}, "brand_title": "Calvin Klein",
-                "size_title": "M", "created_at_ts": "2026-09-20T10:00:00+02:00",
-                "view_count": 4, "favourite_count": 1,
-                "photos": [{"full_size_url": "https://images1.vinted.net/t/a.jpg"},
-                           {"full_size_url": "https://images1.vinted.net/t/b.jpg"}]}}))
-        if url.path == "/api/v2/items/555":
-            return route.fulfill(status=404, body="")
-        if url.path == "/items/555":
-            return html('<html><head><meta property="og:title" content="Rock &amp; Bluse">'
-                        '<meta property="og:description" content="Kaum getragen, Größe 38.">'
-                        '<meta property="og:image" content="https://images1.vinted.net/t/c.jpg">'
-                        '<meta property="product:price:amount" content="9.50"></head></html>')
-        if url.hostname == "images1.vinted.net":
-            return route.fulfill(status=200, content_type="image/jpeg", body=self.foto)
-        if url.path.startswith("/api/v2/items/"):
-            return route.fulfill(status=200, content_type="application/json",
-                                 body=json.dumps({"item": {"view_count": 3, "favourite_count": 0}}))
-        if q:
+        if url.path == "/angebot/neu":
+            return html(NEU)
+        if url.path == "/angebot/speichern":
             self.gesendet.append({"pfad": url.path, **q})
-        return html("<html><body>ok</body></html>")
+            # Zwischenseite mit JavaScript-Weiterleitung (wie bei vielen echten Seiten)
+            return html("<p>Wird gespeichert …</p><script>setTimeout(() => location.replace('/angebot/48151-spitzenslip'), 300)</script>")
+        if url.path == "/angebot/aktualisieren":
+            self.gesendet.append({"pfad": url.path, **q})
+            return html(f"<script>location.replace('/angebot/{q['id']}')</script>")
+        if url.path.endswith("/bearbeiten"):
+            return html(BEARBEITEN.format(id=url.path.split("/")[2]))
+        if url.path.startswith("/angebot/"):
+            return html(ANSICHT.format(aufrufe=self.aufrufe, merk=self.merk,
+                                       verkauft="<b>Verkauft</b>" if self.verkauft else ""))
+        return html("<html><body>Startseite</body></html>")
 
 
 @pytest.fixture
 def umgebung(tmp_path):
     foto = tmp_path / "foto1.jpg"
-    Image.new("RGB", (400, 300), "navy").save(foto)
+    Image.new("RGB", (400, 300), "black").save(foto)
+    eigene = tmp_path / "daten" / "plattformen"
+    eigene.mkdir(parents=True)
+    (eigene / "testmarkt.yaml").write_text(yaml.safe_dump({
+        "name": "testmarkt", "anzeigename": "Testmarkt", "basis_url": BASIS,
+        "felder": {
+            "fotos": {"typ": "datei", "pflicht": True}, "titel": {"typ": "text", "pflicht": True},
+            "beschreibung": {"typ": "text", "pflicht": True}, "preis": {"typ": "text", "pflicht": True},
+            "kategorie": {"typ": "auswahl"}, "groesse": {"typ": "auswahl"},
+        },
+    }, sort_keys=False), encoding="utf-8")
+    konf = Konfiguration(auto_veroeffentlichen=True, pause_zwischen_inseraten_s=10, datenordner=tmp_path / "daten",
+                         ki=KiEinstellungen(aktiv=False), browser=BrowserEinstellungen(langsam_ms=0, timeout_ms=6000))
     produkt = Produkt.model_validate(dict(
-        id="jacke-001", name="Windbreaker Jacke", marke="Nike", preis=45, zustand="sehr_gut", groesse="M",
-        farbe="Schwarz", notizen="Kleiner Fleck am Ärmel.", fotos=[foto],
-        kleinanzeigen={"kategorie": ["Mode & Beauty", "Herrenbekleidung"], "preistyp": "VB"},
-        vinted={"kategorie": ["Herren", "Kleidung", "Jacken & Mäntel"], "paketgroesse": "M"},
+        id="slip-001", name="Spitzenslip", marke="Hunkemöller", preis=25, groesse="M", farbe="Schwarz",
+        notizen="Nichtraucherhaushalt.", fotos=[foto], plattformen=["testmarkt"],
+        testmarkt={"kategorie": ["Slips"], "felder": {"tragedauer": "1 Tag"}},
     ))
-    konf = Konfiguration(postleitzahl="10115", kontakt_name="Haydar", auto_veroeffentlichen=True,
-                         pause_zwischen_inseraten_s=10, datenordner=tmp_path / "daten",
-                         ki=KiEinstellungen(aktiv=False), browser=BrowserEinstellungen(langsam_ms=0, timeout_ms=8000))
-    mock = MockSeiten()
-    mock.foto = foto.read_bytes()
+    markt = Markt()
+    register = Register(konf.datenordner)
     with sync_playwright() as pw:
-        def fabrik(pl):
-            p = KLASSEN[pl](pw, konf)
-            p.ctx.route("**/*", mock.route)
-            return p
-        yield konf, produkt, mock, fabrik
+        def fabrik(name):
+            m = Marktplatz(pw, konf, register.lade(name))
+            m.ctx.route("**/*", markt.route)
+            return m
+        yield konf, register, produkt, markt, fabrik
 
 
-def test_kompletter_ablauf(umgebung, monkeypatch):
-    konf, produkt, mock, fabrik = umgebung
+def anlernen(fabrik, register):
+    """Spielt den Nutzer im Assistenten: jede Frage = eine Aktion im Browser."""
+    m = fabrik("testmarkt")
+    p = m.page
+
+    def klick(sel):
+        return lambda: p.click(sel)
+
+    def gehe(pfad):
+        return lambda: p.goto(BASIS + pfad)
+
+    schritte = [
+        gehe("/angebot/neu"),                               # 1) Formular öffnen
+        klick("text=Fotos hinzufügen"),                     # Fotos
+        klick("#titel"), klick("textarea"), klick("#preis"),
+        klick("[data-testid=kategorie-auswahl]"),           # eigenes Dropdown
+        klick("select[name=groesse]"),
+        "tragedauer", "t", "j", klick("#tragedauer"),       # 3) Zusatzfeld
+        "",                                                 # keine weiteren Felder
+        klick("button.los"),                                # 4) Absenden (darf NICHT auslösen)
+        gehe("/angebot/48151-spitzenslip"),                 # 5) Angebotsansicht
+        klick(".aufrufe"), klick("#merkliste"), "Verkauft",
+        gehe("/angebot/48151/bearbeiten"),                  # 6) Bearbeiten-Seite
+        klick("button.speichern"),
+    ]
+
+    def frage(_text):
+        schritt = schritte.pop(0)
+        return schritt if isinstance(schritt, str) else (schritt() and "") or ""
+
+    try:
+        d = Assistent(m, register, frage=frage, ausgabe=lambda *a: None).ausfuehren()
+        assert not schritte, "nicht alle Schritte abgefragt"
+        return d
+    finally:
+        m.schliessen()
+
+
+def test_anlernen_und_kompletter_ablauf(umgebung, monkeypatch):
+    konf, register, produkt, markt, fabrik = umgebung
+    d = anlernen(fabrik, register)
+
+    # Assistent hat alles angelernt – und beim Anlernen nichts abgeschickt
+    assert markt.gesendet == []
+    assert d.eingerichtet, d.fehlend()
+    assert d.neu_url == f"{BASIS}/angebot/neu"
+    assert d.felder["fotos"].selektor[0] == "#datei-input"
+    assert d.felder["titel"].selektor[0] == "#titel"
+    assert d.felder["kategorie"].selektor[0] == 'div[data-testid="kategorie-auswahl"]'
+    assert d.felder["tragedauer"].pflicht
+    assert d.anzeige_url == f"{BASIS}/angebot/{{id}}" and d.bearbeiten_url == f"{BASIS}/angebot/{{id}}/bearbeiten"
+    assert d.verkauft_texte == ["Verkauft"] and d.aufrufe and d.favoriten
+    assert register.lade("testmarkt").eingerichtet  # gespeichert
+
     monkeypatch.setattr("verkaufsagent.agent.time.sleep", lambda s: None)
     zeit = [datetime(2026, 9, 1, 10, 0)]
     speicher = Speicher(konf.datenordner)
-    agent = Agent(konf, [produkt], speicher, TextGenerator(konf.ki), fabrik, jetzt=lambda: zeit[0])
-    try:
-        assert agent.inseriere_neue() == 2
-
-        ka = next(g for g in mock.gesendet if g["pfad"] == "/p-anzeige-aufgeben-bestaetigung.html")
-        assert ka["title"].startswith("Nike Windbreaker Jacke")
-        assert "Fleck" in ka["desc"] and ka["price"] == "45" and ka["priceType"] == "NEGOTIABLE"
-        assert ka["cat"] == "Mode & Beauty>Herrenbekleidung"
-        assert ka["attributeMap[kleidung.condition_s]"] == "like_new"
-        assert ka["zip"] == "10115" and ka["ship"] == "ja" and ka["fotos"] == "foto1.jpg"
-
-        vi = next(g for g in mock.gesendet if g["pfad"] == "/items/987654")
-        assert vi["catalog_pfad"] == "Herren>Kleidung>Jacken & Mäntel"
-        assert vi["status"] == "Sehr gut" and vi["brand"] == "Nike" and vi["size"] == "M"
-        assert vi["price"] == "45" and vi["paket"] == "M" and "#nike" in vi["desc"]
-
-        i_ka = speicher.hole("jacke-001", Plattform.kleinanzeigen)
-        i_vi = speicher.hole("jacke-001", Plattform.vinted)
-        assert (i_ka.status, i_ka.anzeige_id, i_ka.preis_aktuell) == ("online", "4711", 45)
-        assert (i_vi.status, i_vi.anzeige_id) == ("online", "987654")
-
-        # Zweiter Lauf inseriert nichts doppelt
-        assert agent.inseriere_neue() == 0
-
-        # Nach 3 Tagen: keine Reduzierung
-        zeit[0] += timedelta(days=3)
-        agent.pflege_inserate()
-        assert speicher.hole("jacke-001", Plattform.kleinanzeigen).preis_aktuell == 45
-
-        # Nach 15 Tagen mit schwacher Nachfrage: -5 %
-        zeit[0] += timedelta(days=12)
-        agent.pflege_inserate()
-        i_ka = speicher.hole("jacke-001", Plattform.kleinanzeigen)
-        assert i_ka.preis_aktuell == 42 and i_ka.aufrufe == 12
-        assert any(g["pfad"] == "/m-meine-anzeigen.html" and g["price"] == "42" for g in mock.gesendet)
-        assert speicher.hole("jacke-001", Plattform.vinted).preis_aktuell == 42
-
-        # Viele Favoriten -> keine weitere Reduzierung, auch nach Wochen
-        mock.statistik = {"viewCount": 300, "watchCount": 9}
-        zeit[0] += timedelta(days=30)
-        agent.pflege_inserate()
-        assert speicher.hole("jacke-001", Plattform.kleinanzeigen).preis_aktuell == 42
-    finally:
-        agent.schliessen()
-
-
-def test_fehlende_kategorie_wird_als_fehler_gespeichert(umgebung):
-    konf, produkt, mock, fabrik = umgebung
-    produkt.plattformen = [Plattform.vinted]
-    produkt.vinted.kategorie = ["Herren", "Gibt es nicht"]
-    speicher = Speicher(konf.datenordner)
-    agent = Agent(konf, [produkt], speicher, TextGenerator(konf.ki), fabrik)
-    try:
-        assert agent.inseriere_neue() == 0
-        i = speicher.hole("jacke-001", Plattform.vinted)
-        assert i.status == "fehler" and "nicht auswählbar" in i.fehler
-        assert not [g for g in mock.gesendet if g["pfad"] == "/items/987654"]
-    finally:
-        agent.schliessen()
-
-
-def test_bestehendes_vinted_inserat_uebernehmen(umgebung, tmp_path):
-    from verkaufsagent.konfiguration import lade_produkte
-    from verkaufsagent.modelle import Zustand
-    from verkaufsagent.uebernahme import baue_produkt, registriere_inserat, trage_ein
-
-    konf, _, mock, fabrik = umgebung
-    produkte_datei = tmp_path / "produkte.yaml"
-    produkte_datei.write_text("# Meine Produkte\nprodukte:\n", encoding="utf-8")
-    vinted = fabrik(Plattform.vinted)
-    try:
-        artikel = vinted.lese_artikel("https://www.vinted.de/items/10111548720-unterwasche")
-        assert (artikel.titel, artikel.preis, artikel.zustand, artikel.marke) == ("Unterwäsche", 12.0, "Neu mit Etikett", "Calvin Klein")
-        fotos = vinted.lade_fotos(artikel.foto_urls, tmp_path / "fotos" / "vinted-10111548720")
-        assert [f.name for f in fotos] == ["01.jpg", "02.jpg"] and fotos[0].stat().st_size > 0
-
-        # Rückfall ohne API: Daten aus der öffentlichen Artikelseite
-        alt = vinted.lese_artikel("555")
-        assert (alt.titel, alt.preis, alt.foto_urls) == ("Rock & Bluse", 9.5, ["https://images1.vinted.net/t/c.jpg"])
-    finally:
-        vinted.schliessen()
-
-    eintrag = baue_produkt(artikel, "vinted-10111548720", fotos, tmp_path, preis=None, mindestpreis=10,
-                           zustand=None, kleinanzeigen=True, ka_kategorie=["Mode & Beauty", "Herrenbekleidung"])
-    produkt = trage_ein(produkte_datei, eintrag)
-    assert produkte_datei.read_text(encoding="utf-8").startswith("# Meine Produkte")  # Kommentare bleiben
-    assert produkt.zustand == Zustand.neu_mit_etikett and produkt.preis == 12 and produkt.untergrenze() == 10
-    assert len(produkt.fotos) == 2 and "Originalverpackt" in produkt.notizen
-    with pytest.raises(ValueError):
-        trage_ein(produkte_datei, eintrag)  # nicht doppelt
-
-    speicher = Speicher(konf.datenordner)
-    inserat = registriere_inserat(speicher, produkt, artikel, datetime(2026, 9, 23, 12, 0))
-    assert (inserat.status, inserat.anzeige_id, inserat.preis_aktuell) == ("online", "10111548720", 12)
-    # 10:00 Uhr (UTC+2) in lokaler Zeit des Rechners
-    from datetime import timezone
-    assert inserat.online_seit == datetime(2026, 9, 20, 8, 0, tzinfo=timezone.utc).astimezone().replace(tzinfo=None)
-
-    # Der Agent lädt es NICHT erneut auf Vinted hoch, stellt es aber auf Kleinanzeigen ein
-    agent = Agent(konf, lade_produkte(produkte_datei), speicher, TextGenerator(konf.ki), fabrik)
+    agent = Agent(konf, [produkt], speicher, TextGenerator(konf.ki, register.lade), fabrik, jetzt=lambda: zeit[0])
     try:
         assert agent.inseriere_neue() == 1
-        assert not [g for g in mock.gesendet if g["pfad"] == "/items/987654"]
-        ka = speicher.hole("vinted-10111548720", Plattform.kleinanzeigen)
-        assert ka.status == "online" and ka.preis_aktuell == 12
-        assert speicher.hole("vinted-10111548720", Plattform.vinted).titel == "Unterwäsche"
+        g = markt.gesendet[0]
+        assert g["titel"].startswith("Hunkemöller Spitzenslip")
+        assert "Tragedauer: 1 Tag" in g["text"] and "diskret" in g["text"]
+        assert (g["preis"], g["kategorie"], g["groesse"], g["tragedauer"], g["fotos"]) == ("25", "Slips", "M", "1 Tag", "foto1.jpg")
+        i = speicher.hole("slip-001", "testmarkt")
+        assert (i.status, i.anzeige_id, i.url, i.preis_aktuell) == ("online", "48151", f"{BASIS}/angebot/48151", 25)
+        assert agent.inseriere_neue() == 0  # nie doppelt
+
+        zeit[0] += timedelta(days=3)  # zu früh
+        agent.pflege_inserate()
+        assert speicher.hole("slip-001", "testmarkt").preis_aktuell == 25
+
+        zeit[0] += timedelta(days=12)  # 15 Tage, kaum Aufrufe, keine Merker -> -5 %
+        agent.pflege_inserate()
+        i = speicher.hole("slip-001", "testmarkt")
+        assert (i.preis_aktuell, i.aufrufe, i.favoriten) == (23, 3, 0)
+        assert markt.gesendet[-1] == {"pfad": "/angebot/aktualisieren", "id": "48151", "preis": "23"}
+
+        markt.merk = 7  # viele Merker -> keine weitere Senkung
+        zeit[0] += timedelta(days=30)
+        agent.pflege_inserate()
+        assert speicher.hole("slip-001", "testmarkt").preis_aktuell == 23
+
+        markt.verkauft = True  # Verkauf wird erkannt
+        agent.pflege_inserate()
+        assert speicher.hole("slip-001", "testmarkt").status == "entfernt"
     finally:
         agent.schliessen()
+
+
+def test_nicht_eingerichtete_plattform_wird_klar_gemeldet(umgebung):
+    konf, register, produkt, markt, fabrik = umgebung
+    speicher = Speicher(konf.datenordner)
+    agent = Agent(konf, [produkt], speicher, TextGenerator(konf.ki, register.lade), fabrik)
+    try:
+        assert agent.inseriere_neue() == 0
+        assert markt.gesendet == []
+    finally:
+        agent.schliessen()
+
+
+def test_mitgelieferte_vorlagen():
+    register = Register(__import__("pathlib").Path("/nicht/vorhanden"))
+    assert {"crazyslip", "creamsi"} <= set(register.namen())
+    for name in ("crazyslip", "creamsi"):
+        d = register.lade(name)
+        assert not d.eingerichtet and "neu_url" in d.fehlend()
+        assert d.felder["fotos"].typ == "datei" and d.stil

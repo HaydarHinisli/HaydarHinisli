@@ -7,15 +7,15 @@ from datetime import datetime
 from typing import Callable
 
 from .konfiguration import Konfiguration
-from .modelle import Inserat, Plattform, Preisaenderung, Produkt, Texte
-from .plattformen import Abgebrochen, NichtAngemeldet, PlattformBasis
+from .modelle import Inserat, Preisaenderung, Produkt, Texte
+from .plattformen import Abgebrochen, Marktplatz, NichtAngemeldet, NichtEingerichtet
 from .preise import pruefe_reduzierung
 from .speicher import Speicher
 from .texte import TextGenerator, pruefe_texte
 
 log = logging.getLogger(__name__)
 
-PlattformFabrik = Callable[[Plattform], PlattformBasis]
+PlattformFabrik = Callable[[str], Marktplatz]
 
 
 class Agent:
@@ -27,10 +27,10 @@ class Agent:
         self.texte = texte
         self.fabrik = fabrik
         self.jetzt = jetzt
-        self._offen: dict[Plattform, PlattformBasis] = {}
-        self._gesperrt: set[Plattform] = set()
+        self._offen: dict[str, Marktplatz] = {}
+        self._gesperrt: set[str] = set()
 
-    def _plattform(self, pl: Plattform) -> PlattformBasis:
+    def _plattform(self, pl: str) -> Marktplatz:
         if pl not in self._offen:
             self._offen[pl] = self.fabrik(pl)
         return self._offen[pl]
@@ -42,7 +42,7 @@ class Agent:
 
     # ---- Texte ------------------------------------------------------------
 
-    def bereite_texte_vor(self, produkt: Produkt, neu: bool = False) -> dict[Plattform, Texte]:
+    def bereite_texte_vor(self, produkt: Produkt, neu: bool = False) -> dict[str, Texte]:
         """Erzeugt Texte (oder nimmt gespeicherte) und legt Entwürfe an."""
         vorhanden = {pl: self.speicher.hole(produkt.id, pl) for pl in produkt.plattformen}
         if not neu and all(i and i.titel and i.beschreibung for i in vorhanden.values()):
@@ -65,6 +65,12 @@ class Agent:
             for pl in produkt.plattformen:
                 if pl in self._gesperrt:
                     continue
+                definition = self.texte.definitionen(pl)
+                if not definition.eingerichtet:
+                    log.error("%s ist noch nicht eingerichtet (fehlt: %s) – 'python -m verkaufsagent einrichten %s' ausführen",
+                              definition.anzeigename, ", ".join(definition.fehlend()), pl)
+                    self._gesperrt.add(pl)
+                    continue
                 inserat = self.speicher.hole(produkt.id, pl)
                 if inserat and inserat.status in ("online", "verkauft", "entfernt"):
                     continue
@@ -77,10 +83,10 @@ class Agent:
                     anzahl += 1
         return anzahl
 
-    def _inseriere(self, produkt: Produkt, pl: Plattform) -> bool:
+    def _inseriere(self, produkt: Produkt, pl: str) -> bool:
         texte = self.bereite_texte_vor(produkt)[pl]
         inserat = self.speicher.hole(produkt.id, pl) or Inserat(produkt_id=produkt.id, plattform=pl)
-        probleme = pruefe_texte(texte, pl, produkt)
+        probleme = pruefe_texte(texte, self.texte.definitionen(pl))
         if probleme:
             inserat.status, inserat.fehler = "fehler", "Texte ungültig: " + ", ".join(probleme)
             self.speicher.speichere(inserat)
@@ -91,8 +97,8 @@ class Agent:
         plattform = self._plattform(pl)
         try:
             ergebnis = plattform.veroeffentliche(produkt, texte, preis)
-        except NichtAngemeldet as e:
-            log.error("%s: %s", pl.value, e)
+        except (NichtAngemeldet, NichtEingerichtet) as e:
+            log.error("%s: %s", pl, e)
             self._gesperrt.add(pl)
             return False
         except Abgebrochen:
@@ -138,7 +144,7 @@ class Agent:
                         inserat.statistik_stand = self.jetzt()
                     self.speicher.speichere(inserat)
                 except NichtAngemeldet as e:
-                    log.error("%s: %s", inserat.plattform.value, e)
+                    log.error("%s: %s", inserat.plattform, e)
                     self._gesperrt.add(inserat.plattform)
                     continue
                 except Exception as e:
@@ -154,6 +160,9 @@ class Agent:
                 continue
             try:
                 plattform.aendere_preis(inserat, neu)
+            except NichtEingerichtet as e:
+                log.warning("%s: Preis sollte auf %.2f € sinken, aber: %s", inserat.schluessel, neu, e)
+                continue
             except Exception as e:
                 bild = plattform.screenshot(f"{produkt.id}-preis-fehler")
                 log.error("%s: Preisänderung fehlgeschlagen: %s (Screenshot: %s)", inserat.schluessel, e, bild)

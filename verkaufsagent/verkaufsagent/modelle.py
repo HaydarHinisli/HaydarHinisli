@@ -14,6 +14,7 @@ MAX_RABATT_ABSOLUT = 0.30
 
 
 class Zustand(str, Enum):
+    getragen = "getragen"
     neu_mit_etikett = "neu_mit_etikett"
     neu = "neu"
     sehr_gut = "sehr_gut"
@@ -23,6 +24,7 @@ class Zustand(str, Enum):
     @property
     def text(self) -> str:
         return {
+            "getragen": "Getragen",
             "neu_mit_etikett": "Neu mit Etikett",
             "neu": "Neu ohne Etikett",
             "sehr_gut": "Sehr gut",
@@ -31,19 +33,16 @@ class Zustand(str, Enum):
         }[self.value]
 
 
-class Plattform(str, Enum):
-    kleinanzeigen = "kleinanzeigen"
-    vinted = "vinted"
+# Plattformen werden über Definitionsdateien beschrieben (siehe plattformdef.py);
+# hier ist eine Plattform einfach ihr Name, z. B. "crazyslip".
+Plattform = str
 
 
-class KleinanzeigenOptionen(BaseModel):
-    kategorie: list[str] = Field(default_factory=list, description="Pfad, z. B. ['Mode & Beauty', 'Herrenbekleidung']")
-    preistyp: str = Field("VB", pattern="^(VB|Festpreis)$")
-
-
-class VintedOptionen(BaseModel):
-    kategorie: list[str] = Field(default_factory=list, description="Pfad, z. B. ['Herren', 'Kleidung', 'Jacken']")
-    paketgroesse: str = Field("M", pattern="^(S|M|L)$")
+class PlattformOptionen(BaseModel):
+    """Produktangaben speziell für eine Plattform."""
+    kategorie: list[str] = Field(default_factory=list, description="Pfad im Kategorie-Menü, z. B. ['Slips']")
+    # Weitere Formularfelder der Plattform, z. B. {tragedauer: "2 Tage", versandart: "Brief"}
+    felder: dict[str, str] = Field(default_factory=dict)
 
 
 class Produkt(BaseModel):
@@ -53,18 +52,34 @@ class Produkt(BaseModel):
     mindestpreis: float | None = Field(None, gt=0, description="Optional: absolute Untergrenze")
     max_rabatt_prozent: float = Field(30, ge=0, le=30)
     verhandelbar: bool = True
-    zustand: Zustand
+    zustand: Zustand = Zustand.getragen
     marke: str | None = None
     groesse: str | None = None
     farbe: str | None = None
     material: str | None = None
     notizen: str | None = Field(None, description="Fakten/Mängel, die in die Beschreibung müssen")
     fotos: list[Path] = Field(default_factory=list)
-    plattformen: list[Plattform] = Field(default_factory=lambda: [Plattform.kleinanzeigen, Plattform.vinted])
+    plattformen: list[str] = Field(default_factory=lambda: ["crazyslip", "creamsi"], min_length=1)
     versand: bool = True
-    abholung: bool = True
-    kleinanzeigen: KleinanzeigenOptionen = Field(default_factory=KleinanzeigenOptionen)
-    vinted: VintedOptionen = Field(default_factory=VintedOptionen)
+    abholung: bool = False
+    # Pro Plattform: Kategorie + weitere Formularfelder. In produkte.yaml direkt
+    # unter dem Plattformnamen angeben, z. B. "crazyslip: {kategorie: [Slips]}".
+    optionen: dict[str, PlattformOptionen] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _optionen_sammeln(cls, daten):
+        if isinstance(daten, dict):
+            daten = dict(daten)
+            optionen = dict(daten.get("optionen") or {})
+            for name in daten.get("plattformen") or ["crazyslip", "creamsi"]:
+                if isinstance(daten.get(name), dict):
+                    optionen[name] = daten.pop(name)
+            daten["optionen"] = optionen
+        return daten
+
+    def optionen_fuer(self, plattform: str) -> PlattformOptionen:
+        return self.optionen.get(plattform) or PlattformOptionen()
 
     @field_validator("preis", "mindestpreis")
     @classmethod
@@ -103,7 +118,7 @@ class Preisaenderung(BaseModel):
 
 class Inserat(BaseModel):
     produkt_id: str
-    plattform: Plattform
+    plattform: str
     status: str = "entwurf"  # entwurf | online | verkauft | fehler | entfernt
     anzeige_id: str | None = None
     url: str | None = None
@@ -121,4 +136,4 @@ class Inserat(BaseModel):
 
     @property
     def schluessel(self) -> str:
-        return f"{self.produkt_id}@{self.plattform.value}"
+        return f"{self.produkt_id}@{self.plattform}"

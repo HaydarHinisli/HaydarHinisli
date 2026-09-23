@@ -44,8 +44,6 @@ class BrowserEinstellungen(BaseModel):
 
 
 class Konfiguration(BaseModel):
-    postleitzahl: str = Field("", description="Für Kleinanzeigen erforderlich")
-    kontakt_name: str = ""
     # true: veröffentlicht ohne Rückfrage. false: füllt aus, macht Screenshot, wartet auf Enter.
     auto_veroeffentlichen: bool = False
     # Pause zwischen zwei Inseraten (Sekunden) – schont Konto und Plattform

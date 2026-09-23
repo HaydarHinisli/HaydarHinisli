@@ -1,8 +1,5 @@
 # Kopieren nach config.yaml und anpassen.
 
-postleitzahl: "10115"        # Pflicht für Kleinanzeigen
-kontakt_name: "Haydar"
-
 # false (empfohlen für den Anfang): Formular wird sichtbar ausgefüllt, du bestätigst mit Enter.
 # true: der Agent veröffentlicht vollständig selbstständig.
 auto_veroeffentlichen: false

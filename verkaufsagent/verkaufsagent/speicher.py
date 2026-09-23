@@ -6,7 +6,7 @@ import os
 import tempfile
 from pathlib import Path
 
-from .modelle import Inserat, Plattform
+from .modelle import Inserat
 
 
 class Speicher:
@@ -21,8 +21,8 @@ class Speicher:
                 i = Inserat.model_validate(eintrag)
                 self._inserate[i.schluessel] = i
 
-    def hole(self, produkt_id: str, plattform: Plattform) -> Inserat | None:
-        return self._inserate.get(f"{produkt_id}@{plattform.value}")
+    def hole(self, produkt_id: str, plattform: str) -> Inserat | None:
+        return self._inserate.get(f"{produkt_id}@{plattform}")
 
     def alle(self) -> list[Inserat]:
         return sorted(self._inserate.values(), key=lambda i: i.schluessel)

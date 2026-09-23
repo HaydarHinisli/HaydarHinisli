@@ -1,36 +1,37 @@
 # Kopieren nach produkte.yaml. Fotos: Dateien oder ein Ordner (relativ zu dieser Datei).
+# Plattform-Namen: siehe 'python -m verkaufsagent plattformen'.
 
 produkte:
-  - id: jacke-001
-    name: Windbreaker Jacke
-    marke: Nike
-    preis: 45            # wird exakt so inseriert
-    mindestpreis: 35     # optional: darunter nie (sonst gilt Preis - 30 %)
-    zustand: sehr_gut    # neu_mit_etikett | neu | sehr_gut | gut | zufriedenstellend
+  - id: slip-001
+    name: Spitzenslip schwarz
+    marke: Hunkemöller
+    preis: 25            # wird exakt so eingestellt
+    mindestpreis: 20     # optional: darunter nie (sonst gilt Preis - 30 %)
+    zustand: getragen    # getragen | neu_mit_etikett | neu | sehr_gut | gut | zufriedenstellend
     groesse: M
     farbe: Schwarz
-    material: Polyester
-    notizen: Kaum getragen, keine Flecken. Nichtraucherhaushalt.
-    fotos: [fotos/jacke-001]
-    plattformen: [kleinanzeigen, vinted]
+    material: Spitze / Baumwolle
+    notizen: Nichtraucherhaushalt.
+    fotos: [fotos/slip-001]
+    plattformen: [crazyslip, creamsi]
     versand: true
-    abholung: true
-    kleinanzeigen:
-      kategorie: ["Mode & Beauty", "Herrenbekleidung"]
-      preistyp: VB
-    vinted:
-      kategorie: ["Herren", "Kleidung", "Jacken & Mäntel"]
-      paketgroesse: M
+    # Pro Plattform: Kategorie-Pfad und weitere Formularfelder (Namen wie beim 'einrichten' vergeben)
+    crazyslip:
+      kategorie: ["Slips"]
+      felder:
+        tragedauer: "1 Tag"
+    creamsi:
+      kategorie: ["Slips & Strings"]
+      felder:
+        tragedauer: "1 Tag"
 
-  - id: lampe-002
-    name: Tischlampe mit Messingfuß
-    preis: 25
+  - id: bh-002
+    name: Push-up BH rot
+    preis: 30
     verhandelbar: false  # Festpreis, nie reduzieren
-    zustand: gut
-    notizen: Kleiner Kratzer am Fuß (siehe Foto 3). Leuchtmittel nicht inklusive.
-    fotos: [fotos/lampe-002]
-    plattformen: [kleinanzeigen]
-    versand: false
-    kleinanzeigen:
-      kategorie: ["Haus & Garten", "Lampen & Licht"]
-      preistyp: Festpreis
+    groesse: 75B
+    farbe: Rot
+    fotos: [fotos/bh-002]
+    plattformen: [creamsi]
+    creamsi:
+      kategorie: ["BHs"]

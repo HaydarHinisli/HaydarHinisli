@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 import pytest
 
 from verkaufsagent.konfiguration import PreisRegeln
-from verkaufsagent.modelle import Inserat, Plattform, Produkt
+from verkaufsagent.modelle import Inserat, Produkt
 from verkaufsagent.preise import bewerte_angebot, pruefe_reduzierung, schoener_preis
 
 JETZT = datetime(2026, 9, 23, 12, 0)
@@ -16,7 +16,7 @@ def produkt(**kw):
 
 
 def inserat(tage, preis=100.0, **kw):
-    return Inserat(produkt_id="p1", plattform=Plattform.vinted, status="online",
+    return Inserat(produkt_id="p1", plattform="crazyslip", status="online",
                    online_seit=JETZT - timedelta(days=tage), preis_aktuell=preis, **kw)
 
 
