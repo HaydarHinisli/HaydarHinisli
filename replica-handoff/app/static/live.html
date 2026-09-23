@@ -218,13 +218,21 @@ pre{background:#0f141d;border:1px solid var(--border);border-radius:10px;padding
   // Pre-fill the bearer token if the dashboard (app/static/index.html) just
   // logged in and handed one off via sessionStorage — removes the manual
   // copy-paste-from-curl step that was the main source of expired/stale-token
-  // mistakes during real-call testing. Still just pre-fills the field (never
-  // auto-connects): the seller/tester clicks "Verbinden" themselves, same as
-  // with a manually pasted token.
+  // mistakes during real-call testing.
   try {
     var handedOffToken = sessionStorage.getItem('replica_bearer_token');
     if (handedOffToken) els.token.value = handedOffToken;
   } catch (e) { /* private mode etc. — falls back to manual paste */ }
+
+  // Fix: startVoiceTestCall() itself refuses to place a call until this page
+  // is connected (currentCallId set via connect()) — but call_id/token are
+  // usually already pre-filled above, so requiring a separate manual
+  // "Verbinden" click first was a pure, avoidable extra step that made the
+  // live-suggestion feed (SAG JETZT) look "missing" even though it was one
+  // click away the whole time. Auto-connect only when both values are
+  // already present; a manually-pasted token (e.g. private-mode fallback)
+  // still goes through the existing manual "Verbinden" button.
+  if (els.callId.value && els.token.value) connect();
 
   var ws = null;
   var reconnectDelayMs = 500;
