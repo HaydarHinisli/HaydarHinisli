@@ -3309,3 +3309,99 @@ baseline (browser ↔ real phone, full audio in both directions) is not
 yet fully proven — audio was not yet flowing from the browser
 microphone to the callee when this ADR was written, which is the
 immediate next item, tracked separately from this ADR.
+
+## ADR-068 — Multi-tenant Twilio hardening principles: reduce the number of moving parts, don't try to preflight-check every one of them
+
+Status: **proposed / documentation only — no code, no migration, no
+production path change. Extends the existing "Pilot Gate / Hardening"
+backlog item; does not replace it.**
+
+### Why this exists
+
+Immediately after ADR-067's post-mortem, the natural next question was
+asked: "how do we stop this from happening again once REPLICA is
+integrated at a real company, with multiple phone numbers?" A first pass
+at an answer (automate provisioning, add more preflight checks) was
+**correctly challenged as too optimistic**: everything in ADR-067
+happened on one developer's own laptop, on his own home network, with
+full admin access to his own Twilio account, with no client watching,
+and it still took a full day. A real company integration removes every
+one of those favorable conditions at once — the Twilio account may
+belong to the client, their network may actively block the exact traffic
+REPLICA needs, compliance/number-registration is a bureaucratic process
+measured in days not minutes, and a failure is visible to a paying
+customer instead of hidden in a private debugging session. **More
+preflight checks alone do not fix this** — they only catch failures
+whose root cause we already know exists.
+
+### The actual answer: fewer moving parts, not more checks
+
+Trying to defensively check for every conceivable failure mode in a
+future, unknown client environment is not tractable, and is explicitly
+rejected here as a strategy. Instead, the following four structural
+choices remove entire *classes* of the failures ADR-067 catalogued,
+rather than adding checks for them:
+
+1. **REPLICA operates its own Twilio account (with a Twilio subaccount
+   per client company), never the client's own Twilio account.** Region,
+   Auth Token, API Key, and TwiML Application are provisioned **once**,
+   centrally, by REPLICA, against an account REPLICA fully controls and
+   has already exercised end-to-end (this one, once Call #1's audio path
+   is proven). This is what actually eliminates ADR-067 bug class 1
+   (region-scoped resource drift): it doesn't need re-solving per client,
+   because it is never re-done per client.
+
+2. **Every client gets a real, Twilio-purchased phone number as their
+   caller ID — never a personally-Verified Caller ID.** The Verified
+   Caller ID limitation (unsupported in IE1 at all) is what forced
+   today's IE1→US1 region switch in the first place, which is what
+   triggered bug class 1. A purchased number sidesteps that limitation
+   in every region; the "use my own mobile number as caller ID" path
+   that caused today's cascade should be a developer-only testing
+   convenience, never a path a client-facing deployment takes.
+
+3. **REPLICA runs on one fixed, permanently-hosted, professionally
+   operated domain — never a local machine behind an ephemeral tunnel.**
+   This removes ADR-067 bug class 2 (tunnel URL drift) structurally: a
+   URL that never changes cannot fall out of sync with itself.
+
+4. **One built-in diagnostic tool, not a growing pile of ad-hoc scripts.**
+   Everything done by hand today (`check_token_signing.py`,
+   `check_twiml_app_region.py`, the `curl`/`shasum` checks in ADR-067's
+   fast-diagnosis table) becomes a single, permanent, always-available
+   command or endpoint inside REPLICA itself — one that runs the exact
+   same checklist in seconds against a given company/number and reports
+   pass/fail per step. This is the answer to "how do we keep it simple
+   *when* something still breaks": not zero failures, but a
+   near-instant, mechanical triage instead of a day of manual detective
+   work. It does not, and cannot, catch a failure class we have not yet
+   seen (e.g. a client-side corporate firewall blocking WebRTC media,
+   which is a real and distinct risk this ADR does not claim to solve —
+   see "Explicitly out of scope" below).
+
+### Explicitly out of scope (not solved by this ADR, on purpose)
+
+- Client-side network/firewall restrictions on WebRTC media (UDP, or a
+  corporate proxy that only allows web ports). This is the single most
+  likely **new** failure class in a company environment that this
+  session has not yet encountered on a home network, and it requires
+  either a TURN-over-TLS fallback configuration (Twilio supports this)
+  or direct engagement with the client's own network/security team — it
+  is not something REPLICA's own code can preflight-check away.
+- Client-side compliance/number-registration bureaucracy (e.g. A2P
+  10DLC-style processes) — a real, external timeline, not a
+  software problem.
+- Any specific implementation (subaccount provisioning script, the
+  diagnostic tool's exact interface, hosting provider choice). Those are
+  Pilot Gate / Hardening (backlog item #27) work, not decided here.
+
+### Sequencing
+
+Same gating principle as ADR-066 (Foresight): this is a plan for a
+**later, deliberately staged** effort, not something to start now. It
+assumes a first real, cooperative pilot client with direct IT access —
+not a cold rollout to an unknown environment — as the way to actually
+discover the failure modes this ADR's "explicitly out of scope" section
+already flags as unknown. Nothing here blocks or changes work on Call
+#1's still-open item (bidirectional audio) or on Foresight's own
+nine-point gate.
