@@ -10,7 +10,7 @@ from pathlib import Path
 
 from .agent import Agent
 from .konfiguration import lade_konfiguration, lade_produkte
-from .modelle import Plattform
+from .modelle import Plattform, Zustand
 from .preise import bewerte_angebot
 from .speicher import Speicher
 from .texte import TextGenerator, pruefe_texte
@@ -130,6 +130,47 @@ def cmd_markieren(args) -> None:
             print(f"{i.schluessel} → {args.status}")
 
 
+def cmd_uebernehmen(args) -> None:
+    from playwright.sync_api import sync_playwright
+
+    from .plattformen.vinted import Vinted, artikel_id_aus_url
+    from .uebernahme import baue_produkt, registriere_inserat, trage_ein
+
+    konf = lade_konfiguration(Path(args.config))
+    produkte_datei = Path(args.produkte)
+    speicher = Speicher(konf.datenordner)
+    anzeige_id = artikel_id_aus_url(args.url)
+    for i in speicher.alle():
+        if i.plattform == Plattform.vinted and i.anzeige_id == anzeige_id:
+            raise SystemExit(f"Vinted-Artikel {anzeige_id} ist bereits als '{i.produkt_id}' übernommen.")
+    produkt_id = args.id or f"vinted-{anzeige_id}"
+    foto_ordner = produkte_datei.resolve().parent / "fotos" / produkt_id
+
+    with sync_playwright() as pw:
+        vinted = Vinted(pw, konf)
+        try:
+            artikel = vinted.lese_artikel(args.url)
+            print(f"Gefunden: „{artikel.titel}“ – {artikel.preis} € – Zustand: {artikel.zustand or '?'} – "
+                  f"{len(artikel.foto_urls)} Foto(s)")
+            fotos = vinted.lade_fotos(artikel.foto_urls, foto_ordner)
+        finally:
+            vinted.schliessen()
+
+    eintrag = baue_produkt(
+        artikel, produkt_id, fotos, produkte_datei.resolve().parent,
+        preis=args.preis, mindestpreis=args.mindestpreis,
+        zustand=Zustand(args.zustand) if args.zustand else None,
+        kleinanzeigen=args.auch_kleinanzeigen, ka_kategorie=args.ka_kategorie or [],
+    )
+    produkt = trage_ein(produkte_datei, eintrag)
+    inserat = registriere_inserat(speicher, produkt, artikel, datetime.now())
+    print(f"✔ Übernommen als '{produkt.id}' ({len(fotos)} Foto(s) in {foto_ordner}).")
+    print(f"  Preis {inserat.preis_aktuell:.2f} €, Untergrenze {produkt.untergrenze():.2f} €, "
+          f"online seit {inserat.online_seit:%d.%m.%Y}. Der Agent pflegt ab jetzt den Preis.")
+    if args.auch_kleinanzeigen:
+        print(f"  Für Kleinanzeigen: 'python -m verkaufsagent inserieren {produkt.id}' ausführen.")
+
+
 def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(prog="verkaufsagent", description="Inseriert Produkte auf Kleinanzeigen und Vinted.")
     ap.add_argument("--config", default="config.yaml")
@@ -158,6 +199,16 @@ def main(argv: list[str] | None = None) -> None:
     s.add_argument("--intervall-h", type=float, default=12)
     s.set_defaults(f=cmd_lauf)
 
+    s = sub.add_parser("uebernehmen", help="Bestehendes Vinted-Inserat übernehmen (wird nicht neu hochgeladen)")
+    s.add_argument("url", help="Link oder ID des Vinted-Artikels")
+    s.add_argument("--id", help="Eigene Produkt-ID (Standard: vinted-<artikelnummer>)")
+    s.add_argument("--preis", type=float, help="Dein Grundpreis (Standard: aktueller Vinted-Preis)")
+    s.add_argument("--mindestpreis", type=float)
+    s.add_argument("--zustand", choices=[z.value for z in Zustand])
+    s.add_argument("--auch-kleinanzeigen", action="store_true", help="Zusätzlich auf Kleinanzeigen inserieren")
+    s.add_argument("--ka-kategorie", nargs="+", metavar="EBENE", help='z. B. --ka-kategorie "Mode & Beauty" "Damenbekleidung"')
+    s.set_defaults(f=cmd_uebernehmen)
+
     s = sub.add_parser("status", help="Übersicht aller Inserate")
     s.set_defaults(f=cmd_status)
 
@@ -175,7 +226,11 @@ def main(argv: list[str] | None = None) -> None:
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
                         format="%(asctime)s %(levelname)-7s %(message)s", datefmt="%H:%M:%S")
+    from .plattformen.basis import PlattformFehler
+
     try:
         args.f(args)
     except KeyboardInterrupt:
         sys.exit(130)
+    except (PlattformFehler, ValueError, FileNotFoundError) as e:
+        sys.exit(f"Fehler: {e}")

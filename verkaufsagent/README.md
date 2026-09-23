@@ -56,7 +56,24 @@ python -m verkaufsagent lauf                 # beides (für den Cronjob)
 python -m verkaufsagent status               # Übersicht: Status, Preis, Untergrenze, Link
 python -m verkaufsagent angebot jacke-001 38 # Käuferangebot bewerten
 python -m verkaufsagent markieren jacke-001 verkauft
+python -m verkaufsagent uebernehmen <vinted-link>   # vorhandenes Vinted-Inserat übernehmen
 ```
+
+### Bereits vorhandene Vinted-Inserate übernehmen
+
+Wenn du einen Artikel schon selbst bei Vinted hochgeladen hast, übernimmt ihn der Agent, **ohne ihn neu hochzuladen**:
+
+```bash
+python -m verkaufsagent uebernehmen https://www.vinted.de/items/10111548720-unterwasche
+```
+
+Der Agent liest Titel, Beschreibung, Preis, Zustand, Marke, Größe und alle Fotos aus deinem Inserat. Die Fotos speichert er in `fotos/vinted-<nummer>/`. Außerdem legt er das Produkt in `produkte.yaml` an und merkt sich das Inserat als „online“. Ab dann pflegt er den Preis nach denselben Regeln. Die Standzeit zählt ab dem Tag, an dem du das Inserat erstellt hast.
+
+Nützliche Optionen:
+- `--preis 15`: Grundpreis, von dem aus gerechnet wird (Standard: aktueller Vinted-Preis)
+- `--mindestpreis 10`: Untergrenze
+- `--auch-kleinanzeigen --ka-kategorie "Mode & Beauty" "Damenbekleidung"`: zusätzlich auf Kleinanzeigen einstellen. Danach `python -m verkaufsagent inserieren vinted-<nummer>` ausführen, der Agent schreibt dafür eine eigene Kleinanzeigen-Beschreibung.
+- `--zustand neu_mit_etikett`: falls der Zustand nicht erkannt wird
 
 **Empfohlener Start:** Lass `auto_veroeffentlichen: false` zunächst so. Der Agent füllt dann das Formular sichtbar aus, macht einen Screenshot und veröffentlicht erst, wenn du Enter drückst. Wenn die ersten Inserate korrekt sind, stell auf `true`. Ab dann läuft alles vollautomatisch.
 

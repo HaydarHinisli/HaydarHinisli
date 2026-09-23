@@ -8,6 +8,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import yaml
 from playwright.sync_api import BrowserContext, Locator, Page, Playwright, TimeoutError as PwTimeout
@@ -113,16 +114,28 @@ class PlattformBasis(ABC):
             return None
 
     def hole_json(self, url: str) -> tuple[int, dict | None]:
-        """Lädt eine JSON-Adresse im angemeldeten Browser (nutzt dessen Cookies)."""
-        antwort = self.page.goto(url)
-        if antwort is None:
-            return 0, None
-        if not antwort.ok:
-            return antwort.status, None
+        """Lädt eine JSON-Adresse per fetch() im angemeldeten Browser (nutzt dessen Cookies).
+
+        Gibt (HTTP-Status, Daten) zurück; Status 0 = keine Antwort.
+        """
+        teile = urlsplit(url)
+        herkunft = f"{teile.scheme}://{teile.netloc}"
         try:
-            return antwort.status, antwort.json()
-        except Exception:
-            return antwort.status, None
+            if not self.page.url.startswith(herkunft):
+                self.page.goto(herkunft + "/")
+            status, daten = self.page.evaluate(
+                """async (u) => {
+                    const r = await fetch(u, {credentials: 'include', headers: {'Accept': 'application/json'}});
+                    let d = null;
+                    try { d = await r.json(); } catch (e) {}
+                    return [r.status, d];
+                }""",
+                url,
+            )
+        except Exception as e:
+            log.debug("JSON nicht ladbar (%s): %s", url, e)
+            return 0, None
+        return status, daten if isinstance(daten, dict) and 200 <= status < 300 else None
 
     def cookies_akzeptieren(self) -> None:
         knopf = self.optional("cookie_akzeptieren", 4000)

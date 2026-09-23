@@ -1,8 +1,12 @@
 """Vinted.de – Inserieren, Preis ändern, Statistik lesen."""
 from __future__ import annotations
 
+import html as html_lib
 import logging
 import re
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
 
 from ..modelle import Inserat, Plattform, Produkt, Texte
 from .basis import NichtAngemeldet, PlattformBasis, PlattformFehler, Statistik, Veroeffentlicht, preis_text
@@ -11,6 +15,54 @@ log = logging.getLogger(__name__)
 
 BASIS = "https://www.vinted.de"
 PAKET = {"S": "Klein", "M": "Mittel", "L": "Groß"}
+
+
+@dataclass
+class VintedArtikel:
+    """Daten eines bereits bestehenden Vinted-Inserats."""
+    anzeige_id: str
+    url: str
+    titel: str
+    beschreibung: str
+    preis: float | None
+    zustand: str | None = None
+    marke: str | None = None
+    groesse: str | None = None
+    farbe: str | None = None
+    foto_urls: list[str] = field(default_factory=list)
+    erstellt: datetime | None = None
+    aufrufe: int | None = None
+    favoriten: int | None = None
+    aktiv: bool = True
+
+
+def artikel_id_aus_url(url_oder_id: str) -> str:
+    treffer = re.search(r"/items/(\d+)", url_oder_id) or re.fullmatch(r"\s*(\d+)\s*", url_oder_id)
+    if not treffer:
+        raise ValueError(f"Keine Vinted-Artikel-ID in '{url_oder_id}' gefunden")
+    return treffer.group(1)
+
+
+def _preis(wert) -> float | None:
+    if isinstance(wert, dict):
+        wert = wert.get("amount")
+    if wert in (None, ""):
+        return None
+    try:
+        return round(float(str(wert).replace(",", ".")), 2)
+    except ValueError:
+        return None
+
+
+def _zeit(wert) -> datetime | None:
+    if isinstance(wert, (int, float)):
+        return datetime.fromtimestamp(wert, tz=timezone.utc).astimezone().replace(tzinfo=None)
+    if isinstance(wert, str) and wert:
+        try:
+            return datetime.fromisoformat(wert.replace("Z", "+00:00")).astimezone().replace(tzinfo=None)
+        except ValueError:
+            return None
+    return None
 
 
 class Vinted(PlattformBasis):
@@ -111,11 +163,74 @@ class Vinted(PlattformBasis):
         self.finde("absenden").click()
         self.page.wait_for_url(lambda url: "/edit" not in url, timeout=60000)
 
+    def lese_artikel(self, url_oder_id: str) -> VintedArtikel:
+        """Liest ein bestehendes Inserat – zuerst über die Vinted-API, sonst aus der Artikelseite."""
+        anzeige_id = artikel_id_aus_url(url_oder_id)
+        url = f"{BASIS}/items/{anzeige_id}"
+        _, daten = self.hole_json(f"{BASIS}/api/v2/items/{anzeige_id}")
+        item = (daten or {}).get("item")
+        if item:
+            fotos = [f.get("full_size_url") or f.get("url") for f in item.get("photos") or []]
+            return VintedArtikel(
+                anzeige_id=anzeige_id, url=url,
+                titel=(item.get("title") or "").strip(),
+                beschreibung=(item.get("description") or "").strip(),
+                preis=_preis(item.get("price")) or _preis(item.get("price_numeric")),
+                zustand=item.get("status") or None,
+                marke=item.get("brand_title") or (item.get("brand_dto") or {}).get("title") or None,
+                groesse=item.get("size_title") or None,
+                farbe=item.get("color1") or None,
+                foto_urls=[f for f in fotos if f],
+                erstellt=_zeit(item.get("created_at_ts") or item.get("created_at")),
+                aufrufe=item.get("view_count"), favoriten=item.get("favourite_count"),
+                aktiv=not (item.get("is_closed") or item.get("is_sold") or item.get("is_hidden")),
+            )
+        # Rückfall: Öffentliche Artikelseite (Open-Graph-Metadaten)
+        antwort = self.page.goto(url)
+        if antwort is not None and antwort.status in (404, 410):
+            raise PlattformFehler(f"Vinted-Artikel {anzeige_id} existiert nicht (mehr)")
+        quelltext = self.page.content()
+
+        def meta(name: str) -> str | None:
+            m = re.search(rf'<meta[^>]+(?:property|name)="{re.escape(name)}"[^>]+content="([^"]*)"', quelltext)
+            return html_lib.unescape(m.group(1)).strip() if m else None
+
+        titel = meta("og:title") or ""
+        if not titel:
+            raise PlattformFehler(f"Vinted-Artikel {anzeige_id} konnte nicht gelesen werden")
+        fotos = re.findall(r'<meta[^>]+property="og:image"[^>]+content="([^"]+)"', quelltext)
+        return VintedArtikel(
+            anzeige_id=anzeige_id, url=url, titel=titel,
+            beschreibung=meta("og:description") or "",
+            preis=_preis(meta("product:price:amount")),
+            marke=meta("product:brand"),
+            foto_urls=[html_lib.unescape(f) for f in fotos],
+        )
+
+    def lade_fotos(self, urls: list[str], ordner: Path) -> list[Path]:
+        ordner.mkdir(parents=True, exist_ok=True)
+        pfade = []
+        for nr, foto_url in enumerate(urls, 1):
+            antwort = self.page.goto(foto_url)
+            if antwort is None or not antwort.ok:
+                log.warning("Foto %d nicht ladbar: %s", nr, foto_url)
+                continue
+            typ = (antwort.headers.get("content-type") or "").lower()
+            endung = ".png" if "png" in typ else ".webp" if "webp" in typ else ".jpg"
+            pfad = ordner / f"{nr:02d}{endung}"
+            pfad.write_bytes(antwort.body())
+            pfade.append(pfad)
+        return pfade
+
     def lese_statistik(self, inserat: Inserat) -> Statistik:
         stat = Statistik()
         status, daten = self.hole_json(f"{BASIS}/api/v2/items/{inserat.anzeige_id}")
         if status in (404, 410):
-            stat.aktiv = False
+            # Nur als gelöscht werten, wenn auch die öffentliche Artikelseite fehlt
+            # (ein 404 der API allein kann auch eine geänderte Schnittstelle sein).
+            seite = self.page.goto(f"{BASIS}/items/{inserat.anzeige_id}")
+            if seite is not None and seite.status in (404, 410):
+                stat.aktiv = False
             return stat
         if daten:
             item = daten.get("item", {})

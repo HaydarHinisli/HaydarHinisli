@@ -80,6 +80,7 @@ class MockSeiten:
     def __init__(self):
         self.gesendet: list[dict] = []
         self.statistik = {"viewCount": 12, "watchCount": 0}
+        self.foto = b""
 
     def route(self, route):
         url = urlparse(route.request.url)
@@ -96,6 +97,24 @@ class MockSeiten:
         if url.path == "/m-meine-anzeigen-verwalten.json":
             return route.fulfill(status=200, content_type="application/json",
                                  body=json.dumps({"ads": [dict(id=4711, state="ACTIVE", **self.statistik)]}))
+        if url.path == "/api/v2/items/10111548720":
+            return route.fulfill(status=200, content_type="application/json", body=json.dumps({"item": {
+                "id": 10111548720, "title": "Unterwäsche", "status": "Neu mit Etikett",
+                "description": "Originalverpackt, nie getragen. Größe M.",
+                "price": {"amount": "12.0", "currency_code": "EUR"}, "brand_title": "Calvin Klein",
+                "size_title": "M", "created_at_ts": "2026-09-20T10:00:00+02:00",
+                "view_count": 4, "favourite_count": 1,
+                "photos": [{"full_size_url": "https://images1.vinted.net/t/a.jpg"},
+                           {"full_size_url": "https://images1.vinted.net/t/b.jpg"}]}}))
+        if url.path == "/api/v2/items/555":
+            return route.fulfill(status=404, body="")
+        if url.path == "/items/555":
+            return html('<html><head><meta property="og:title" content="Rock &amp; Bluse">'
+                        '<meta property="og:description" content="Kaum getragen, Größe 38.">'
+                        '<meta property="og:image" content="https://images1.vinted.net/t/c.jpg">'
+                        '<meta property="product:price:amount" content="9.50"></head></html>')
+        if url.hostname == "images1.vinted.net":
+            return route.fulfill(status=200, content_type="image/jpeg", body=self.foto)
         if url.path.startswith("/api/v2/items/"):
             return route.fulfill(status=200, content_type="application/json",
                                  body=json.dumps({"item": {"view_count": 3, "favourite_count": 0}}))
@@ -118,6 +137,7 @@ def umgebung(tmp_path):
                          pause_zwischen_inseraten_s=10, datenordner=tmp_path / "daten",
                          ki=KiEinstellungen(aktiv=False), browser=BrowserEinstellungen(langsam_ms=0, timeout_ms=8000))
     mock = MockSeiten()
+    mock.foto = foto.read_bytes()
     with sync_playwright() as pw:
         def fabrik(pl):
             p = KLASSEN[pl](pw, konf)
@@ -188,5 +208,54 @@ def test_fehlende_kategorie_wird_als_fehler_gespeichert(umgebung):
         i = speicher.hole("jacke-001", Plattform.vinted)
         assert i.status == "fehler" and "nicht auswählbar" in i.fehler
         assert not [g for g in mock.gesendet if g["pfad"] == "/items/987654"]
+    finally:
+        agent.schliessen()
+
+
+def test_bestehendes_vinted_inserat_uebernehmen(umgebung, tmp_path):
+    from verkaufsagent.konfiguration import lade_produkte
+    from verkaufsagent.modelle import Zustand
+    from verkaufsagent.uebernahme import baue_produkt, registriere_inserat, trage_ein
+
+    konf, _, mock, fabrik = umgebung
+    produkte_datei = tmp_path / "produkte.yaml"
+    produkte_datei.write_text("# Meine Produkte\nprodukte:\n", encoding="utf-8")
+    vinted = fabrik(Plattform.vinted)
+    try:
+        artikel = vinted.lese_artikel("https://www.vinted.de/items/10111548720-unterwasche")
+        assert (artikel.titel, artikel.preis, artikel.zustand, artikel.marke) == ("Unterwäsche", 12.0, "Neu mit Etikett", "Calvin Klein")
+        fotos = vinted.lade_fotos(artikel.foto_urls, tmp_path / "fotos" / "vinted-10111548720")
+        assert [f.name for f in fotos] == ["01.jpg", "02.jpg"] and fotos[0].stat().st_size > 0
+
+        # Rückfall ohne API: Daten aus der öffentlichen Artikelseite
+        alt = vinted.lese_artikel("555")
+        assert (alt.titel, alt.preis, alt.foto_urls) == ("Rock & Bluse", 9.5, ["https://images1.vinted.net/t/c.jpg"])
+    finally:
+        vinted.schliessen()
+
+    eintrag = baue_produkt(artikel, "vinted-10111548720", fotos, tmp_path, preis=None, mindestpreis=10,
+                           zustand=None, kleinanzeigen=True, ka_kategorie=["Mode & Beauty", "Herrenbekleidung"])
+    produkt = trage_ein(produkte_datei, eintrag)
+    assert produkte_datei.read_text(encoding="utf-8").startswith("# Meine Produkte")  # Kommentare bleiben
+    assert produkt.zustand == Zustand.neu_mit_etikett and produkt.preis == 12 and produkt.untergrenze() == 10
+    assert len(produkt.fotos) == 2 and "Originalverpackt" in produkt.notizen
+    with pytest.raises(ValueError):
+        trage_ein(produkte_datei, eintrag)  # nicht doppelt
+
+    speicher = Speicher(konf.datenordner)
+    inserat = registriere_inserat(speicher, produkt, artikel, datetime(2026, 9, 23, 12, 0))
+    assert (inserat.status, inserat.anzeige_id, inserat.preis_aktuell) == ("online", "10111548720", 12)
+    # 10:00 Uhr (UTC+2) in lokaler Zeit des Rechners
+    from datetime import timezone
+    assert inserat.online_seit == datetime(2026, 9, 20, 8, 0, tzinfo=timezone.utc).astimezone().replace(tzinfo=None)
+
+    # Der Agent lädt es NICHT erneut auf Vinted hoch, stellt es aber auf Kleinanzeigen ein
+    agent = Agent(konf, lade_produkte(produkte_datei), speicher, TextGenerator(konf.ki), fabrik)
+    try:
+        assert agent.inseriere_neue() == 1
+        assert not [g for g in mock.gesendet if g["pfad"] == "/items/987654"]
+        ka = speicher.hole("vinted-10111548720", Plattform.kleinanzeigen)
+        assert ka.status == "online" and ka.preis_aktuell == 12
+        assert speicher.hole("vinted-10111548720", Plattform.vinted).titel == "Unterwäsche"
     finally:
         agent.schliessen()
