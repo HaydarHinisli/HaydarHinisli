@@ -224,6 +224,14 @@ pre{background:#0f141d;border:1px solid var(--border);border-radius:10px;padding
     if (handedOffToken) els.token.value = handedOffToken;
   } catch (e) { /* private mode etc. — falls back to manual paste */ }
 
+  var ws = null;
+  var reconnectDelayMs = 500;
+  var reconnectTimer = null;
+  var lastRenderedSuggestionId = null;
+  var previousSuggestionText = null;
+  var manualClose = false;
+  var currentCallId = null;
+
   // Fix: startVoiceTestCall() itself refuses to place a call until this page
   // is connected (currentCallId set via connect()) — but call_id/token are
   // usually already pre-filled above, so requiring a separate manual
@@ -232,15 +240,16 @@ pre{background:#0f141d;border:1px solid var(--border);border-radius:10px;padding
   // click away the whole time. Auto-connect only when both values are
   // already present; a manually-pasted token (e.g. private-mode fallback)
   // still goes through the existing manual "Verbinden" button.
+  //
+  // Must run AFTER the `var` initializers directly above, not before: they
+  // still execute their assignment in sequence when reached even though the
+  // names are hoisted, so calling connect() earlier let it set `ws`/
+  // `currentCallId`/`manualClose` correctly, only for the next few lines to
+  // immediately stomp them back to null/false — leaving an orphaned,
+  // untracked WebSocket running while the code itself still thought it was
+  // disconnected. That bug is what actually caused the reported "have to
+  // click Verbinden manually" / instability, not the live pipeline.
   if (els.callId.value && els.token.value) connect();
-
-  var ws = null;
-  var reconnectDelayMs = 500;
-  var reconnectTimer = null;
-  var lastRenderedSuggestionId = null;
-  var previousSuggestionText = null;
-  var manualClose = false;
-  var currentCallId = null;
   // Fix-Sprint (ADR-051): raw ping/pong round trips, attached to the next
   // Render-ACK so the SERVER can compute a clock-offset/RTT/uncertainty
   // estimate (app/services/clock_sync.py) — not computed client-side, so there
