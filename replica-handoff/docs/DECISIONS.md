@@ -3140,3 +3140,172 @@ real end-to-end call:
 Only after these nine are met does Foresight V1 begin, as its own
 clearly separated development track, starting exclusively in shadow
 mode.
+
+## ADR-067 — Post-mortem: why the first real call took a full day, and the five independent bug classes it actually was
+
+Status: **incident report — no open action items block further work; the
+prevention checklist below is the durable artifact.**
+
+### Summary
+
+On 2026-09-22/23, the first real end-to-end call (browser → Twilio →
+real phone ringing → a real person answering) was successfully placed.
+Getting there took roughly a full day and looked, at almost every step,
+like "the same bug again" — every failure surfaced as either a generic
+Twilio Voice SDK error (`53000`, `31000`, `31603`) or the identical HTTP
+`403 Invalid webhook signature` response from our own server. In
+reality this was **five unrelated bug classes**, each masquerading as
+the previous one, compounding into a long trial-and-error session. This
+ADR exists so the next person (human or AI) who sees any of these
+symptoms can jump straight to the right fix instead of re-deriving it.
+
+None of these were REPLICA application-logic bugs. All five were
+environment/configuration issues: regional resource scoping on the
+Twilio side, an ephemeral tunnel, two on-disk copies of the same repo,
+and a Python stdlib default. **Zero lines of `app/` business logic
+changed as a result of this investigation** (the two code changes made —
+`enableImprovedSignalingErrorPrecision` in `live.html` and `python -u` in
+`run.sh` — are both pure diagnostics/dev-ergonomics, not fixes to
+application behavior).
+
+### The five bug classes, in the order they had to be found
+
+**1. Twilio resources are scoped per data-residency region, and nothing
+warns you when they aren't.** This account's home region is `IE1`
+(`TWILIO_REGION=ie1`, `TWILIO_EDGE=dublin`). Verified Caller IDs are not
+a supported feature in IE1 at all (only US1/AU1 — confirmed against
+Twilio's own regional feature-availability documentation), which forced
+a temporary, explicitly-approved move to `US1`/`ashburn` purely to prove
+the pipeline end-to-end. That move then required recreating, one at a
+time, **every other region-scoped credential/resource**, because none of
+them carry over between regions even though the Twilio Console UI gives
+no indication of this:
+   - the **Auth Token** used to verify inbound webhook signatures (IE1
+     has its own Primary Auth Token, distinct from the account's
+     default/US1 one shown on the main dashboard);
+   - the **API Key** (SID+secret) used to sign the browser's Voice
+     Access Token (an IE1-scoped key produces `AccessTokenInvalid
+     (20101)` once the token specifies `region=us1`; the *first* US1 key
+     we created also failed independently, with Twilio error `8001
+     "actor doesn't have any assertions"` — it had no permissions
+     attached and had to be recreated as a proper Standard key);
+   - the **TwiML Application** referenced by `outgoingApplicationSid`
+     (confirmed via direct REST fetch: `client.applications(sid).fetch()`
+     scoped to `region='us1'` returned `404` for the IE1-created app —
+     it does not exist in US1 at all, which is why Twilio's gateway
+     produced only a generic `UnknownError (31000)` and never even
+     called our webhook).
+
+   *Prevention:* treat `TWILIO_REGION`/`TWILIO_EDGE`, the Auth Token, the
+   API Key, and the TwiML Application as **one atomic unit**. Never
+   change the region without recreating all three of the others in the
+   Twilio Console with that exact region selected first (the Console's
+   region dropdown, where present, is the source of truth — it is easy
+   to have it silently default back to the account's home region).
+
+**2. Ephemeral Cloudflare quick tunnels (`cloudflared tunnel --url ...`)
+change hostname on every restart and can die silently.** One tunnel
+outage surfaced as Twilio's gateway returning HTTP `530` for our webhook
+URL; a later one surfaced as `curl` returning status `000` (DNS/connect
+failure) while `cloudflared`'s own log showed `"Unauthorized: Tunnel not
+found"` — i.e. Cloudflare had invalidated the tunnel server-side and it
+was retrying forever into a dead end. Every time the tunnel is restarted,
+**two separate places** must be updated together, or the failure again
+looks identical to bug class 1 or 3:
+   - the TwiML Application's Voice Request URL (Console, or the
+     `client.applications(sid).update(voice_url=...)` REST call used
+     throughout today), and
+   - `REPLICA_PUBLIC_BASE_URL` in `.env` — this is the value
+     `app/main.py` uses to *reconstruct* the exact URL Twilio signed,
+     for webhook-signature verification (`app/webhooks/security.py`).
+     It is **not** derived from the incoming request automatically
+     (the server only ever sees `127.0.0.1` behind the tunnel), so a
+     stale value here produces the exact same `403 Invalid webhook
+     signature` response as a wrong Auth Token, with no way to tell
+     the two apart from the HTTP response alone.
+
+   *Prevention:* the durable fix is to stop using an anonymous quick
+   tunnel at all and switch to a Cloudflare **named tunnel** (stable
+   hostname across restarts, free with a Cloudflare account) — this
+   would have prevented essentially all of bug class 2 outright. Until
+   that migration happens, treat "new tunnel URL" and "update
+   `REPLICA_PUBLIC_BASE_URL` + the TwiML App's voice_url" as one
+   inseparable action, and verify the tunnel independently of Twilio
+   first (`curl -X POST <tunnel-url>/webhooks/twilio/voice-outbound`) —
+   any non-timeout HTTP status, even our own `403`, proves the tunnel
+   itself is alive and the problem is elsewhere.
+
+**3. Two separate local clones of the repo existed on disk**
+(`~/HaydarHinisli/replica-handoff` and `~/Downloads/replica-handoff`),
+and the zsh prompt shows only the relative folder name (`replica-handoff`
+in both cases), never the full path. `.env` edits, verified correct by
+sha256 hash comparison, repeatedly failed to reach the running server —
+because the edits and the running `./run.sh` process were, at least
+once, reading two physically different `.env` files in two different
+directories, with no visible way to tell from the terminal prompt alone.
+
+   *Prevention:* the stray `~/Downloads/replica-handoff` copy should be
+   deleted or renamed so it can never be `cd`'d into by mistake again.
+   Going forward, every command in a debugging session like this one
+   should start from the one canonical absolute path
+   (`/Users/haydarhinisli/HaydarHinisli/replica-handoff`), not a bare
+   `cd replica-handoff` or a prompt that only shows the folder's last
+   path segment.
+
+**4. Python defaults to block-buffered (not line-buffered) stdout when
+it is redirected to a file** — exactly what `./run.sh > replica.log
+2>&1` does. This is unrelated to Twilio entirely, but repeatedly made it
+look like a request (a real call's webhook, or a diagnostic `curl`)
+"never arrived" in `replica.log`, when the log line may simply not have
+been flushed to disk yet. Fixed permanently: `run.sh` now invokes
+`python -u -m uvicorn ...` (commit `225d734`).
+
+   *Prevention:* already fixed in `run.sh` — no further action needed.
+   If a future dev script redirects Python output to a file again, add
+   `-u` (or `PYTHONUNBUFFERED=1`) from the start.
+
+**5. A stray/orphaned server process** left listening on port 8000 from
+an earlier interrupted `./run.sh` caused a separate, shorter-lived
+episode of spurious `409` concurrency-lock errors earlier in the day
+(unrelated to bug classes 1–4, already resolved by `lsof -ti:8000 |
+xargs kill -9` before the region-switch work began).
+
+### How to tell these five apart quickly, next time
+
+All five can present as an HTTP `403 Invalid webhook signature`, a
+generic Voice SDK error, or "nothing happens" — the following checks
+distinguish them in under a minute, cheapest first:
+
+1. `curl -s -o /dev/null -w "%{http_code}\n" -X POST
+   <tunnel-url>/webhooks/twilio/voice-outbound` — anything other than a
+   real HTTP status (timeout, `000`, or a Cloudflare `5xx`) means bug
+   class 2 (tunnel), independent of Twilio entirely.
+2. Compare `auth_token_sha256` in the `replica.webhooks` failure log
+   against a locally computed `echo -n "<expected-token>" | shasum -a
+   256` — a mismatch means bug class 1 (wrong token) or class 3 (server
+   reading the wrong `.env`); an unexpected but *matching* value that
+   still fails means bug class 2 (URL/`REPLICA_PUBLIC_BASE_URL`
+   mismatch), since the signature math itself is then correct for a URL
+   Twilio no longer calls.
+3. `client.applications(<TWILIO_TWIML_APP_SID>).fetch()` with an
+   explicit `region=` matching whatever `TWILIO_REGION` currently is —
+   a `404` means the TwiML App does not exist in that region (part of
+   bug class 1).
+4. `lsof -a -p $(lsof -ti:8000) -d cwd` — shows the exact absolute
+   directory the *running* server process was started from; compare it
+   character-for-character against the directory any `.env` edit was
+   made in (bug class 3).
+
+### What did NOT change
+
+No `app/` business logic, no data model, no migration, no test
+behavior, and no security/consent/auth logic changed as a result of
+today's investigation. The two code changes made
+(`enableImprovedSignalingErrorPrecision` in `app/static/live.html`, and
+`python -u` in `run.sh`) are both diagnostics/dev-ergonomics fixes, not
+behavior changes to the product itself. `docs/DECISIONS.md` ADR-066
+(Foresight) and its nine-point sequencing gate are unaffected; Call #1's
+baseline (browser ↔ real phone, full audio in both directions) is not
+yet fully proven — audio was not yet flowing from the browser
+microphone to the callee when this ADR was written, which is the
+immediate next item, tracked separately from this ADR.
