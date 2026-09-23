@@ -3405,3 +3405,43 @@ discover the failure modes this ADR's "explicitly out of scope" section
 already flags as unknown. Nothing here blocks or changes work on Call
 #1's still-open item (bidirectional audio) or on Foresight's own
 nine-point gate.
+
+### Addendum — go-live confidence in a compressed timeline
+
+Prompted by a real, live example: a small JS ordering bug (`live.html`'s
+auto-connect ran before its own state variables were initialized, see
+the `7b79c91` fix) shipped past the full 374-test backend suite and was
+only caught because the operator manually clicked through the page and
+reported the exact symptom. That suite only ever regex-matches strings
+in the raw HTML file — it never executes the JavaScript in a real
+browser, so this entire class of bug is structurally invisible to it.
+If a company integration goes live on a compressed timeline (e.g. "next
+day"), there is no way to promise nothing will surface later — but five
+concrete, low-cost measures materially reduce both the odds and the
+blast radius of a repeat:
+
+1. **Automated browser-level tests as a mandatory pre-deploy gate**
+   (e.g. Playwright), driving the actual click-through flows (connect,
+   place a call, mute/hang up, error states) against a real rendered
+   page — the one category of bug today's Python test suite cannot see
+   at all, and the exact category that shipped today.
+2. **A fixed manual smoke-test checklist**, run once by a person
+   immediately after any deploy and before real customer use begins:
+   connect, call, speak, hang up, confirm SAG JETZT fired. Minutes, not
+   a day.
+3. **Start with one number/one small team, not the whole company at
+   once** — limits how much of the client is exposed to any bug that
+   still gets through.
+4. **Continuous automated monitoring after go-live**, not a one-time
+   check — this is what would catch a "worked today, broke overnight"
+   failure (e.g. today's Cloudflare tunnel dying after several hours)
+   before a client notices, by re-running the same preflight checklist
+   on a timer and alerting on failure.
+5. **A tested, fast rollback path** to the last known-good deploy — so
+   that even a real next-day regression costs minutes to fix, not
+   another full day of live debugging.
+
+None of this is scheduled work yet; it is Pilot Gate / Hardening
+backlog material (item #27), captured here so the reasoning survives
+past this conversation. It does not change or delay the current
+priority: Call #1's still-open bidirectional-audio item.
