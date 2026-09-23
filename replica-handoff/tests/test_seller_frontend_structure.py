@@ -272,7 +272,7 @@ def test_device_edge_comes_from_the_server_response_not_hardcoded():
     pinned to everywhere else — must be passed explicitly, sourced from the
     /api/voice/access-token response rather than a second hardcoded copy."""
     html = _read()
-    assert 'new Twilio.Device(tokenBody.token, { edge: tokenBody.edge })' in html
+    assert 'new Twilio.Device(tokenBody.token, { edge: tokenBody.edge, enableImprovedSignalingErrorPrecision: true })' in html
     # Regression guard: no hardcoded edge string literal anywhere (e.g. a
     # stray "edge: 'dublin'" that would silently drift from TWILIO_EDGE).
     assert not re.search(r"edge:\s*'[a-z-]+'", html)
