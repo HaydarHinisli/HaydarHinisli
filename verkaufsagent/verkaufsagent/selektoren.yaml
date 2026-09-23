@@ -1,0 +1,41 @@
+# Selektoren für die Browser-Automatisierung.
+#
+# Die Plattformen ändern ihre Webseiten gelegentlich. Wenn ein Schritt mit
+# "Element nicht gefunden: <schluessel>" scheitert, hier den passenden
+# Selektor ergänzen – keine Code-Änderung nötig. Pro Schlüssel werden die
+# Alternativen der Reihe nach probiert.
+#
+# Formate:  CSS-Selektor | "label:Text" | "text:Text" | "button:Text" | "placeholder:Text"
+
+kleinanzeigen:
+  cookie_akzeptieren: ["#gdpr-banner-accept", "button:Alle akzeptieren", "button:Einverstanden"]
+  titel: ["#postad-title", "label:Titel"]
+  beschreibung: ["#pstad-descrptn", "label:Beschreibung"]
+  preis: ["#pstad-price", "label:Preis"]
+  preistyp: ["#priceType", "select[name='priceType']"]
+  kategorie_aendern: ["#pstad-lnk-chngeCtgry", "text:Ändern", "button:Kategorie wählen"]
+  kategorie_weiter: ["#postad-step1-sbmt", "button:Weiter"]
+  kategorie_anzeige: ["#postad-category-path", ".pstad-category-path"]
+  zustand: ["select[name$='.condition_s']", "select[id*='condition']", "label:Zustand"]
+  versand_ja: ["#ad-shipping-enabled-true", "label:Versand möglich"]
+  versand_nein: ["#ad-shipping-enabled-false", "label:Nur Abholung"]
+  fotos: ["#plupld input[type=file]", "input[type=file][accept*='image']", "input[type=file]"]
+  plz: ["#pstad-zip", "label:PLZ"]
+  name: ["#postad-contactname", "label:Name"]
+  absenden: ["#pstad-submit", "button:Anzeige aufgeben", "button:Speichern"]
+  aufrufe: ["#viewad-cntr-num", "#viewad-cntr"]
+
+vinted:
+  cookie_akzeptieren: ["#onetrust-accept-btn-handler", "button:Alle zulassen", "button:Akzeptieren"]
+  fotos: ["input[type=file][accept*='image']", "input[type=file]"]
+  titel: ["[data-testid='title--input']", "#title", "label:Titel"]
+  beschreibung: ["[data-testid='description--input']", "#description", "label:Beschreibe deinen Artikel"]
+  kategorie: ["[data-testid='catalog-select-dropdown-input']", "#category", "label:Kategorie"]
+  marke: ["[data-testid='brand-select-dropdown-input']", "#brand", "label:Marke"]
+  marke_suche: ["#brand-search-input", "[data-testid='brand-select-dropdown-content'] input", "placeholder:Marke suchen"]
+  groesse: ["[data-testid='size-select-dropdown-input']", "#size", "label:Größe"]
+  zustand: ["[data-testid='status-select-dropdown-input']", "#status", "label:Zustand"]
+  farbe: ["[data-testid='color-select-dropdown-input']", "#color", "label:Farbe"]
+  dropdown_inhalt: ["[data-testid$='-dropdown-content']", "[role='listbox']", ".input-dropdown"]
+  preis: ["[data-testid='price-input--input']", "#price", "label:Preis"]
+  absenden: ["[data-testid='upload-form-save-button']", "button:Hochladen", "button:Speichern"]

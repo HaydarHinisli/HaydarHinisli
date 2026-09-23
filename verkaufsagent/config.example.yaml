@@ -1,0 +1,31 @@
+# Kopieren nach config.yaml und anpassen.
+
+postleitzahl: "10115"        # Pflicht für Kleinanzeigen
+kontakt_name: "Haydar"
+
+# false (empfohlen für den Anfang): Formular wird sichtbar ausgefüllt, du bestätigst mit Enter.
+# true: der Agent veröffentlicht vollständig selbstständig.
+auto_veroeffentlichen: false
+
+pause_zwischen_inseraten_s: 90
+max_neue_inserate_pro_lauf: 10
+
+preise:
+  erste_reduzierung_nach_tagen: 14   # vorher wird nie reduziert
+  abstand_tage: 7                    # Mindestabstand zwischen zwei Reduzierungen
+  stufen: [0.05, 0.10, 0.15, 0.20, 0.25, 0.30]   # kumuliert, max. 0.30 (hart im Code begrenzt)
+  favoriten_hoch: 5                  # ab hier: Interesse hoch -> keine Reduzierung
+  nachrichten_hoch: 3
+  aufrufe_pro_tag_schwach: 3
+  max_rabatt_ohne_statistik: 0.15    # ohne Aufruf-Daten höchstens 15 %
+
+ki:
+  aktiv: true                        # benötigt ANTHROPIC_API_KEY; sonst Vorlagen-Texte
+  modell: claude-opus-5
+  effort: medium
+  max_fotos: 6
+
+browser:
+  headless: true
+  langsam_ms: 150
+  timeout_ms: 30000

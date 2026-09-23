@@ -1,0 +1,36 @@
+# Kopieren nach produkte.yaml. Fotos: Dateien oder ein Ordner (relativ zu dieser Datei).
+
+produkte:
+  - id: jacke-001
+    name: Windbreaker Jacke
+    marke: Nike
+    preis: 45            # wird exakt so inseriert
+    mindestpreis: 35     # optional: darunter nie (sonst gilt Preis - 30 %)
+    zustand: sehr_gut    # neu_mit_etikett | neu | sehr_gut | gut | zufriedenstellend
+    groesse: M
+    farbe: Schwarz
+    material: Polyester
+    notizen: Kaum getragen, keine Flecken. Nichtraucherhaushalt.
+    fotos: [fotos/jacke-001]
+    plattformen: [kleinanzeigen, vinted]
+    versand: true
+    abholung: true
+    kleinanzeigen:
+      kategorie: ["Mode & Beauty", "Herrenbekleidung"]
+      preistyp: VB
+    vinted:
+      kategorie: ["Herren", "Kleidung", "Jacken & Mäntel"]
+      paketgroesse: M
+
+  - id: lampe-002
+    name: Tischlampe mit Messingfuß
+    preis: 25
+    verhandelbar: false  # Festpreis, nie reduzieren
+    zustand: gut
+    notizen: Kleiner Kratzer am Fuß (siehe Foto 3). Leuchtmittel nicht inklusive.
+    fotos: [fotos/lampe-002]
+    plattformen: [kleinanzeigen]
+    versand: false
+    kleinanzeigen:
+      kategorie: ["Haus & Garten", "Lampen & Licht"]
+      preistyp: Festpreis
