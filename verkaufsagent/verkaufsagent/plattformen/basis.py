@@ -262,6 +262,43 @@ class Marktplatz:
     def _ist_select(loc: Locator) -> bool:
         return (loc.evaluate("e => e.tagName") or "").lower() == "select"
 
+    def _menue(self, loc: Locator) -> Locator | None:
+        """Findet das echte <select> zu einem Feld. Viele Seiten zeigen ein gestaltetes Textfeld
+        („Select price“) und verstecken das eigentliche Menü direkt daneben."""
+        if self._ist_select(loc):
+            return loc
+        try:
+            if loc.is_editable():
+                return None  # normales Eingabefeld – kein gestaltetes Menü
+        except Exception:
+            pass
+        for ebene in (1, 2, 3):  # von innen nach außen: das nächstgelegene Menü gehört zum Feld
+            daneben = loc.locator(f"xpath=ancestor::*[{ebene}]//select")
+            try:
+                anzahl = daneben.count()
+            except Exception:
+                return None
+            if anzahl == 1:
+                versteckt = daneben.first.evaluate(
+                    "e => { const s = getComputedStyle(e), r = e.getBoundingClientRect();"
+                    " return s.display === 'none' || s.visibility === 'hidden' || parseFloat(s.opacity) === 0"
+                    " || r.width < 2 || r.height < 2 }")
+                return daneben.first if versteckt else None  # nur das versteckte Menü dahinter
+            if anzahl > 1:
+                return None  # mehrdeutig – lieber gar nicht als das falsche Menü
+        return None
+
+    @staticmethod
+    def _anzeige_setzen(loc: Locator, menue: Locator) -> None:
+        """Gestaltetes Textfeld an die Auswahl im versteckten Menü angleichen (nur Optik)."""
+        if loc == menue:
+            return
+        try:
+            text = menue.evaluate("e => e.options[e.selectedIndex] ? e.options[e.selectedIndex].textContent.trim() : ''")
+            loc.evaluate("(e, t) => { if (e.tagName === 'INPUT') e.value = t }", text)
+        except Exception:
+            pass
+
     @staticmethod
     def _option_waehlen(loc: Locator, wert: str) -> None:
         """Wählt in einem <select> die passende Option: exakt, dann Anfang ('M' -> 'Medium'), dann enthalten."""
@@ -270,15 +307,17 @@ class Marktplatz:
         for pruefung in (lambda t: t == w, lambda t: t.startswith(w), lambda t: len(w) >= 3 and w in t):
             for value, text in optionen:
                 if pruefung(text.lower()) or pruefung(value.lower()):
-                    loc.select_option(value=value)
+                    loc.select_option(value=value, force=True)
                     return
         raise PlattformFehler(f"Option '{wert}' nicht im Menü (verfügbar: {', '.join(t for _, t in optionen if t)})")
 
     def preis_setzen(self, loc: Locator, preis: float, minimum: float) -> float:
         """Setzt den Preis – als Text oder durch Wahl einer festen Preisstufe. Gibt den gesetzten Preis zurück."""
-        if not self._ist_select(loc):
+        menue = self._menue(loc)
+        if menue is None:
             loc.fill(preis_text(preis))
             return preis
+        anzeige, loc = loc, menue
         optionen = loc.evaluate("e => Array.from(e.options).map(o => [o.value, o.textContent.trim()])")
         stufen = {}
         for value, text in optionen:
@@ -289,7 +328,8 @@ class Marktplatz:
         if gewaehlt is None:
             raise PlattformFehler(f"Keine Preisstufe zwischen {minimum:.2f} und {preis:.2f} im Menü "
                                   f"(verfügbar: {', '.join(f'{s:g}' for s in sorted(stufen)) or '-'})")
-        loc.select_option(value=stufen[gewaehlt])
+        loc.select_option(value=stufen[gewaehlt], force=True)
+        self._anzeige_setzen(anzeige, loc)
         if gewaehlt != preis:
             log.info("%s: Preis %.2f als Stufe %.2f gesetzt (feste Preisstufen)", self.d.anzeigename, preis, gewaehlt)
         return gewaehlt
@@ -305,8 +345,10 @@ class Marktplatz:
             self.page.wait_for_timeout(1500 + 1000 * min(len(wert), 20))
         elif feld.typ == "auswahl":
             pfad = [str(w) for w in (wert if isinstance(wert, list) else [wert])]
-            if self._ist_select(loc):
-                self._option_waehlen(loc, pfad[-1])
+            menue = self._menue(loc)
+            if menue is not None:
+                self._option_waehlen(menue, pfad[-1])
+                self._anzeige_setzen(loc, menue)
                 return None
             loc.click()
             for ebene in pfad:

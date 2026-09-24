@@ -470,3 +470,33 @@ def test_passwort_wird_nie_angezeigt_und_felder_nicht_als_klickweg_gemerkt(tmp_p
     alles = "\n".join(ausgaben)
     assert "SuperGeheim123!" not in alles and "Passwort-Feld" in alles
     assert len(weg) == 1 and any("login-link" in s or "LOGIN" in s for s in weg[0])
+
+
+GESTALTETE_MENUES = """<!doctype html><html><body><form id="cform"><div class="zeile">
+ <div><div class="wrap"><input class="dd" readonly value="Select price">
+   <select name="price" style="display:none"><option value="">Select price</option><option value="10">$ 10</option>
+   <option value="20">$ 20</option><option value="25">$ 25</option></select></div></div>
+ <div><div class="wrap"><input class="dd" readonly value="$ USD">
+   <select name="currency" style="opacity:0;position:absolute"><option value="USD">$ USD</option><option value="EUR">€ EUR</option></select></div></div>
+ <div><div class="wrap"><input class="dd" readonly value="Select size">
+   <select name="size" style="display:none"><option value="">Select size</option><option value="S">Small</option>
+   <option value="M">Medium</option></select></div></div>
+</div></form></body></html>"""
+
+
+def test_gestaltete_menues_mit_verstecktem_select_wie_panty(umgebung):
+    konf, register, produkt, markt, fabrik = umgebung
+    m = fabrik("testmarkt")
+    try:
+        m.page.set_content(GESTALTETE_MENUES)
+        feld = lambda n: m.page.locator(f"#cform > div:nth-of-type(1) > div:nth-of-type({n}) > div > input")  # noqa: E731
+        assert m.preis_setzen(feld(1), 24, 17.5) == 20
+        assert m.page.locator("select[name=price]").input_value() == "20" and feld(1).input_value() == "$ 20"
+        from verkaufsagent.plattformdef import Feld
+        m._fuellen("waehrung", Feld(typ="auswahl", selektor=["#cform > div:nth-of-type(1) > div:nth-of-type(2) > div > input"]), "EUR")
+        m._fuellen("groesse", Feld(typ="auswahl", selektor=["#cform > div:nth-of-type(1) > div:nth-of-type(3) > div > input"]), "M")
+        assert m.page.locator("select[name=currency]").input_value() == "EUR"      # nicht das Preis-Menü!
+        assert m.page.locator("select[name=size]").input_value() == "M" and feld(3).input_value() == "Medium"
+        assert m.page.locator("select[name=price]").input_value() == "20"          # unverändert
+    finally:
+        m.schliessen()
