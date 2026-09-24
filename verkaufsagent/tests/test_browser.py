@@ -361,3 +361,75 @@ def test_formular_ohne_eigene_adresse_wie_panty(tmp_path, monkeypatch):
         assert "Size: M" in gesendet[0]["desc"]
         i = speicher.hole("s1", "spa")
         assert (i.status, i.anzeige_id, i.preis_aktuell) == ("online", "77712", 20)
+
+
+LOGIN_SEITE = """<!doctype html><html><body>
+<header><a href="#" id="logo">site</a>
+<a href="#" id="login-link" onclick="document.getElementById('login').hidden=false;return false">LOGIN</a>
+<a href="#" id="offers">MY OFFERS</a></header>
+<form id="login" hidden onsubmit="event.preventDefault();
+  if (email.value==='ich@test.de' && pw.value==='geheim') { document.cookie='sess=1; path=/'; location.reload(); }">
+  <input id="email"><input id="pw" type="password"><button id="login-btn">Sign in</button>
+</form>
+<script>
+  const drin = document.cookie.includes('sess=1');
+  document.getElementById('login-link').hidden = drin;
+  document.getElementById('offers').hidden = !drin;
+</script></body></html>"""
+
+
+def test_login_anlernen_cookies_sichern_und_automatisch_anmelden(tmp_path):
+    eigene = tmp_path / "daten" / "plattformen"
+    eigene.mkdir(parents=True)
+    (eigene / "lg.yaml").write_text(yaml.safe_dump({"name": "lg", "anzeigename": "LG", "basis_url": "https://www.lg.test"}),
+                                    encoding="utf-8")
+    konf = Konfiguration(datenordner=tmp_path / "daten", browser=BrowserEinstellungen(langsam_ms=0, timeout_ms=5000))
+    register = Register(konf.datenordner)
+    route = lambda r: r.fulfill(status=200, content_type="text/html; charset=utf-8", body=LOGIN_SEITE)  # noqa: E731
+
+    with sync_playwright() as pw:
+        def oeffnen():
+            m = Marktplatz(pw, konf, register.lade("lg"))
+            m.ctx.route("**/*", route)
+            return m
+
+        # 1) Login anlernen (Nutzer ist abgemeldet, klickt LOGIN, dann die Felder)
+        m = oeffnen()
+        p = m.page
+        schritte = ["", (lambda: p.click("#login-link"), "f"),
+                    lambda: p.click("#email"), lambda: p.click("#pw"), lambda: p.click("#login-btn"),
+                    "ich@test.de"]
+
+        def frage(_t):
+            s = schritte.pop(0)
+            if isinstance(s, tuple):
+                s[0]()
+                return s[1]
+            return s if isinstance(s, str) else (s() and "") or ""
+        try:
+            d = Assistent(m, register, frage=frage, ausgabe=lambda *a: None).login_anlernen(passwort_frage=lambda _t: "geheim")
+            assert d.login_eingerichtet and d.abgemeldet_zeichen and not schritte
+            assert not m._abgemeldet()                      # Test-Anmeldung am Ende hat geklappt
+        finally:
+            m.schliessen()                                  # sichert auch das Sitzungs-Cookie
+        assert (tmp_path / "daten" / "browser" / "lg-cookies.json").exists()
+
+        # 2) Neuer Browser: Sitzungs-Cookie wird wiederhergestellt -> weiterhin angemeldet
+        m = oeffnen()
+        try:
+            m.page.goto("https://www.lg.test/")
+            assert not m._abgemeldet()
+        finally:
+            m.ctx.clear_cookies()
+            m.ctx.close()                                   # ohne Sichern schließen
+        (tmp_path / "daten" / "browser" / "lg-cookies.json").unlink()
+
+        # 3) Ohne Cookies: der Agent meldet sich selbst an
+        m = oeffnen()
+        try:
+            m.page.goto("https://www.lg.test/")
+            assert m._abgemeldet()
+            m.sicherstellen_angemeldet()
+            assert not m._abgemeldet()
+        finally:
+            m.schliessen()

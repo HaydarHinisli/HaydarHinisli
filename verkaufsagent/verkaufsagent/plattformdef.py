@@ -52,7 +52,17 @@ class Definition(BaseModel):
     bearbeiten_preis: list[str] = Field(default_factory=list)     # leer = wie Feld 'preis'
     bearbeiten_absenden: list[str] = Field(default_factory=list)  # leer = wie 'absenden'
     aufrufe: list[str] = Field(default_factory=list)
+    # Automatische Anmeldung (angelernt mit 'login <plattform>')
+    login_klicks: list[list[str]] = Field(default_factory=list)   # Weg zum Login-Formular
+    login_benutzer: list[str] = Field(default_factory=list)
+    login_passwort: list[str] = Field(default_factory=list)
+    login_absenden: list[str] = Field(default_factory=list)
+    abgemeldet_zeichen: list[str] = Field(default_factory=list)   # sichtbar = nicht angemeldet (z. B. LOGIN-Link)
     favoriten: list[str] = Field(default_factory=list)
+
+    @property
+    def login_eingerichtet(self) -> bool:
+        return bool(self.login_benutzer and self.login_passwort and self.login_absenden)
 
     @property
     def eingerichtet(self) -> bool:

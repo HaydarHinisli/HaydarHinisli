@@ -14,6 +14,8 @@ Im Ordner `verkaufsagent` liegen vier Dateien zum Doppelklicken:
 | `2 - Plattform einrichten` | bringt dem Agenten das Formular einer Plattform bei | einmal pro Plattform |
 | `3 - Produkte bearbeiten` | öffnet Produktliste und Foto-Ordner | bei neuen Produkten |
 | `4 - Agent starten` | startet den Agenten | nach jedem Neustart des Macs |
+| `5 - Automatisch anmelden einrichten` | Agent meldet sich selbst an (Passwort im Mac-Schlüsselbund) | einmal pro Plattform |
+| `6 - Aktualisieren` | holt die neueste Version in denselben Ordner | bei Updates |
 
 Beim ersten Öffnen einer Datei meldet der Mac eventuell „nicht verifizierter Entwickler“. Dann **Rechtsklick → Öffnen → Öffnen**. Das ist nur einmal pro Datei nötig.
 

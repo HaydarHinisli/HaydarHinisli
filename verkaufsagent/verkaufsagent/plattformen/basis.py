@@ -20,6 +20,7 @@ from playwright.sync_api import BrowserContext, Locator, Page, Playwright
 from ..konfiguration import Konfiguration
 from ..modelle import Inserat, Produkt, Texte
 from ..plattformdef import Definition, Feld
+from ..zugang import lade_zugang
 
 log = logging.getLogger(__name__)
 
@@ -109,8 +110,33 @@ class Marktplatz:
         )
         self.ctx.set_default_timeout(konf.browser.timeout_ms)
         self.page: Page = self.ctx.pages[0] if self.ctx.pages else self.ctx.new_page()
+        self._cookie_datei = konf.datenordner / "browser" / f"{definition.name}-cookies.json"
+        self._cookies_laden()
+
+    # Manche Seiten (z. B. panty.com) halten die Anmeldung nur in Sitzungs-Cookies, die der
+    # Browser beim Schließen verwirft. Daher alle Cookies sichern und beim Start wieder setzen.
+    def _cookies_laden(self) -> None:
+        try:
+            if self._cookie_datei.exists():
+                import json
+                jetzt = time.time()
+                cookies = [c for c in json.loads(self._cookie_datei.read_text(encoding="utf-8"))
+                           if c.get("expires", -1) in (-1, None) or c["expires"] > jetzt]
+                if cookies:
+                    self.ctx.add_cookies(cookies)
+        except Exception as e:
+            log.debug("Cookies nicht geladen: %s", e)
+
+    def _cookies_sichern(self) -> None:
+        try:
+            import json
+            self._cookie_datei.write_text(json.dumps(self.ctx.cookies()), encoding="utf-8")
+            os.chmod(self._cookie_datei, 0o600)
+        except Exception as e:
+            log.debug("Cookies nicht gesichert: %s", e)
 
     def schliessen(self) -> None:
+        self._cookies_sichern()
         self.ctx.close()
 
     # ---- Hilfen -----------------------------------------------------------
@@ -133,7 +159,44 @@ class Marktplatz:
 
     def _abgemeldet(self) -> bool:
         pfad = urlsplit(self.page.url).path.lower() + "?" + urlsplit(self.page.url).query.lower()
-        return any(m in pfad for m in self.d.nicht_angemeldet_wenn)
+        if any(m in pfad for m in self.d.nicht_angemeldet_wenn):
+            return True
+        for sel in self.d.abgemeldet_zeichen:
+            try:
+                if self.page.locator(sel).first.is_visible():
+                    return True
+            except Exception:
+                pass
+        return False
+
+    def anmelden_automatisch(self) -> bool:
+        """Meldet sich mit den gespeicherten Zugangsdaten an. True = danach angemeldet."""
+        zugang = lade_zugang(self.konf.datenordner, self.name)
+        if not (self.d.login_eingerichtet and zugang):
+            return False
+        log.info("%s: nicht angemeldet – melde mich automatisch an", self.d.anzeigename)
+        for nr, schritt in enumerate(self.d.login_klicks, 1):
+            self.finde(schritt, f"Weg zum Login, Klick {nr}").click()
+            self.page.wait_for_timeout(800)
+        self.finde(self.d.login_benutzer, "Login: Benutzername/E-Mail").fill(zugang[0])
+        self.finde(self.d.login_passwort, "Login: Passwort").fill(zugang[1])
+        self.finde(self.d.login_absenden, "Login-Knopf").click()
+        try:
+            self.page.wait_for_load_state("domcontentloaded", timeout=15000)
+        except Exception:
+            pass
+        self.page.wait_for_timeout(2000)
+        if self._abgemeldet():
+            return False
+        self._cookies_sichern()
+        return True
+
+    def sicherstellen_angemeldet(self) -> None:
+        if self._abgemeldet() and not self.anmelden_automatisch():
+            hinweis = ("Automatische Anmeldung fehlgeschlagen – Zugangsdaten prüfen ('login " + self.name + "')"
+                       if self.d.login_eingerichtet else
+                       f"'anmelden {self.name}' ausführen oder automatische Anmeldung einrichten ('login {self.name}')")
+            raise NichtAngemeldet(f"Nicht bei {self.d.anzeigename} angemeldet – {hinweis}")
 
     def screenshot(self, name: str) -> Path:
         ordner = self.konf.datenordner / "screenshots"
@@ -265,8 +328,7 @@ class Marktplatz:
         auf_der_seite = urlsplit(self.page.url).netloc == urlsplit(self.d.neu_url).netloc
         if not (self.d.navigation and auf_der_seite):
             self.page.goto(self.d.neu_url)
-        if self._abgemeldet():
-            raise NichtAngemeldet(f"Nicht bei {self.d.anzeigename} angemeldet – 'anmelden {self.name}' ausführen")
+        self.sicherstellen_angemeldet()
         for nr, schritt in enumerate(self.d.navigation, 1):
             try:
                 ziel = self.finde(schritt, f"Weg zum Formular, Klick {nr}", timeout_ms=None if nr > 1 else 5000)
@@ -338,8 +400,7 @@ class Marktplatz:
             raise NichtEingerichtet(f"{self.d.anzeigename}: Preisänderung nicht möglich (Bearbeiten-Seite nicht angelernt "
                                     "oder Angebots-Nummer unbekannt)")
         self.page.goto(self.d.bearbeiten_url.format(id=inserat.anzeige_id))
-        if self._abgemeldet():
-            raise NichtAngemeldet(f"Nicht bei {self.d.anzeigename} angemeldet")
+        self.sicherstellen_angemeldet()
         feld = self.d.felder.get("preis")
         loc = self.finde(self.d.bearbeiten_preis or (feld.selektor if feld else []), "Preis")
         gesetzt = self.preis_setzen(loc, preis, minimum)

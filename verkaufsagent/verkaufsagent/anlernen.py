@@ -192,34 +192,79 @@ class Assistent:
                      else f"⚠ Noch nicht vollständig, es fehlt: {', '.join(fehlt)}. 'einrichten {d.name}' erneut ausführen.")
         return d
 
-    def _navigation_aufnehmen(self, d: Definition) -> None:
-        """Für Formulare ohne eigene Adresse: den Klickweg von der Startseite zum Formular merken."""
-        self.ausgabe("\n   Das Formular hat keine eigene Adresse – der Agent muss sich jedes Mal durchklicken.\n"
-                     "   Klicke jetzt im Agent-Browser den Weg zum Formular – BEGINNE mit dem Logo der Seite\n"
-                     "   (oben links, führt zur Startseite), dann z. B. MY OFFERS → + POST OFFER → Used Panties.\n"
-                     "   Nach JEDEM Klick hier Enter. Diese Klicks werden ausgeführt.")
+    def _klickweg(self, ziel: str) -> list[list[str]]:
+        """Merkt sich Klicks, die wirklich ausgeführt werden, bis der Nutzer 'f' eingibt."""
         schritte: list[list[str]] = []
         while True:
             self._bereit()
             self.page.evaluate("window.__va.aktiv = true; window.__va.durchlassen = true; window.__va.auswahl = null;"
                                "try { sessionStorage.removeItem('__va_auswahl') } catch (e) {}")
             antwort = self.frage(f"   Schritt {len(schritte) + 1}: im Browser klicken, dann hier Enter "
-                                 "(ist das Formular zu sehen: f + Enter) … ")
+                                 f"(ist {ziel} zu sehen: f + Enter) … ")
             self._bereit()
             daten = self.page.evaluate(
                 "(() => { try { const d = sessionStorage.getItem('__va_auswahl'); if (d) return JSON.parse(d) } catch (e) {}"
                 " return window.__va.auswahl })()")
             self.page.evaluate("window.__va.aktiv = false; window.__va.durchlassen = false;"
                                "try { sessionStorage.removeItem('__va_auswahl') } catch (e) {}")
+            fertig = antwort.strip().lower().startswith("f")
             if daten and daten.get("selektoren"):
                 schritte.append(daten["selektoren"])
                 self.ausgabe(f"      ✔ „{daten.get('text') or daten['selektoren'][0]}“")
-            elif not antwort.strip().lower().startswith("f"):
+            elif not fertig:
                 self.ausgabe("      ⚠ kein Klick erkannt – bitte im Agent-Browser klicken")
-            if antwort.strip().lower().startswith("f"):
-                break
-        d.navigation = schritte
-        self.ausgabe(f"   ✔ Weg zum Formular gemerkt ({len(schritte)} Klicks)")
+            if fertig:
+                return schritte
+
+    def _navigation_aufnehmen(self, d: Definition) -> None:
+        """Für Formulare ohne eigene Adresse: den Klickweg von der Startseite zum Formular merken."""
+        self.ausgabe("\n   Das Formular hat keine eigene Adresse – der Agent muss sich jedes Mal durchklicken.\n"
+                     "   Klicke jetzt im Agent-Browser den Weg zum Formular – BEGINNE mit dem Logo der Seite\n"
+                     "   (oben links, führt zur Startseite), dann z. B. MY OFFERS → + POST OFFER → Used Panties.\n"
+                     "   Nach JEDEM Klick hier Enter. Diese Klicks werden ausgeführt.")
+        d.navigation = self._klickweg("das Formular")
+        self.ausgabe(f"   ✔ Weg zum Formular gemerkt ({len(d.navigation)} Klicks)")
+
+    def login_anlernen(self, passwort_frage=None) -> Definition:
+        """Lernt die Anmeldung an und speichert die Zugangsdaten (Mac: im Schlüsselbund)."""
+        import getpass
+
+        from .zugang import speichere_zugang
+
+        passwort_frage = passwort_frage or getpass.getpass
+        d = self.m.d.model_copy(deep=True)
+        self.page.goto(d.login_url or d.basis_url)
+        self.page.bring_to_front()
+        self.frage(f"\n1) Falls du im Agent-Browser bei {d.anzeigename} angemeldet bist: jetzt ABMELDEN (Logout).\n"
+                   "   Wenn du abgemeldet bist, hier Enter … ")
+        self.ausgabe("\n2) Klicke jetzt den Weg zum Login-Formular (z. B. auf LOGIN). Nach jedem Klick hier Enter.\n"
+                     "   Diese Klicks werden ausgeführt.")
+        d.login_klicks = self._klickweg("das Login-Formular")
+        if d.login_klicks:
+            d.abgemeldet_zeichen = d.login_klicks[0]  # z. B. der LOGIN-Link: sichtbar = abgemeldet
+        self.ausgabe("\n3) Jetzt die Felder (Klicks werden abgefangen, es wird nichts abgeschickt):")
+        d.login_benutzer = self._klick_aufnehmen("   Klicke auf das Feld für E-Mail bzw. Benutzername … ")
+        d.login_passwort = self._klick_aufnehmen("   Klicke auf das Passwort-Feld … ")
+        d.login_absenden = self._klick_aufnehmen("   Klicke auf den Anmelden-/Login-Knopf … ")
+        if not d.login_eingerichtet:
+            self.ausgabe("⚠ Nicht alle Login-Felder erkannt – bitte 'login' noch einmal ausführen.")
+            return d
+        self.register.speichere(d)
+
+        benutzer = self.frage("\n4) Deine E-Mail bzw. dein Benutzername bei " + d.anzeigename + ": ").strip()
+        passwort = passwort_frage("   Dein Passwort (wird beim Tippen nicht angezeigt): ")
+        speichere_zugang(self.m.konf.datenordner, d.name, benutzer, passwort)
+        self.ausgabe("   ✔ Zugangsdaten gespeichert" + (" (im Mac-Schlüsselbund)" if __import__("sys").platform == "darwin" else ""))
+
+        self.ausgabe("\n5) Test: der Agent meldet sich jetzt selbst an …")
+        self.m.d = d
+        self.page.goto(d.login_url or d.basis_url)
+        if self.m.anmelden_automatisch():
+            self.ausgabe("   ✔ Automatische Anmeldung funktioniert.")
+        else:
+            self.ausgabe("   ⚠ Anmeldung hat nicht geklappt – Zugangsdaten prüfen oder 'login' wiederholen.\n"
+                         "     (Bei einem Captcha kann sich der Agent nicht selbst anmelden.)")
+        return d
 
     def _angebotsseiten(self, d: Definition) -> None:
         """Optional: Angebots- und Bearbeiten-Seite – für Statistik und Preisänderungen."""

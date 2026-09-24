@@ -79,6 +79,20 @@ def cmd_einrichten(args) -> None:
             m.schliessen()
 
 
+def cmd_login(args) -> None:
+    from playwright.sync_api import sync_playwright
+
+    from .anlernen import Assistent
+
+    konf, register = _grundlagen(args)
+    with sync_playwright() as pw:
+        m = _marktplatz(pw, konf, register, args.plattform, sichtbar=True)
+        try:
+            Assistent(m, register).login_anlernen()
+        finally:
+            m.schliessen()
+
+
 def cmd_texte(args) -> None:
     konf, register = _grundlagen(args)
     produkte = lade_produkte(Path(args.produkte))
@@ -183,6 +197,10 @@ def main(argv: list[str] | None = None) -> None:
     s = sub.add_parser("einrichten", help="Angebotsformular einer Plattform im Browser anlernen")
     s.add_argument("plattform")
     s.set_defaults(f=cmd_einrichten)
+
+    s = sub.add_parser("login", help="Automatische Anmeldung einrichten (Zugangsdaten im Mac-Schlüsselbund)")
+    s.add_argument("plattform")
+    s.set_defaults(f=cmd_login)
 
     s = sub.add_parser("texte", help="Titel/Beschreibungen erzeugen und anzeigen (ohne zu inserieren)")
     s.add_argument("produkt", nargs="*")
