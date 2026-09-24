@@ -93,6 +93,25 @@ def cmd_login(args) -> None:
             m.schliessen()
 
 
+def cmd_zugang(args) -> None:
+    """Nur Benutzername/Passwort neu speichern (ohne die Anmeldung neu anzulernen)."""
+    import getpass
+
+    from .zugang import speichere_zugang
+
+    konf, register = _grundlagen(args)
+    d = register.lade(args.plattform)
+    print(f"Zugangsdaten für {d.anzeigename} neu speichern.")
+    benutzer = input("Benutzername bzw. E-Mail: ").strip()
+    while True:
+        passwort = getpass.getpass("Passwort (wird beim Tippen nicht angezeigt): ")
+        if passwort and passwort == getpass.getpass("Passwort noch einmal zur Kontrolle: "):
+            break
+        print("Die beiden Eingaben stimmen nicht überein (oder sind leer) – bitte noch einmal.")
+    speichere_zugang(konf.datenordner, d.name, benutzer, passwort)
+    print(f"✔ Gespeichert ({len(passwort)} Zeichen).")
+
+
 def cmd_texte(args) -> None:
     konf, register = _grundlagen(args)
     produkte = lade_produkte(Path(args.produkte))
@@ -201,6 +220,10 @@ def main(argv: list[str] | None = None) -> None:
     s = sub.add_parser("login", help="Automatische Anmeldung einrichten (Zugangsdaten im Mac-Schlüsselbund)")
     s.add_argument("plattform")
     s.set_defaults(f=cmd_login)
+
+    s = sub.add_parser("zugang", help="Nur Benutzername/Passwort für die automatische Anmeldung neu speichern")
+    s.add_argument("plattform")
+    s.set_defaults(f=cmd_zugang)
 
     s = sub.add_parser("texte", help="Titel/Beschreibungen erzeugen und anzeigen (ohne zu inserieren)")
     s.add_argument("produkt", nargs="*")

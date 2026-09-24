@@ -282,7 +282,11 @@ class Assistent:
         self.register.speichere(d)
 
         benutzer = self.frage("\n4) Deine E-Mail bzw. dein Benutzername bei " + d.anzeigename + ": ").strip()
-        passwort = passwort_frage("   Dein Passwort (wird beim Tippen nicht angezeigt): ")
+        while True:
+            passwort = passwort_frage("   Dein Passwort (wird beim Tippen nicht angezeigt): ")
+            if passwort and passwort == passwort_frage("   Passwort noch einmal zur Kontrolle: "):
+                break
+            self.ausgabe("   Die beiden Eingaben stimmen nicht überein (oder sind leer) – bitte noch einmal.")
         speichere_zugang(self.m.konf.datenordner, d.name, benutzer, passwort)
         self.ausgabe("   ✔ Zugangsdaten gespeichert" + (" (im Mac-Schlüsselbund)" if __import__("sys").platform == "darwin" else ""))
 
