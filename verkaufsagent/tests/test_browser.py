@@ -591,3 +591,18 @@ def test_klick_ausserhalb_des_sichtbaren_bereichs(umgebung):
         assert m.page.evaluate("document.body.dataset.ok") == "1"
     finally:
         m.schliessen()
+
+
+def test_nummer_aus_angebotsliste(umgebung):
+    konf, register, produkt, markt, fabrik = umgebung
+    m = fabrik("testmarkt")
+    try:
+        m.page.set_content("""<table>
+          <tr><td>Orangefarbener Spitzen G String</td><td><a href="/account/classifieds/edit/55501">Edit</a></td></tr>
+          <tr><td><img src="x.jpg"></td><td>Black floral thong with lace trim Size M</td><td>1</td>
+              <td><a href="/account/classifieds/edit/55502">Edit</a> <a href="/account/classifieds/delete/55502">Del</a></td></tr>
+        </table>""")
+        assert m.nummer_aus_liste("Black floral thong with lace trim Size M") == "55502"
+        assert m.nummer_aus_liste("Gibt es nicht") is None
+    finally:
+        m.schliessen()

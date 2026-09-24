@@ -139,6 +139,16 @@ class Agent:
                 log.warning("%s: Produkt nicht mehr in produkte.yaml – wird nicht angefasst", inserat.schluessel)
                 continue
             plattform = self._plattform(inserat.plattform)
+            if not inserat.anzeige_id:
+                try:
+                    nummer = plattform.nummer_nachschlagen(inserat)
+                    if nummer:
+                        inserat.anzeige_id = nummer
+                        if plattform.d.anzeige_url:
+                            inserat.url = plattform.d.anzeige_url.format(id=nummer)
+                        self.speicher.speichere(inserat)
+                except Exception as e:
+                    log.debug("%s: Nummer nicht nachschlagbar: %s", inserat.schluessel, e)
             if statistik:
                 try:
                     stat = plattform.lese_statistik(inserat)

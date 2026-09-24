@@ -464,10 +464,53 @@ class Marktplatz:
                                   "(siehe Screenshot)")
         anzeige_id = self._warte_auf_nummer()
         if anzeige_id is None:
+            # z. B. panty.com: nach dem Speichern geht es zur Angebotsliste – Nummer dort am Titel ablesen
+            anzeige_id = self.nummer_aus_liste(texte.titel)
+        if anzeige_id is None:
             log.warning("%s: Angebots-Nummer nicht aus %s lesbar – Preisänderungen für dieses Angebot nicht möglich",
                         self.d.anzeigename, self.page.url)
         url = self.d.anzeige_url.format(id=anzeige_id) if anzeige_id and self.d.anzeige_url else self.page.url
         return Veroeffentlicht(anzeige_id, url, gesetzter_preis)
+
+    def nummer_aus_liste(self, titel: str | None) -> str | None:
+        """Sucht auf der aktuellen Seite (z. B. „My Offers“) die Zeile mit diesem Titel und liest die
+        Angebots-Nummer aus einem Link darin (Bearbeiten/Ansehen)."""
+        if not titel:
+            return None
+        try:
+            self.page.wait_for_load_state("domcontentloaded", timeout=10000)
+            nummer = self.page.evaluate(
+                """(titel) => {
+                    const kurz = titel.trim().toLowerCase().slice(0, 25);
+                    const treffer = [...document.querySelectorAll('body *')].filter(e =>
+                        e.children.length === 0 && (e.textContent || '').trim().toLowerCase().startsWith(kurz));
+                    for (const t of treffer) {
+                        let e = t;
+                        for (let i = 0; i < 6 && e; i++, e = e.parentElement) {
+                            for (const a of e.querySelectorAll('a[href]')) {
+                                const m = a.getAttribute('href').match(/(\d{4,})/);
+                                if (m) return m[1];
+                            }
+                        }
+                    }
+                    return null;
+                }""", titel)
+        except Exception as e:
+            log.debug("Nummer in Liste nicht gefunden: %s", e)
+            return None
+        if nummer:
+            log.info("%s: Angebots-Nummer %s aus der Angebotsliste gelesen", self.d.anzeigename, nummer)
+        return nummer
+
+    def nummer_nachschlagen(self, inserat: Inserat) -> str | None:
+        """Für Angebote ohne Nummer: Angebotsliste öffnen und die Nummer am Titel ablesen."""
+        if not inserat.url:
+            return None
+        self.page.goto(inserat.url)
+        self.sicherstellen_angemeldet()
+        if self.page.url.rstrip("/") != inserat.url.rstrip("/"):
+            self.page.goto(inserat.url)
+        return self.nummer_aus_liste(inserat.titel)
 
     def _zum_formular(self) -> None:
         for nr, schritt in enumerate(self.d.navigation, 1):

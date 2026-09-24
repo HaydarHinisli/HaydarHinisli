@@ -302,6 +302,20 @@ class Assistent:
             self.frage("     Enter, wenn du dir den Browser angesehen hast … ")
         return d
 
+    def preispflege_anlernen(self) -> Definition:
+        """Nur Angebots-/Bearbeiten-Seite anlernen (für Preisänderungen und Statistik)."""
+        d = self.m.d.model_copy(deep=True)
+        self.page.goto(d.basis_url)
+        self.page.bring_to_front()
+        self.m.sicherstellen_angemeldet()
+        self.ausgabe("\nÖffne im Agent-Browser deine Angebote (z. B. über „My Offers“).")
+        self._angebotsseiten(d)
+        pfad = self.register.speichere(d)
+        self.ausgabe(f"\nGespeichert: {pfad}")
+        self.ausgabe("✔ Preisänderungen möglich." if d.bearbeiten_url else
+                     "⚠ Ohne Bearbeiten-Seite kann der Agent keine Preise ändern.")
+        return d
+
     def _angebotsseiten(self, d: Definition) -> None:
         """Optional: Angebots- und Bearbeiten-Seite – für Statistik und Preisänderungen."""
         self.frage("\n5) Optional (für Preisanpassung & Statistik): Öffne im Browser die ANSICHT eines deiner bestehenden\n"

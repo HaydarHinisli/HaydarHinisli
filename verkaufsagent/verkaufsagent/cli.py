@@ -93,6 +93,20 @@ def cmd_login(args) -> None:
             m.schliessen()
 
 
+def cmd_preispflege(args) -> None:
+    from playwright.sync_api import sync_playwright
+
+    from .anlernen import Assistent
+
+    konf, register = _grundlagen(args)
+    with sync_playwright() as pw:
+        m = _marktplatz(pw, konf, register, args.plattform, sichtbar=True)
+        try:
+            Assistent(m, register).preispflege_anlernen()
+        finally:
+            m.schliessen()
+
+
 def cmd_zugang(args) -> None:
     """Nur Benutzername/Passwort neu speichern (ohne die Anmeldung neu anzulernen)."""
     import getpass
@@ -220,6 +234,10 @@ def main(argv: list[str] | None = None) -> None:
     s = sub.add_parser("login", help="Automatische Anmeldung einrichten (Zugangsdaten im Mac-Schlüsselbund)")
     s.add_argument("plattform")
     s.set_defaults(f=cmd_login)
+
+    s = sub.add_parser("preispflege", help="Angebots-/Bearbeiten-Seite anlernen (für Preisänderungen)")
+    s.add_argument("plattform")
+    s.set_defaults(f=cmd_preispflege)
 
     s = sub.add_parser("zugang", help="Nur Benutzername/Passwort für die automatische Anmeldung neu speichern")
     s.add_argument("plattform")
