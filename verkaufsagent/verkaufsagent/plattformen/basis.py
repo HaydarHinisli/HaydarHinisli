@@ -394,13 +394,12 @@ class Marktplatz:
         self.sicherstellen_angemeldet()
         for nr, schritt in enumerate(self.d.navigation, 1):
             try:
-                ziel = self.finde(schritt, f"Weg zum Formular, Klick {nr}", timeout_ms=None if nr > 1 else 5000)
+                self._klick_schritt(schritt, f"Weg zum Formular, Klick {nr}", 5000 if nr == 1 else 10000)
             except PlattformFehler:
                 if nr > 1 or self.page.url == self.d.neu_url:
                     raise
                 self.page.goto(self.d.neu_url)  # Logo nicht gefunden – doch neu laden
-                ziel = self.finde(schritt, f"Weg zum Formular, Klick {nr}")
-            ziel.click()
+                self._klick_schritt(schritt, f"Weg zum Formular, Klick {nr}", 10000)
             try:
                 self.page.wait_for_load_state("domcontentloaded", timeout=15000)
             except Exception:
@@ -443,6 +442,22 @@ class Marktplatz:
                         self.d.anzeigename, self.page.url)
         url = self.d.anzeige_url.format(id=anzeige_id) if anzeige_id and self.d.anzeige_url else self.page.url
         return Veroeffentlicht(anzeige_id, url, gesetzter_preis)
+
+    def _klick_schritt(self, selektoren: list[str], was: str, timeout_ms: int) -> None:
+        """Klickt einen Schritt eines Klickwegs. Steckt der Link in einem zugeklappten Menü
+        (z. B. „My Offers“ unter dem Konto-Symbol), wird er direkt ausgelöst."""
+        try:
+            self.finde(selektoren, was, timeout_ms).click()
+            return
+        except PlattformFehler:
+            pass
+        try:
+            versteckt = self.finde(selektoren, was, 2000, sichtbar=False)
+        except PlattformFehler:
+            raise PlattformFehler(f"{self.d.anzeigename}: '{was}' nicht gefunden (Selektoren: {selektoren}). "
+                                  "Bist du im Agent-Browser angemeldet?") from None
+        log.info("%s: '%s' liegt in einem zugeklappten Menü – löse den Link direkt aus", self.d.anzeigename, was)
+        versteckt.evaluate("e => e.click()")
 
     def _warte_auf_nummer(self, sekunden: float = 15) -> str | None:
         """Viele Seiten leiten nach dem Speichern über Zwischenseiten weiter – bis zur Angebots-Nummer warten."""

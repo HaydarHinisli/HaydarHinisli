@@ -518,3 +518,17 @@ def test_preis_aus_reiner_klickliste(umgebung):
         assert m.page.locator("#preis").input_value() == "$ 20"
     finally:
         m.schliessen()
+
+
+def test_link_im_zugeklappten_menue_wird_ausgeloest(umgebung):
+    konf, register, produkt, markt, fabrik = umgebung
+    m = fabrik("testmarkt")
+    try:
+        m.page.set_content("""<ul id="dd-acc" style="display:none"><li><a href="#" id="off"
+            onclick="document.body.dataset.ok='1';return false">My Offers</a></li></ul>""")
+        m._klick_schritt(['a:has-text("My Offers")', "#dd-acc > li:nth-of-type(1) > a"], "My Offers", 1000)
+        assert m.page.evaluate("document.body.dataset.ok") == "1"
+        with pytest.raises(Exception, match="angemeldet"):
+            m._klick_schritt(["#gibt-es-nicht"], "X", 500)
+    finally:
+        m.schliessen()
