@@ -99,3 +99,18 @@ def test_mitgelieferte_panty_vorlage_ist_englisch():
     d = Register(Path("/nicht/vorhanden")).lade("panty")
     assert d.sprache == "en" and d.standardwerte == {"waehrung": "EUR"}
     assert d.felder["preis"].typ == "auswahl" and "tragedauer" in d.felder
+
+
+def test_entwurf_wird_bei_geaenderten_angaben_neu_geschrieben(tmp_path):
+    from verkaufsagent.agent import Agent
+    from verkaufsagent.konfiguration import Konfiguration
+    from verkaufsagent.speicher import Speicher
+    konf = Konfiguration(datenordner=tmp_path, ki=KiEinstellungen(aktiv=False))
+    speicher = Speicher(tmp_path)
+    alt = produkt(name="Orange lace G-string", plattformen=["crazyslip"])
+    agent = Agent(konf, [alt], speicher, TextGenerator(konf.ki, DEFS.__getitem__), fabrik=None)
+    assert "Orange" in agent.bereite_texte_vor(alt)["crazyslip"].titel
+    neu = produkt(name="Black floral thong", plattformen=["crazyslip"])
+    assert "Black floral thong" in agent.bereite_texte_vor(neu)["crazyslip"].titel   # automatisch neu
+    anders_preis = produkt(name="Black floral thong", plattformen=["crazyslip"], preis=99)
+    assert speicher.hole("p1", "crazyslip").texte_aus == anders_preis.fingerabdruck()  # Preis ändert Text nicht

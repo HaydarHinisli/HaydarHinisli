@@ -92,6 +92,12 @@ class Produkt(BaseModel):
             raise ValueError(f"{self.id}: mindestpreis ({self.mindestpreis}) liegt über preis ({self.preis})")
         return self
 
+    def fingerabdruck(self) -> str:
+        """Ändert sich, sobald sich textrelevante Angaben ändern (Preis zählt nicht)."""
+        import hashlib
+        daten = self.model_dump(mode="json", exclude={"preis", "mindestpreis", "max_rabatt_prozent", "verhandelbar"})
+        return hashlib.sha256(repr(sorted(daten.items())).encode()).hexdigest()[:16]
+
     def untergrenze(self) -> float:
         """Niedrigster Preis, der jemals verlangt oder akzeptiert werden darf."""
         rabatt = min(self.max_rabatt_prozent / 100, MAX_RABATT_ABSOLUT) if self.verhandelbar else 0.0
@@ -133,6 +139,8 @@ class Inserat(BaseModel):
     nachrichten: int | None = None
     statistik_stand: datetime | None = None
     fehler: str | None = None
+    # Fingerabdruck der Produktangaben, aus denen titel/beschreibung erzeugt wurden
+    texte_aus: str | None = None
 
     @property
     def schluessel(self) -> str:

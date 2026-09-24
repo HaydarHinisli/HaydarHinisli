@@ -45,13 +45,20 @@ class Agent:
     def bereite_texte_vor(self, produkt: Produkt, neu: bool = False) -> dict[str, Texte]:
         """Erzeugt Texte (oder nimmt gespeicherte) und legt Entwürfe an."""
         vorhanden = {pl: self.speicher.hole(produkt.id, pl) for pl in produkt.plattformen}
-        if not neu and all(i and i.titel and i.beschreibung for i in vorhanden.values()):
+        abdruck = produkt.fingerabdruck()
+
+        def aktuell(i: Inserat | None) -> bool:
+            # veröffentlichte Texte bleiben; Entwürfe nur, solange sich die Produktangaben nicht geändert haben
+            return bool(i and i.titel and i.beschreibung and (i.status not in ("entwurf", "fehler") or i.texte_aus == abdruck))
+
+        if not neu and all(aktuell(i) for i in vorhanden.values()):
             return {pl: Texte(titel=i.titel, beschreibung=i.beschreibung) for pl, i in vorhanden.items()}
         erzeugt = self.texte.erzeuge(produkt)
         for pl in produkt.plattformen:
             inserat = vorhanden[pl] or Inserat(produkt_id=produkt.id, plattform=pl)
             if inserat.status in ("entwurf", "fehler"):
                 inserat.titel, inserat.beschreibung = erzeugt[pl].titel, erzeugt[pl].beschreibung
+                inserat.texte_aus = abdruck
                 self.speicher.speichere(inserat)
         return {pl: erzeugt[pl] for pl in produkt.plattformen}
 
