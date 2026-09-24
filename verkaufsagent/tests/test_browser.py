@@ -577,3 +577,17 @@ def test_anmeldung_bleibt_auf_login_adresse(tmp_path):
             assert not m._abgemeldet()
         finally:
             m.schliessen()
+
+
+def test_klick_ausserhalb_des_sichtbaren_bereichs(umgebung):
+    konf, register, produkt, markt, fabrik = umgebung
+    m = fabrik("testmarkt")
+    try:
+        m.page.set_content("""<div style="position:fixed;top:0;left:0;width:200px;height:100px;overflow:hidden">
+            <a id="x" href="#" style="position:absolute;top:5000px" onclick="document.body.dataset.ok='1';return false">
+            Used Panties</a></div>""")
+        from verkaufsagent.plattformen.basis import klicken
+        klicken(m.page.locator("#x"), 1500)
+        assert m.page.evaluate("document.body.dataset.ok") == "1"
+    finally:
+        m.schliessen()

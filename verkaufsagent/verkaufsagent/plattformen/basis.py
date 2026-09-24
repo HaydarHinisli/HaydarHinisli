@@ -87,6 +87,16 @@ def waehle_preisstufe(stufen: list[float], ziel: float, minimum: float) -> float
     return max(passend) if passend else None
 
 
+def klicken(loc: Locator, timeout_ms: int = 8000) -> None:
+    """Normaler Klick; klappt der nicht (z. B. „element is outside of the viewport“ in Seitenleisten
+    mit eigenem Scrollbereich oder verdeckt durch Banner), den Klick direkt im Element auslösen."""
+    try:
+        loc.click(timeout=timeout_ms)
+    except Exception as e:
+        log.debug("Normaler Klick ging nicht (%s) – löse direkt aus", str(e).splitlines()[0])
+        loc.evaluate("e => { e.scrollIntoView({block: 'center'}); e.click(); }")
+
+
 def _zahl(text: str | None) -> int | None:
     ziffern = re.sub(r"\D", "", text or "")
     return int(ziffern) if ziffern else None
@@ -193,10 +203,10 @@ class Marktplatz:
                     if not kaestchen.is_checked():
                         kaestchen.check(force=True)
                 else:
-                    kaestchen.click()
+                    klicken(kaestchen)
             except Exception as e:
                 log.debug("„Remember me“ nicht gesetzt: %s", e)
-        self.finde(self.d.login_absenden, "Login-Knopf").click()
+        klicken(self.finde(self.d.login_absenden, "Login-Knopf"))
         try:
             self.page.wait_for_load_state("domcontentloaded", timeout=15000)
         except Exception:
@@ -363,7 +373,7 @@ class Marktplatz:
 
     def _preis_per_klickliste(self, loc: Locator, preis: float, minimum: float) -> float:
         """Gestaltetes Preis-Menü ohne echtes <select>: aufklicken, sichtbare Stufen lesen, passende anklicken."""
-        loc.click()
+        klicken(loc)
         self.page.wait_for_timeout(500)
         eintraege = self.page.locator("li:visible, [role=option]:visible")
         texte = [t.strip() for t in eintraege.all_inner_texts()]
@@ -373,7 +383,7 @@ class Marktplatz:
             self.page.keyboard.press("Escape")
             raise PlattformFehler(f"Keine Preisstufe zwischen {minimum:.2f} und {preis:.2f} im Menü "
                                   f"(verfügbar: {', '.join(f'{s:g}' for s in sorted(stufen)) or '-'})")
-        self._sichtbarer_text(stufen[gewaehlt]).click(timeout=5000)
+        klicken(self._sichtbarer_text(stufen[gewaehlt]), 5000)
         return gewaehlt
 
     def _fuellen(self, name: str, feld: Feld, wert, minimum: float = 0) -> float | None:
@@ -392,13 +402,13 @@ class Marktplatz:
                 self._option_waehlen(menue, pfad[-1])
                 self._anzeige_setzen(loc, menue)
                 return None
-            loc.click()
+            klicken(loc)
             for ebene in pfad:
-                self._sichtbarer_text(ebene).click(timeout=5000)
+                klicken(self._sichtbarer_text(ebene), 5000)
                 self.page.wait_for_timeout(400)
         elif feld.typ == "klick":
             ziel = self._sichtbarer_text(str(wert), loc)
-            (ziel if ziel.count() else self._sichtbarer_text(str(wert))).click(timeout=5000)
+            klicken(ziel if ziel.count() else self._sichtbarer_text(str(wert)), 5000)
         elif feld.typ == "haken":
             loc.check() if str(wert).strip().lower() in _JA else loc.uncheck()
         return None
@@ -446,7 +456,7 @@ class Marktplatz:
 
         self.bestaetigen_oder_abbrechen(produkt)
         vorher = self.page.url
-        self.finde(self.d.absenden, "Absenden-Knopf").click()
+        klicken(self.finde(self.d.absenden, "Absenden-Knopf"))
         try:
             self.page.wait_for_url(lambda u: u != vorher, timeout=60000)
         except Exception:
@@ -478,7 +488,7 @@ class Marktplatz:
         """Klickt einen Schritt eines Klickwegs. Steckt der Link in einem zugeklappten Menü
         (z. B. „My Offers“ unter dem Konto-Symbol), wird er direkt ausgelöst."""
         try:
-            self.finde(selektoren, was, timeout_ms).click()
+            klicken(self.finde(selektoren, was, timeout_ms))
             return
         except PlattformFehler:
             pass
@@ -516,7 +526,7 @@ class Marktplatz:
         if inserat.preis_aktuell is not None and gesetzt >= inserat.preis_aktuell:
             return gesetzt  # keine niedrigere Stufe möglich – nichts speichern
         vorher = self.page.url
-        self.finde(self.d.bearbeiten_absenden or self.d.absenden, "Speichern-Knopf").click()
+        klicken(self.finde(self.d.bearbeiten_absenden or self.d.absenden, "Speichern-Knopf"))
         try:
             self.page.wait_for_url(lambda u: u != vorher, timeout=30000)
         except Exception:
