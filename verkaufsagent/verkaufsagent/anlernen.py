@@ -135,15 +135,13 @@ class Assistent:
         text = (f"\n1) Im Browserfenster, das der Agent gerade geöffnet hat (NICHT in Safari/deinem normalen Browser):\n"
                 f"   bei {d.anzeigename} anmelden und das Formular für ein NEUES Angebot öffnen.\n"
                 "   Erst wenn das Formular zu sehen ist, hier Enter drücken … ")
-        while True:
-            self.frage(text)
-            if urlsplit(self.page.url).path.strip("/") or urlsplit(self.page.url).query:
-                break
-            antwort = self.frage(f"   ⚠ Der Browser zeigt nur die Startseite ({self.page.url}), nicht das Angebotsformular.\n"
-                                 "   Formular öffnen und Enter drücken – oder 'j' + Enter, falls das Formular wirklich hier ist: ")
+        antwort = self.frage(text)
+        while not (urlsplit(self.page.url).path.strip("/") or urlsplit(self.page.url).query):
             if antwort.strip().lower().startswith("j"):
                 break
-            text = "   Jetzt Enter drücken, wenn das Formular offen ist … "
+            antwort = self.frage(f"   ⚠ Der Browser zeigt die Adresse {self.page.url} (Startseite).\n"
+                                 "   Ist das Angebotsformular trotzdem zu sehen? Dann j + Enter.\n"
+                                 "   Sonst Formular öffnen und nur Enter … ")
         d.neu_url = self.page.url
         d.navigation = []
         if not (urlsplit(d.neu_url).path.strip("/") or urlsplit(d.neu_url).query):

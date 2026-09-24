@@ -122,7 +122,7 @@ def anlernen(fabrik, register, erst_startseite=False):
     def gehe(pfad):
         return lambda: p.goto(BASIS + pfad)
 
-    start = ["", gehe("/angebot/neu"), ""] if erst_startseite else [gehe("/angebot/neu")]
+    start = ["", gehe("/angebot/neu")] if erst_startseite else [gehe("/angebot/neu")]
     schritte = [
         *start,                                             # 1) Formular öffnen
         klick("text=Fotos hinzufügen"),                     # Fotos
