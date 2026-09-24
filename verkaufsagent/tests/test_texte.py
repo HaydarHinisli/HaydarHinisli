@@ -63,7 +63,7 @@ def test_ki_texte_pro_plattform():
     assert set(req["output_config"]["format"]["schema"]["required"]) == {"crazyslip", "creamsi"}
     prompt = req["messages"][0]["content"][-1]["text"]
     assert "Tragedauer: 1 Tag" in prompt and "Naht" in prompt and "dezent" in prompt
-    assert "keine expliziten" in req["system"]
+    assert "explizit" in req["system"] and "Formularfeldern" in req["system"]
 
 
 def test_fallback_bei_api_fehler():
@@ -113,7 +113,7 @@ def test_entwurf_wird_bei_geaenderten_angaben_neu_geschrieben(tmp_path):
     neu = produkt(name="Black floral thong", plattformen=["crazyslip"])
     assert "Black floral thong" in agent.bereite_texte_vor(neu)["crazyslip"].titel   # automatisch neu
     anders_preis = produkt(name="Black floral thong", plattformen=["crazyslip"], preis=99)
-    assert speicher.hole("p1", "crazyslip").texte_aus == anders_preis.fingerabdruck()  # Preis ändert Text nicht
+    assert speicher.hole("p1", "crazyslip").texte_aus.startswith(anders_preis.fingerabdruck())  # Preis ändert Text nicht
 
 
 def test_eigene_beschreibung_hat_vorrang():

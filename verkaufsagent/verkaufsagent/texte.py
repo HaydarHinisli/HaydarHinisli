@@ -29,7 +29,9 @@ Regeln:
 - Schreibe in der Sprache, die für die jeweilige Plattform angegeben ist (Deutsch oder Englisch), freundlich und persönlich, ohne Übertreibungen und höchstens 2 Emojis.
 - Nenne nur Fakten aus den Produktdaten und dem, was auf den Fotos eindeutig erkennbar ist. Erfinde keine Maße, Materialien, Tragedauern oder Eigenschaften.
 - Bekannte Mängel und Hinweise aus den Notizen MÜSSEN klar und ehrlich genannt werden.
-- Bleibe dezent: keine expliziten sexuellen Beschreibungen, auch nicht auf Marktplätzen für Erwachsene.
+- Auf Marktplätzen für Erwachsene darf der Ton persönlich, verspielt, flirtend und sinnlich sein – andeutend statt explizit: keine grafischen sexuellen Beschreibungen, keine Aussagen zu Körperflüssigkeiten.
+- Keine Formulierungen wie aus einem Datenblatt ("Up for grabs", "Please note", "More details in the photos", Aufzählungspunkte); schreibe wie eine echte Person über ihr Lieblingsteil.
+- Wiederhole keine Angaben, die in eigenen Formularfeldern stehen (siehe Nachricht).
 - Nenne keinen Preis im Text (der steht im Preisfeld) und keine Telefonnummern, E-Mail-Adressen, Links oder Wege, die Plattform zu umgehen.
 - Der Titel nennt den Artikel und – wenn sinnvoll – Größe/Farbe/Material. Kein Clickbait, keine GROSSBUCHSTABEN-Wörter.
 - Halte dich an den Stil der jeweiligen Plattform (siehe Nachricht).
@@ -126,6 +128,7 @@ class TextGenerator:
         inhalt: list[dict] = [_bild_block(f) for f in produkt.fotos[: self.einst.max_fotos]]
         vorgaben = "\n".join(
             f"- {pl} ({d.anzeigename}): Sprache {'Englisch' if d.sprache == 'en' else 'Deutsch'}. "
+            f"Eigene Formularfelder (NICHT im Text wiederholen): {', '.join(_FELDNAMEN.get(f, f) for f in d.felder if f not in ('titel', 'beschreibung', 'fotos', 'preis', 'waehrung')) or '-'}. "
             f"Titel max. {d.titel_max} Zeichen, Beschreibung max. "
             f"{d.beschreibung_max} Zeichen. Stil: {d.stil or 'sachlich und freundlich'}"
             for pl, d in defs.items()
@@ -169,6 +172,13 @@ _EN_ZUSTAND = {"getragen": "Worn", "neu_mit_etikett": "New with tags", "neu": "N
 _EN_FELD = {"tragedauer": "Wear duration", "trageanlass": "Worn during", "form": "Style", "waehrung": None}
 
 
+# Version der Textregeln – ändert sich, damit alte Entwürfe nach einem Update neu geschrieben werden
+TEXT_VERSION = "3"
+
+_FELDNAMEN = {"groesse": "Größe", "tragedauer": "Tragedauer", "trageanlass": "Trageanlass", "material": "Material",
+              "form": "Form/Schnitt", "farbe": "Farbe", "zustand": "Zustand", "marke": "Marke", "kategorie": "Kategorie"}
+
+
 def _enthalten(wort: str | None, text: str) -> bool:
     import re
     return bool(wort) and re.search(rf"(?<!\w){re.escape(wort.lower())}(?!\w)", text.lower()) is not None
@@ -187,50 +197,55 @@ def vorlage(p: Produkt, plattform: str, definition: Definition) -> Texte:
             titelteile.append(p.farbe)
         titel = _kuerzen(" ".join(t for t in titelteile if t), definition.titel_max)
 
+    # Was im Formular ohnehin per Feld/Menü angegeben wird, steht nicht noch einmal im Text
+    im_formular = set(definition.felder)
     felder = p.optionen_fuer(plattform).felder
-    tragedauer = felder.get("tragedauer")
+    tragedauer = None if "tragedauer" in im_formular else felder.get("tragedauer")
+    groesse = None if "groesse" in im_formular else p.groesse
+    material = None if "material" in im_formular else p.material
     name = p.name[0].lower() + p.name[1:] if p.name else p.name
     von = p.marke and not _enthalten(p.marke, p.name)
+    getragen = p.zustand.value == "getragen"
 
     if en:
-        einleitung = f"Here's my {name}" + (f" by {p.marke}" if von else "") + "."
+        einleitung = f"This {name}" + (f" by {p.marke}" if von else "") + " has been one of my absolute favourites 😉"
         if p.notizen:
             einleitung += " " + p.notizen.strip()
         fakten = []
-        if p.groesse:
-            fakten.append(f"a size {p.groesse}")
-        if p.farbe and not _enthalten(p.farbe, p.name):
-            fakten.append(f"in {p.farbe.lower()}")
-        if p.material:
-            fakten.append(f"made of {p.material.lower()}")
-        satz2 = ("It's " + " ".join(fakten) + ".") if fakten else ""
-        if p.zustand.value == "getragen":
-            satz2 += f" I've worn it for {tragedauer}." if tragedauer else " It has been worn."
+        if groesse:
+            fakten.append(f"a size {groesse}")
+        if material:
+            fakten.append(f"made of {material.lower()}")
+        satz2 = ("It's " + ", ".join(fakten) + ". ") if fakten else ""
+        if getragen:
+            satz2 += (f"I've worn it for {tragedauer}, " if tragedauer else "I've worn it, ") + \
+                     "and now it's ready to come to you just the way it is."
         elif p.zustand.value == "neu_mit_etikett":
-            satz2 += " It's brand new with the tags still on."
-        elif p.zustand.value == "neu":
-            satz2 += " It's brand new and unworn."
+            satz2 += "It's brand new with the tags still on – just waiting for you."
+        else:
+            satz2 += "It's still brand new – just waiting for you."
         abschnitte = [einleitung, satz2.strip(),
-                      "If you have any questions or special requests, just send me a message – I'm always happy to chat!"]
+                      "Would you like it worn a little longer, or do you have a special wish? "
+                      "Send me a message and let's talk 💋"]
         if p.versand:
             abschnitte.append("Shipped discreetly in plain packaging.")
     else:
-        einleitung = f"Ich biete hier {p.name}" + (f" von {p.marke}" if von else "") + " an."
+        einleitung = f"Dieses Teil – {p.name}" + (f" von {p.marke}" if von else "") + " – gehört zu meinen absoluten Lieblingen 😉"
         if p.notizen:
             einleitung += " " + p.notizen.strip()
         fakten = []
-        if p.groesse:
-            fakten.append(f"Größe {p.groesse}")
-        if p.farbe and not _enthalten(p.farbe, p.name):
-            fakten.append(f"Farbe {p.farbe}")
-        if p.material:
-            fakten.append(f"Material {p.material}")
-        satz2 = ("Die Eckdaten: " + ", ".join(fakten) + ".") if fakten else ""
-        if p.zustand.value == "getragen":
-            satz2 += f" Getragen habe ich es {tragedauer}." if tragedauer else " Das Teil ist getragen."
+        if groesse:
+            fakten.append(f"Größe {groesse}")
+        if material:
+            fakten.append(f"Material {material}")
+        satz2 = ("Kurz zu den Eckdaten: " + ", ".join(fakten) + ". ") if fakten else ""
+        if getragen:
+            satz2 += (f"Getragen habe ich es {tragedauer} – " if tragedauer else "Ich habe es getragen – ") + \
+                     "jetzt wartet es nur noch auf dich, ganz so, wie es ist."
         else:
-            satz2 += f" Zustand: {p.zustand.text}."
-        abschnitte = [einleitung, satz2.strip(), "Bei Fragen oder besonderen Wünschen schreib mir einfach – ich freue mich auf deine Nachricht!"]
+            satz2 += f"Zustand: {p.zustand.text} – es wartet nur noch auf dich."
+        abschnitte = [einleitung, satz2.strip(),
+                      "Soll ich es noch etwas länger tragen oder hast du einen besonderen Wunsch? Schreib mir einfach 💋"]
         if p.versand:
             abschnitte.append("Der Versand erfolgt diskret in neutraler Verpackung.")
         if p.abholung:

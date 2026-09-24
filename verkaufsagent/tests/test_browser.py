@@ -174,7 +174,7 @@ def test_anlernen_und_kompletter_ablauf(umgebung, monkeypatch):
         assert agent.inseriere_neue() == 1
         g = markt.gesendet[0]
         assert g["titel"].startswith("Hunkemöller Spitzenslip")
-        assert "1 Tag" in g["text"] and "diskret" in g["text"]
+        assert "1 Tag" not in g["text"] and "diskret" in g["text"]
         assert (g["preis"], g["kategorie"], g["groesse"], g["tragedauer"], g["fotos"]) == ("25", "Slips", "M", "1 Tag", "foto1.jpg")
         i = speicher.hole("slip-001", "testmarkt")
         assert (i.status, i.anzeige_id, i.url, i.preis_aktuell) == ("online", "48151", f"{BASIS}/angebot/48151", 25)

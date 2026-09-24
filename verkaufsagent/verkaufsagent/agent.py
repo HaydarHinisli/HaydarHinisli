@@ -11,7 +11,7 @@ from .modelle import Inserat, Preisaenderung, Produkt, Texte
 from .plattformen import Abgebrochen, Marktplatz, NichtAngemeldet, NichtEingerichtet
 from .preise import pruefe_reduzierung
 from .speicher import Speicher
-from .texte import TextGenerator, pruefe_texte
+from .texte import TEXT_VERSION, TextGenerator, pruefe_texte
 
 log = logging.getLogger(__name__)
 
@@ -45,7 +45,7 @@ class Agent:
     def bereite_texte_vor(self, produkt: Produkt, neu: bool = False) -> dict[str, Texte]:
         """Erzeugt Texte (oder nimmt gespeicherte) und legt Entwürfe an."""
         vorhanden = {pl: self.speicher.hole(produkt.id, pl) for pl in produkt.plattformen}
-        abdruck = produkt.fingerabdruck()
+        abdruck = f"{produkt.fingerabdruck()}-v{TEXT_VERSION}"
 
         def aktuell(i: Inserat | None) -> bool:
             # veröffentlichte Texte bleiben; Entwürfe nur, solange sich die Produktangaben nicht geändert haben
