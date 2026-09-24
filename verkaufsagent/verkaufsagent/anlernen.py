@@ -148,17 +148,21 @@ class Assistent:
         d.navigation = []
         if not (urlsplit(d.neu_url).path.strip("/") or urlsplit(d.neu_url).query):
             self._navigation_aufnehmen(d)
+        self.register.speichere(d)  # Zwischenstand – bei Abbruch geht nichts verloren
         self.ausgabe(f"   ✔ Formular-Adresse: {d.neu_url}")
 
         self.ausgabe("\n2) Jetzt die Felder: Klicke im Browser auf das genannte Feld und drücke dann hier Enter.\n"
                      "   (Klicks werden abgefangen – es wird nichts ausgelöst. Nur Enter ohne Klick = überspringen.)")
         for nr, (name, feld) in enumerate(d.felder.items(), 1):
             text = (f"   [{nr}/{len(d.felder)}] {feld.beschriftung or name}: klicke auf {HINWEIS[feld.typ]}"
-                    f"{' (Pflicht)' if feld.pflicht else ''} … ")
+                    f"{' (Pflicht)' if feld.pflicht else ''}{' – schon angelernt, Enter = behalten' if feld.selektor else ''} … ")
             sel = self._klick_aufnehmen(text, datei=feld.typ == "datei")
             if sel:
                 feld.selektor = sel
+                self.register.speichere(d)
                 self.ausgabe(f"      ✔ {sel[0]}")
+            elif feld.selektor:
+                self.ausgabe("      ✔ bereits angelernt – behalten")
             elif feld.pflicht:
                 self.ausgabe("      ⚠ übersprungen – dieses Pflichtfeld muss noch angelernt werden")
 
@@ -177,7 +181,10 @@ class Assistent:
         sel = self._klick_aufnehmen("\n4) Klicke auf den Knopf zum Veröffentlichen/Speichern (wird NICHT ausgelöst) … ")
         if sel:
             d.absenden = sel
+            self.register.speichere(d)
             self.ausgabe(f"   ✔ {sel[0]}")
+        elif d.absenden:
+            self.ausgabe("   ✔ bereits angelernt – behalten")
 
         self._angebotsseiten(d)
         pfad = self.register.speichere(d)

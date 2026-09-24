@@ -226,3 +226,8 @@ def main(argv: list[str] | None = None) -> None:
         sys.exit(130)
     except (PlattformFehler, ValueError, FileNotFoundError) as e:
         sys.exit(f"Fehler: {e}")
+    except Exception as e:
+        if "closed" in str(e).lower():
+            sys.exit("Das Browserfenster wurde geschlossen. Bitte das Browserfenster offen lassen, bis das Terminal "
+                     "fertig meldet. Bisher Gelerntes ist gespeichert – einfach noch einmal starten.")
+        raise
