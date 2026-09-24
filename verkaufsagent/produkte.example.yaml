@@ -11,6 +11,9 @@ produkte:
     farbe: Orange
     material: Lace
     notizen: Smoke-free home.           # Fakten, die in die Beschreibung müssen
+    # Eigener Text statt automatischer Beschreibung (optional, wird genau so übernommen):
+    # beschreibung: |
+    #   This little thong is one of my favourites …
     fotos: [fotos/slip-001]
     plattformen: [panty]
     panty:

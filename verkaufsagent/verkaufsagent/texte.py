@@ -108,6 +108,9 @@ class TextGenerator:
     def erzeuge(self, produkt: Produkt) -> dict[str, Texte]:
         plattformen = list(dict.fromkeys(produkt.plattformen))
         defs = {pl: self.definitionen(pl) for pl in plattformen}
+        if produkt.beschreibung:  # eigener Text hat immer Vorrang
+            return {pl: Texte(titel=_kuerzen(produkt.titel or vorlage(produkt, pl, d).titel, d.titel_max),
+                              beschreibung=produkt.beschreibung.strip(), quelle="eigen") for pl, d in defs.items()}
         if self.einst.aktiv:
             try:
                 texte = self._ki(produkt, defs)
@@ -166,43 +169,73 @@ _EN_ZUSTAND = {"getragen": "Worn", "neu_mit_etikett": "New with tags", "neu": "N
 _EN_FELD = {"tragedauer": "Wear duration", "trageanlass": "Worn during", "form": "Style", "waehrung": None}
 
 
+def _enthalten(wort: str | None, text: str) -> bool:
+    import re
+    return bool(wort) and re.search(rf"(?<!\w){re.escape(wort.lower())}(?!\w)", text.lower()) is not None
+
+
 def vorlage(p: Produkt, plattform: str, definition: Definition) -> Texte:
-    """Regelbasierte Beschreibung – garantiert vollständig, auch ohne KI."""
+    """Regelbasierte Beschreibung als natürlicher Fließtext – garantiert vollständig, auch ohne KI."""
     en = definition.sprache == "en"
-    titelteile = [p.marke, p.name] if p.marke and p.marke.lower() not in p.name.lower() else [p.name]
-    if p.groesse and p.groesse.lower() not in p.name.lower():
-        titelteile.append(f"{'Size' if en else 'Gr.'} {p.groesse}")
-    if p.farbe and p.farbe.lower() not in p.name.lower():
-        titelteile.append(p.farbe)
-    titel = _kuerzen(" ".join(t for t in titelteile if t), definition.titel_max)
+    if p.titel:
+        titel = _kuerzen(p.titel, definition.titel_max)
+    else:
+        titelteile = [p.marke, p.name] if p.marke and not _enthalten(p.marke, p.name) else [p.name]
+        if p.groesse and not _enthalten(p.groesse, p.name):
+            titelteile.append(f"{'Size' if en else 'Gr.'} {p.groesse}")
+        if p.farbe and not _enthalten(p.farbe, p.name):
+            titelteile.append(p.farbe)
+        titel = _kuerzen(" ".join(t for t in titelteile if t), definition.titel_max)
 
-    labels = (("Brand", p.marke), ("Size", p.groesse), ("Colour", p.farbe), ("Material", p.material)) if en else \
-             (("Marke", p.marke), ("Größe", p.groesse), ("Farbe", p.farbe), ("Material", p.material))
-    details = [f"• {label}: {wert}" for label, wert in labels if wert]
-    details.append(f"• {'Condition' if en else 'Zustand'}: {_EN_ZUSTAND[p.zustand.value] if en else p.zustand.text}")
-    for name, wert in p.optionen_fuer(plattform).felder.items():
-        label = _EN_FELD.get(name, _feldname(name)) if en else _feldname(name)
-        if label:
-            details.append(f"• {label}: {wert}")
+    felder = p.optionen_fuer(plattform).felder
+    tragedauer = felder.get("tragedauer")
+    name = p.name[0].lower() + p.name[1:] if p.name else p.name
+    von = p.marke and not _enthalten(p.marke, p.name)
 
-    von = p.marke and p.marke.lower() not in p.name.lower()
     if en:
-        abschnitte = [f"Up for grabs: my {p.name}" + (f" by {p.marke}" if von else "") + ".", "\n".join(details)]
+        einleitung = f"Here's my {name}" + (f" by {p.marke}" if von else "") + "."
         if p.notizen:
-            abschnitte.append(f"Please note: {p.notizen}")
-        abschnitte.append("More details in the photos. Feel free to message me with any questions or special requests!")
+            einleitung += " " + p.notizen.strip()
+        fakten = []
+        if p.groesse:
+            fakten.append(f"a size {p.groesse}")
+        if p.farbe and not _enthalten(p.farbe, p.name):
+            fakten.append(f"in {p.farbe.lower()}")
+        if p.material:
+            fakten.append(f"made of {p.material.lower()}")
+        satz2 = ("It's " + " ".join(fakten) + ".") if fakten else ""
+        if p.zustand.value == "getragen":
+            satz2 += f" I've worn it for {tragedauer}." if tragedauer else " It has been worn."
+        elif p.zustand.value == "neu_mit_etikett":
+            satz2 += " It's brand new with the tags still on."
+        elif p.zustand.value == "neu":
+            satz2 += " It's brand new and unworn."
+        abschnitte = [einleitung, satz2.strip(),
+                      "If you have any questions or special requests, just send me a message – I'm always happy to chat!"]
         if p.versand:
             abschnitte.append("Shipped discreetly in plain packaging.")
     else:
-        abschnitte = [f"Hier biete ich an: {p.name}" + (f" von {p.marke}" if von else "") + ".", "\n".join(details)]
+        einleitung = f"Ich biete hier {p.name}" + (f" von {p.marke}" if von else "") + " an."
         if p.notizen:
-            abschnitte.append(f"Bitte beachten: {p.notizen}")
-        abschnitte.append("Weitere Details siehe Fotos. Bei Fragen oder Wünschen schreib mir gerne!")
+            einleitung += " " + p.notizen.strip()
+        fakten = []
+        if p.groesse:
+            fakten.append(f"Größe {p.groesse}")
+        if p.farbe and not _enthalten(p.farbe, p.name):
+            fakten.append(f"Farbe {p.farbe}")
+        if p.material:
+            fakten.append(f"Material {p.material}")
+        satz2 = ("Die Eckdaten: " + ", ".join(fakten) + ".") if fakten else ""
+        if p.zustand.value == "getragen":
+            satz2 += f" Getragen habe ich es {tragedauer}." if tragedauer else " Das Teil ist getragen."
+        else:
+            satz2 += f" Zustand: {p.zustand.text}."
+        abschnitte = [einleitung, satz2.strip(), "Bei Fragen oder besonderen Wünschen schreib mir einfach – ich freue mich auf deine Nachricht!"]
         if p.versand:
-            abschnitte.append("Der Versand erfolgt diskret verpackt.")
+            abschnitte.append("Der Versand erfolgt diskret in neutraler Verpackung.")
         if p.abholung:
             abschnitte.append("Abholung ist ebenfalls möglich.")
-    return Texte(titel=titel, beschreibung="\n\n".join(abschnitte), quelle="vorlage")
+    return Texte(titel=titel, beschreibung="\n\n".join(a for a in abschnitte if a), quelle="vorlage")
 
 
 def pruefe_texte(t: Texte, definition: Definition) -> list[str]:

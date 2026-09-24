@@ -48,7 +48,7 @@ def test_vorlage_ist_vollstaendig_und_gueltig():
         t = vorlage(p, pl, d)
         assert pruefe_texte(t, d) == [], (pl, t)
         assert "Naht" in t.beschreibung and "diskret" in t.beschreibung
-    assert "Tragedauer: 1 Tag" in vorlage(p, "crazyslip", DEFS["crazyslip"]).beschreibung
+    assert "1 Tag" in vorlage(p, "crazyslip", DEFS["crazyslip"]).beschreibung
     assert len(vorlage(p, "creamsi", DEFS["creamsi"]).titel) <= 40
 
 
@@ -89,7 +89,7 @@ def test_englische_vorlage():
     p = produkt(plattformen=["panty"], panty={"felder": {"tragedauer": "1 day", "waehrung": "EUR"}})
     t = vorlage(p, "panty", d)
     assert pruefe_texte(t, d) == []
-    assert "Size M" in t.titel and "Condition: Worn" in t.beschreibung and "Wear duration: 1 day" in t.beschreibung
+    assert "Size M" in t.titel and "worn it for 1 day" in t.beschreibung and "•" not in t.beschreibung
     assert "EUR" not in t.beschreibung and "discreet" in t.beschreibung
 
 
@@ -114,3 +114,18 @@ def test_entwurf_wird_bei_geaenderten_angaben_neu_geschrieben(tmp_path):
     assert "Black floral thong" in agent.bereite_texte_vor(neu)["crazyslip"].titel   # automatisch neu
     anders_preis = produkt(name="Black floral thong", plattformen=["crazyslip"], preis=99)
     assert speicher.hole("p1", "crazyslip").texte_aus == anders_preis.fingerabdruck()  # Preis ändert Text nicht
+
+
+def test_eigene_beschreibung_hat_vorrang():
+    eigen = "This little black thong is one of my favourites. Soft lace trim, size M, worn for a full day. Message me anytime!"
+    p = produkt(titel="Black floral thong", beschreibung=eigen)
+    fake = FakeClient(fehler=AssertionError("KI darf nicht aufgerufen werden"))
+    texte = TextGenerator(KiEinstellungen(), DEFS.__getitem__, fake).erzeuge(p)
+    assert all(t.beschreibung == eigen and t.titel == "Black floral thong" and t.quelle == "eigen" for t in texte.values())
+    assert not fake.aufrufe
+
+
+def test_groesse_m_wird_nicht_in_trim_gefunden():
+    d = Definition(name="panty", anzeigename="P", basis_url="https://z", sprache="en")
+    p = produkt(name="Black floral thong with lace trim", marke=None, farbe="Black", plattformen=["panty"])
+    assert vorlage(p, "panty", d).titel == "Black floral thong with lace trim Size M"

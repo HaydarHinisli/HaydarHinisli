@@ -58,6 +58,9 @@ class Produkt(BaseModel):
     farbe: str | None = None
     material: str | None = None
     notizen: str | None = Field(None, description="Fakten/Mängel, die in die Beschreibung müssen")
+    # Eigener Text: wird genau so übernommen (dann schreibt weder die KI noch die Vorlage)
+    titel: str | None = None
+    beschreibung: str | None = None
     fotos: list[Path] = Field(default_factory=list)
     plattformen: list[str] = Field(default_factory=lambda: ["crazyslip", "creamsi"], min_length=1)
     versand: bool = True

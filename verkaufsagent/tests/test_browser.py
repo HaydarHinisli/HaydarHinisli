@@ -174,7 +174,7 @@ def test_anlernen_und_kompletter_ablauf(umgebung, monkeypatch):
         assert agent.inseriere_neue() == 1
         g = markt.gesendet[0]
         assert g["titel"].startswith("Hunkemöller Spitzenslip")
-        assert "Tragedauer: 1 Tag" in g["text"] and "diskret" in g["text"]
+        assert "1 Tag" in g["text"] and "diskret" in g["text"]
         assert (g["preis"], g["kategorie"], g["groesse"], g["tragedauer"], g["fotos"]) == ("25", "Slips", "M", "1 Tag", "foto1.jpg")
         i = speicher.hole("slip-001", "testmarkt")
         assert (i.status, i.anzeige_id, i.url, i.preis_aktuell) == ("online", "48151", f"{BASIS}/angebot/48151", 25)
@@ -358,7 +358,7 @@ def test_formular_ohne_eigene_adresse_wie_panty(tmp_path, monkeypatch):
         assert sum(1 for u in seitenaufrufe if urlparse(u).path == "/") <= 2
         assert gesendet[1]["title"].startswith("Red lace thong") and gesendet[1]["price"] == "15"
         assert gesendet[0]["title"].startswith("Orange lace G-string") and gesendet[0]["price"] == "20"  # Stufe <= 24
-        assert "Size: M" in gesendet[0]["desc"]
+        assert "size M" in gesendet[0]["desc"]
         i = speicher.hole("s1", "spa")
         assert (i.status, i.anzeige_id, i.preis_aktuell) == ("online", "77712", 20)
 
