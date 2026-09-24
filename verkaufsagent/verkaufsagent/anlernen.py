@@ -190,9 +190,9 @@ class Assistent:
     def _navigation_aufnehmen(self, d: Definition) -> None:
         """Für Formulare ohne eigene Adresse: den Klickweg von der Startseite zum Formular merken."""
         self.ausgabe("\n   Das Formular hat keine eigene Adresse – der Agent muss sich jedes Mal durchklicken.\n"
-                     "   Die Startseite wird gleich neu geladen. Klicke dann im Agent-Browser nacheinander den Weg\n"
-                     "   zum Formular (z. B. MY OFFERS → + POST OFFER → Used Panties). Diese Klicks werden ausgeführt.")
-        self.page.goto(d.neu_url)
+                     "   Klicke jetzt im Agent-Browser den Weg zum Formular – BEGINNE mit dem Logo der Seite\n"
+                     "   (oben links, führt zur Startseite), dann z. B. MY OFFERS → + POST OFFER → Used Panties.\n"
+                     "   Nach JEDEM Klick hier Enter. Diese Klicks werden ausgeführt.")
         schritte: list[list[str]] = []
         while True:
             self._bereit()

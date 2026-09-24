@@ -259,7 +259,8 @@ def test_menues_wie_bei_panty(umgebung):
 
 SPA_BASIS = "https://www.spa-markt.test"
 SPA_SEITE = """<!doctype html><html><body>
-<nav><a href="#" id="nav-offers" onclick="zeige('angebote');return false">MY OFFERS</a></nav>
+<nav><a href="#" id="logo" onclick="zeige('start');return false">panty</a>
+<a href="#" id="nav-offers" onclick="zeige('angebote');return false">MY OFFERS</a></nav>
 <div id="start">Willkommen</div>
 <div id="angebote" hidden><button type="button" onclick="zeige('kategorien')">+ POST OFFER</button></div>
 <div id="kategorien" hidden><ul><li onclick="zeige('formular')">Used Panties</li><li>Foot fetish</li></ul></div>
@@ -295,7 +296,7 @@ def test_formular_ohne_eigene_adresse_wie_panty(tmp_path, monkeypatch):
             gesendet.append({k: v[0] for k, v in parse_qs(url.query).items()})
             return r.fulfill(status=200, content_type="text/html", body="<script>location.replace('/offer/77712')</script>")
         if url.path.startswith("/offer/"):
-            return r.fulfill(status=200, content_type="text/html", body="<p>Offer</p>")
+            return r.fulfill(status=200, content_type="text/html; charset=utf-8", body=SPA_SEITE)  # mit Kopfbereich/Logo
         return r.fulfill(status=200, content_type="text/html; charset=utf-8", body=SPA_SEITE)
 
     with sync_playwright() as pw:
@@ -310,7 +311,7 @@ def test_formular_ohne_eigene_adresse_wie_panty(tmp_path, monkeypatch):
         schritte = [
             klick("#nav-offers"), klick("text=+ POST OFFER"), klick("text=Used Panties"),  # Formular öffnen (Adresse bleibt /)
             "j",                                                                           # "Formular ist wirklich hier"
-            klick("#nav-offers"), klick("text=+ POST OFFER"), (klick("text=Used Panties"), "f"),  # Klickweg anlernen
+            klick("#logo"), klick("#nav-offers"), klick("text=+ POST OFFER"), (klick("text=Used Panties"), "f"),  # Klickweg
             klick("#title"), klick("#price"), klick("#desc"), klick("#bild"),              # Felder
             "",                                                                            # keine weiteren Felder
             klick("#post"),                                                                # Absenden (nicht ausgelöst)
@@ -332,18 +333,30 @@ def test_formular_ohne_eigene_adresse_wie_panty(tmp_path, monkeypatch):
         finally:
             m.schliessen()
         assert not schritte
-        assert len(d.navigation) == 3 and d.eingerichtet, d.fehlend()
-        assert any("MY OFFERS" in s for s in d.navigation[0])
+        assert len(d.navigation) == 4 and d.eingerichtet, d.fehlend()
+        assert any("MY OFFERS" in s for s in d.navigation[1])
         assert gesendet == []
 
         produkt = Produkt.model_validate(dict(id="s1", name="Orange lace G-string", preis=24, groesse="M",
                                               fotos=[foto], plattformen=["spa"]))
+        zweites = Produkt.model_validate(dict(id="s2", name="Red lace thong", preis=15, fotos=[foto], plattformen=["spa"]))
         speicher = Speicher(konf.datenordner)
-        agent = Agent(konf, [produkt], speicher, TextGenerator(konf.ki, register.lade), fabrik)
+        agent = Agent(konf, [produkt, zweites], speicher, TextGenerator(konf.ki, register.lade), fabrik)
+        seitenaufrufe = []
+        monkeypatch.setattr("verkaufsagent.agent.time.sleep", lambda s: None)
         try:
-            assert agent.inseriere_neue() == 1
+            original = Marktplatz.veroeffentliche
+
+            def zaehlen(self, *a, **k):
+                self.page.on("framenavigated", lambda f: f == self.page.main_frame and seitenaufrufe.append(f.url))
+                return original(self, *a, **k)
+            monkeypatch.setattr(Marktplatz, "veroeffentliche", zaehlen)
+            assert agent.inseriere_neue() == 2
         finally:
             agent.schliessen()
+        # Startseite nur einmal geladen – das zweite Angebot kam per Klick (Logo …) zum Formular
+        assert sum(1 for u in seitenaufrufe if urlparse(u).path == "/") <= 2
+        assert gesendet[1]["title"].startswith("Red lace thong") and gesendet[1]["price"] == "15"
         assert gesendet[0]["title"].startswith("Orange lace G-string") and gesendet[0]["price"] == "20"  # Stufe <= 24
         assert "Size: M" in gesendet[0]["desc"]
         i = speicher.hole("s1", "spa")

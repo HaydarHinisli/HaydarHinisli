@@ -260,11 +260,22 @@ class Marktplatz:
         if not self.d.eingerichtet:
             raise NichtEingerichtet(f"{self.d.anzeigename} ist noch nicht eingerichtet (fehlt: {', '.join(self.d.fehlend())}) "
                                     f"– 'python -m verkaufsagent einrichten {self.name}' ausführen")
-        self.page.goto(self.d.neu_url)
+        # Manche Seiten (z. B. panty.com) melden ab, wenn man sie mitten in der Sitzung neu aufruft.
+        # Mit angelerntem Klickweg daher nur beim ersten Mal laden, danach per Klick (Logo …) navigieren.
+        auf_der_seite = urlsplit(self.page.url).netloc == urlsplit(self.d.neu_url).netloc
+        if not (self.d.navigation and auf_der_seite):
+            self.page.goto(self.d.neu_url)
         if self._abgemeldet():
             raise NichtAngemeldet(f"Nicht bei {self.d.anzeigename} angemeldet – 'anmelden {self.name}' ausführen")
         for nr, schritt in enumerate(self.d.navigation, 1):
-            self.finde(schritt, f"Weg zum Formular, Klick {nr}").click()
+            try:
+                ziel = self.finde(schritt, f"Weg zum Formular, Klick {nr}", timeout_ms=None if nr > 1 else 5000)
+            except PlattformFehler:
+                if nr > 1 or self.page.url == self.d.neu_url:
+                    raise
+                self.page.goto(self.d.neu_url)  # Logo nicht gefunden – doch neu laden
+                ziel = self.finde(schritt, f"Weg zum Formular, Klick {nr}")
+            ziel.click()
             try:
                 self.page.wait_for_load_state("domcontentloaded", timeout=15000)
             except Exception:
