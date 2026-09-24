@@ -548,3 +548,32 @@ def test_erstes_sichtbares_element_bei_mehreren_treffern(umgebung):
         assert m.finde(['input[name="submit"]'], "Login-Knopf", 1000).get_attribute("id") == "b"
     finally:
         m.schliessen()
+
+
+LOGIN_SEITE_MIT_ADRESSE = """<!doctype html><html><body>
+<form id="f" onsubmit="event.preventDefault(); if (u.value==='ich' && p.value==='pw') { document.cookie='sess=1; path=/';
+  document.body.innerHTML='<p>Welcome back, ich!</p>'; } else { fehler.hidden=false; }">
+<input id="u"><input id="p" type="password"><input type="submit" name="submit" value="LOGIN"></form>
+<p id="fehler" hidden>Wrong password</p></body></html>"""
+
+
+def test_anmeldung_bleibt_auf_login_adresse(tmp_path):
+    from verkaufsagent.zugang import speichere_zugang
+    eigene = tmp_path / "daten" / "plattformen"
+    eigene.mkdir(parents=True)
+    (eigene / "wp.yaml").write_text(yaml.safe_dump({
+        "name": "wp", "anzeigename": "WP", "basis_url": "https://www.wp.test", "login_url": "https://www.wp.test/login/",
+        "login_benutzer": ["#u"], "login_passwort": ["#p"], "login_absenden": ['input[name="submit"]']}), encoding="utf-8")
+    konf = Konfiguration(datenordner=tmp_path / "daten", browser=BrowserEinstellungen(langsam_ms=0, timeout_ms=4000))
+    register = Register(konf.datenordner)
+    with sync_playwright() as pw:
+        m = Marktplatz(pw, konf, register.lade("wp"))
+        m.ctx.route("**/*", lambda r: r.fulfill(status=200, content_type="text/html", body=LOGIN_SEITE_MIT_ADRESSE))
+        try:
+            speichere_zugang(konf.datenordner, "wp", "ich", "falsch")
+            assert m.anmelden_automatisch() is False                    # falsches Passwort -> erkannt
+            speichere_zugang(konf.datenordner, "wp", "ich", "pw")
+            assert m.anmelden_automatisch() is True                     # Adresse enthält weiter "login"
+            assert not m._abgemeldet()
+        finally:
+            m.schliessen()

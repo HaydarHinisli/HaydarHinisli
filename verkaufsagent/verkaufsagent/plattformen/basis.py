@@ -161,7 +161,10 @@ class Marktplatz:
     def _abgemeldet(self) -> bool:
         pfad = urlsplit(self.page.url).path.lower() + "?" + urlsplit(self.page.url).query.lower()
         if any(m in pfad for m in self.d.nicht_angemeldet_wenn):
-            return True
+            # Auf der Login-Adresse nach erfolgreicher Anmeldung (kein Passwortfeld mehr) nicht als abgemeldet werten
+            if not (getattr(self, "_angemeldet", False) and self.d.login_passwort and not any(
+                    self.page.locator(sel).locator("visible=true").count() for sel in self.d.login_passwort)):
+                return True
         for sel in self.d.abgemeldet_zeichen:
             try:
                 if self.page.locator(sel).first.is_visible():
@@ -198,9 +201,14 @@ class Marktplatz:
             self.page.wait_for_load_state("domcontentloaded", timeout=15000)
         except Exception:
             pass
-        self.page.wait_for_timeout(2000)
-        if self._abgemeldet():
+        self.page.wait_for_timeout(2500)
+        # Erfolg = das Passwortfeld ist verschwunden (die Adresse kann danach trotzdem noch „login“ enthalten)
+        passwort_noch_da = any(self.page.locator(sel).locator("visible=true").count() for sel in self.d.login_passwort)
+        if passwort_noch_da or any(self.page.locator(sel).locator("visible=true").count() for sel in self.d.abgemeldet_zeichen):
+            bild = self.screenshot("login-fehlgeschlagen")
+            log.warning("%s: Anmeldung fehlgeschlagen (Screenshot: %s)", self.d.anzeigename, bild)
             return False
+        self._angemeldet = True
         self._cookies_sichern()
         return True
 

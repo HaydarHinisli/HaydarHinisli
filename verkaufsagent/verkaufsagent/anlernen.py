@@ -292,8 +292,10 @@ class Assistent:
         if self.m.anmelden_automatisch():
             self.ausgabe("   ✔ Automatische Anmeldung funktioniert.")
         else:
-            self.ausgabe("   ⚠ Anmeldung hat nicht geklappt – Zugangsdaten prüfen oder 'login' wiederholen.\n"
-                         "     (Bei einem Captcha kann sich der Agent nicht selbst anmelden.)")
+            self.ausgabe("   ⚠ Anmeldung hat nicht geklappt. Schau in den Agent-Browser: steht dort z. B.\n"
+                         "     „falsches Passwort“ oder ein Captcha? Den Screenshot findest du in daten/screenshots/.\n"
+                         "     Danach 'login' wiederholen (bei einem Captcha kann sich der Agent nicht selbst anmelden).")
+            self.frage("     Enter, wenn du dir den Browser angesehen hast … ")
         return d
 
     def _angebotsseiten(self, d: Definition) -> None:
