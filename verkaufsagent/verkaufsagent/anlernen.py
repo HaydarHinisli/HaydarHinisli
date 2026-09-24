@@ -265,6 +265,8 @@ class Assistent:
         self.ausgabe("\n3) Jetzt die Felder (Klicks werden abgefangen, es wird nichts abgeschickt):")
         d.login_benutzer = self._klick_aufnehmen("   Klicke auf das Feld für E-Mail bzw. Benutzername … ")
         d.login_passwort = self._klick_aufnehmen("   Klicke auf das Passwort-Feld … ")
+        d.login_merken = self._klick_aufnehmen("   Klicke auf das Kästchen „Remember me“ / „Angemeldet bleiben“ "
+                                               "(gibt es keins: nur Enter) … ")
         d.login_absenden = self._klick_aufnehmen("   Klicke auf den Anmelden-/Login-Knopf … ")
         if not d.login_eingerichtet:
             self.ausgabe("⚠ Nicht alle Login-Felder erkannt – bitte 'login' noch einmal ausführen.")

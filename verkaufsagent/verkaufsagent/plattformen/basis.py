@@ -180,6 +180,16 @@ class Marktplatz:
             self.page.wait_for_timeout(800)
         self.finde(self.d.login_benutzer, "Login: Benutzername/E-Mail").fill(zugang[0])
         self.finde(self.d.login_passwort, "Login: Passwort").fill(zugang[1])
+        if self.d.login_merken:  # „Remember me“ – sonst verfällt die Anmeldung beim Schließen des Browsers
+            try:
+                kaestchen = self.finde(self.d.login_merken, "Remember me", 3000, sichtbar=False)
+                if kaestchen.evaluate("e => e.type === 'checkbox'"):
+                    if not kaestchen.is_checked():
+                        kaestchen.check(force=True)
+                else:
+                    kaestchen.click()
+            except Exception as e:
+                log.debug("„Remember me“ nicht gesetzt: %s", e)
         self.finde(self.d.login_absenden, "Login-Knopf").click()
         try:
             self.page.wait_for_load_state("domcontentloaded", timeout=15000)

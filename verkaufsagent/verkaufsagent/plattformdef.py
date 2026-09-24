@@ -57,6 +57,7 @@ class Definition(BaseModel):
     login_benutzer: list[str] = Field(default_factory=list)
     login_passwort: list[str] = Field(default_factory=list)
     login_absenden: list[str] = Field(default_factory=list)
+    login_merken: list[str] = Field(default_factory=list)       # Kästchen „Remember me“ / „Angemeldet bleiben“
     abgemeldet_zeichen: list[str] = Field(default_factory=list)   # sichtbar = nicht angemeldet (z. B. LOGIN-Link)
     favoriten: list[str] = Field(default_factory=list)
 

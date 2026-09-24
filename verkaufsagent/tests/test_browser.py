@@ -368,8 +368,10 @@ LOGIN_SEITE = """<!doctype html><html><body>
 <a href="#" id="login-link" onclick="document.getElementById('login').hidden=false;return false">LOGIN</a>
 <a href="#" id="offers">MY OFFERS</a></header>
 <form id="login" hidden onsubmit="event.preventDefault();
-  if (email.value==='ich@test.de' && pw.value==='geheim') { document.cookie='sess=1; path=/'; location.reload(); }">
-  <input id="email"><input id="pw" type="password"><button id="login-btn">Sign in</button>
+  if (email.value==='ich@test.de' && pw.value==='geheim') {
+    document.cookie = merken.checked ? 'sess=1; path=/; max-age=86400' : 'sess=1; path=/'; location.reload(); }">
+  <input id="email"><input id="pw" type="password">
+  <label><input type="checkbox" id="merken"> Remember me</label><button id="login-btn">Sign in</button>
 </form>
 <script>
   const drin = document.cookie.includes('sess=1');
@@ -397,8 +399,8 @@ def test_login_anlernen_cookies_sichern_und_automatisch_anmelden(tmp_path):
         m = oeffnen()
         p = m.page
         schritte = ["", (lambda: p.click("#login-link"), "f"),
-                    lambda: p.click("#email"), lambda: p.click("#pw"), lambda: p.click("#login-btn"),
-                    "ich@test.de"]
+                    lambda: p.click("#email"), lambda: p.click("#pw"), lambda: p.click("#merken"),
+                    lambda: p.click("#login-btn"), "ich@test.de"]
 
         def frage(_t):
             s = schritte.pop(0)
@@ -410,6 +412,9 @@ def test_login_anlernen_cookies_sichern_und_automatisch_anmelden(tmp_path):
             d = Assistent(m, register, frage=frage, ausgabe=lambda *a: None).login_anlernen(passwort_frage=lambda _t: "geheim")
             assert d.login_eingerichtet and d.abgemeldet_zeichen and not schritte
             assert not m._abgemeldet()                      # Test-Anmeldung am Ende hat geklappt
+            assert d.login_merken
+            dauerhaft = [c for c in m.ctx.cookies() if c["name"] == "sess"]
+            assert dauerhaft and dauerhaft[0]["expires"] > 0   # „Remember me“ wurde angehakt
         finally:
             m.schliessen()                                  # sichert auch das Sitzungs-Cookie
         assert (tmp_path / "daten" / "browser" / "lg-cookies.json").exists()
