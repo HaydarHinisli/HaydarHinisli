@@ -126,6 +126,10 @@ class Agent:
         inserat.preis_aktuell, inserat.online_seit = preis, jetzt
         self.speicher.speichere(inserat)
         log.info("%s online: %s (%.2f €)", inserat.schluessel, ergebnis.url, preis)
+        if not self.konf.auto_veroeffentlichen:
+            # Kontrollmodus: Browser offen lassen, damit das Angebot in Ruhe geprüft werden kann
+            input(f"\n✔ Veröffentlicht. Prüfe das Angebot jetzt im Browser ({ergebnis.url}).\n"
+                  "Enter drücken, wenn du fertig bist (danach geht es weiter bzw. der Browser schließt sich) … ")
         return True
 
     # ---- Pflege -----------------------------------------------------------
