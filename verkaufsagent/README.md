@@ -4,6 +4,19 @@ Der Agent stellt deine Produkte selbstständig auf Marktplätzen wie **Crazyslip
 
 Weitere Seiten lassen sich ohne Programmierung ergänzen (siehe [Weitere Marktplätze](#weitere-marktplätze)).
 
+## Schnellstart auf dem Mac (ohne Terminal-Befehle)
+
+Im Ordner `verkaufsagent` liegen vier Dateien zum Doppelklicken:
+
+| Datei | Wofür | Wie oft |
+|---|---|---|
+| `1 - Installieren` | installiert alles | einmal |
+| `2 - Plattform einrichten` | bringt dem Agenten das Formular einer Plattform bei | einmal pro Plattform |
+| `3 - Produkte bearbeiten` | öffnet Produktliste und Foto-Ordner | bei neuen Produkten |
+| `4 - Agent starten` | startet den Agenten | nach jedem Neustart des Macs |
+
+Beim ersten Öffnen einer Datei meldet der Mac eventuell „nicht verifizierter Entwickler“. Dann **Rechtsklick → Öffnen → Öffnen**. Das ist nur einmal pro Datei nötig.
+
 ## So arbeitet der Agent
 
 | Schritt | Was passiert |
