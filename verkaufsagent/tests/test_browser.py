@@ -433,3 +433,40 @@ def test_login_anlernen_cookies_sichern_und_automatisch_anmelden(tmp_path):
             assert not m._abgemeldet()
         finally:
             m.schliessen()
+
+
+def test_passwort_wird_nie_angezeigt_und_felder_nicht_als_klickweg_gemerkt(tmp_path):
+    eigene = tmp_path / "daten" / "plattformen"
+    eigene.mkdir(parents=True)
+    (eigene / "lg.yaml").write_text(yaml.safe_dump({"name": "lg", "anzeigename": "LG", "basis_url": "https://www.lg.test"}),
+                                    encoding="utf-8")
+    konf = Konfiguration(datenordner=tmp_path / "daten", browser=BrowserEinstellungen(langsam_ms=0, timeout_ms=5000))
+    register = Register(konf.datenordner)
+    ausgaben = []
+    with sync_playwright() as pw:
+        m = Marktplatz(pw, konf, register.lade("lg"))
+        m.ctx.route("**/*", lambda r: r.fulfill(status=200, content_type="text/html; charset=utf-8", body=LOGIN_SEITE))
+        p = m.page
+
+        def tippen_und_klicken():
+            p.evaluate("document.getElementById('login').hidden = false")
+            p.fill("#pw", "SuperGeheim123!")
+            p.click("#pw")
+
+        schritte = [tippen_und_klicken, (lambda: p.click("#login-link"), "f")]
+
+        def frage(_t):
+            s = schritte.pop(0)
+            if isinstance(s, tuple):
+                s[0]()
+                return s[1]
+            return (s() and "") or ""
+        try:
+            m.page.goto("https://www.lg.test/")
+            a = Assistent(m, register, frage=frage, ausgabe=lambda *x: ausgaben.append(" ".join(map(str, x))))
+            weg = a._klickweg("das Login-Formular")
+        finally:
+            m.schliessen()
+    alles = "\n".join(ausgaben)
+    assert "SuperGeheim123!" not in alles and "Passwort-Feld" in alles
+    assert len(weg) == 1 and any("login-link" in s or "LOGIN" in s for s in weg[0])

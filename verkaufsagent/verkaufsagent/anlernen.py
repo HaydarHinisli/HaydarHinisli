@@ -45,6 +45,15 @@ REKORDER = r"""
     return [...new Set(aus)];
   }
   window.__va.selektoren = selektoren;
+  // Anzeigename eines Elements – NIE den Inhalt von Eingabefeldern (Passwörter!)
+  const eingabe = (el) => el.matches && el.matches('input:not([type=submit]):not([type=button]),textarea,select,[contenteditable=true]');
+  const name = (el) => {
+    if (eingabe(el)) {
+      if ((el.getAttribute('type') || '').toLowerCase() === 'password') return 'Passwort-Feld';
+      return el.getAttribute('placeholder') || el.getAttribute('aria-label') || el.getAttribute('name') || 'Eingabefeld';
+    }
+    return ((el.matches && el.matches('input') ? el.value : el.innerText) || '').trim().slice(0, 40);
+  };
   window.__va.dateifeld = () => {
     for (let e = window.__va.element; e; e = e.parentElement) {
       const f = e.matches && e.matches('input[type=file]') ? e : e.querySelector && e.querySelector('input[type=file]');
@@ -59,8 +68,14 @@ REKORDER = r"""
     if (window.__va.durchlassen) {
       // Navigations-Modus: Klick wird ausgeführt, aber gemerkt (übersteht auch einen Seitenwechsel)
       if (ev.type !== 'click') return;
+      if (eingabe(ev.target)) {  // Eingabefelder gehören nicht zum Klickweg
+        const daten = {eingabefeld: true, text: name(ev.target)};
+        window.__va.auswahl = daten;
+        try { sessionStorage.setItem('__va_auswahl', JSON.stringify(daten)); } catch (e) {}
+        return;
+      }
       const el = ev.target.closest('a,button,[role=button],[role=menuitem],input[type=submit],li') || ev.target;
-      const daten = {selektoren: selektoren(el), text: (el.innerText || el.value || '').trim().slice(0, 40)};
+      const daten = {selektoren: selektoren(el), text: name(el)};
       window.__va.auswahl = daten;
       try { sessionStorage.setItem('__va_auswahl', JSON.stringify(daten)); } catch (e) {}
       return;
@@ -69,7 +84,7 @@ REKORDER = r"""
     if (ev.type !== 'click') return;
     const el = ziel(ev.target);
     window.__va.element = el;
-    window.__va.auswahl = {selektoren: selektoren(el), tag: el.tagName.toLowerCase(), text: (el.innerText || '').trim().slice(0, 40)};
+    window.__va.auswahl = {selektoren: selektoren(el), tag: el.tagName.toLowerCase(), text: name(el)};
     el.style.outline = '3px solid #e91e63';
   };
   for (const typ of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) document.addEventListener(typ, abfangen, true);
@@ -208,7 +223,12 @@ class Assistent:
             self.page.evaluate("window.__va.aktiv = false; window.__va.durchlassen = false;"
                                "try { sessionStorage.removeItem('__va_auswahl') } catch (e) {}")
             fertig = antwort.strip().lower().startswith("f")
-            if daten and daten.get("selektoren"):
+            if daten and daten.get("eingabefeld"):
+                self.ausgabe(f"      ⚠ Das war ein Eingabefeld ({daten.get('text')}) – nicht gemerkt. Ist {ziel} zu sehen, "
+                             "zuerst f + Enter; die Felder kommen danach.")
+                if not fertig:
+                    continue
+            elif daten and daten.get("selektoren"):
                 schritte.append(daten["selektoren"])
                 self.ausgabe(f"      ✔ „{daten.get('text') or daten['selektoren'][0]}“")
             elif not fertig:
