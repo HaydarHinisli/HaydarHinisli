@@ -1,0 +1,19 @@
+# Vorlage für Panty.com. Selektoren und Adressen werden mit
+#   python -m verkaufsagent einrichten panty
+# im Browser angelernt (Ergebnis landet in daten/plattformen/panty.yaml).
+name: panty
+anzeigename: Panty.com
+basis_url: https://www.panty.com
+stil: >-
+  Marktplatz für getragene Wäsche (nur Erwachsene). Persönlich und charmant, aber dezent –
+  keine expliziten sexuellen Beschreibungen. Artikel, Größe, Material, Farbe und Angaben wie
+  Tragedauer aus den Produktdaten nennen; Hinweis auf diskreten Versand.
+titel_max: 60
+beschreibung_max: 2000
+felder:
+  fotos:        {typ: datei,   pflicht: true,  beschriftung: "Foto-Upload"}
+  titel:        {typ: text,    pflicht: true,  beschriftung: "Titel"}
+  beschreibung: {typ: text,    pflicht: true,  beschriftung: "Beschreibung"}
+  preis:        {typ: text,    pflicht: true,  beschriftung: "Preis"}
+  kategorie:    {typ: auswahl, pflicht: false, beschriftung: "Kategorie"}
+  groesse:      {typ: auswahl, pflicht: false, beschriftung: "Größe"}

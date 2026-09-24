@@ -214,8 +214,8 @@ def test_nicht_eingerichtete_plattform_wird_klar_gemeldet(umgebung):
 
 def test_mitgelieferte_vorlagen():
     register = Register(__import__("pathlib").Path("/nicht/vorhanden"))
-    assert {"crazyslip", "creamsi"} <= set(register.namen())
-    for name in ("crazyslip", "creamsi"):
+    assert {"crazyslip", "creamsi", "panty"} <= set(register.namen())
+    for name in ("crazyslip", "creamsi", "panty"):
         d = register.lade(name)
         assert not d.eingerichtet and "neu_url" in d.fehlend()
         assert d.felder["fotos"].typ == "datei" and d.stil

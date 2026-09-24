@@ -1,6 +1,6 @@
-# Verkaufsagent – Crazyslip, Creamsi & ähnliche Marktplätze
+# Verkaufsagent – Crazyslip, Creamsi, Panty.com & ähnliche Marktplätze
 
-Der Agent stellt deine Produkte selbstständig auf Marktplätzen wie **Crazyslip** und **Creamsi** ein. Für jedes Angebot schreibt er Titel und Beschreibung (Pflicht, immer vorhanden) und pflegt danach die Preise: Er hält sich an deinen Preis und reduziert höchstens um 30 %, und zwar nur, wenn es wirklich angemessen ist.
+Der Agent stellt deine Produkte selbstständig auf Marktplätzen wie **Crazyslip**, **Creamsi** und **Panty.com** ein. Für jedes Angebot schreibt er Titel und Beschreibung (Pflicht, immer vorhanden) und pflegt danach die Preise: Er hält sich an deinen Preis und reduziert höchstens um 30 %, und zwar nur, wenn es wirklich angemessen ist.
 
 Weitere Seiten lassen sich ohne Programmierung ergänzen (siehe [Weitere Marktplätze](#weitere-marktplätze)).
 
@@ -38,6 +38,7 @@ Einen API-Schlüssel der Marktplätze brauchst du nicht, es reicht dein normales
 ```bash
 python -m verkaufsagent einrichten crazyslip
 python -m verkaufsagent einrichten creamsi
+python -m verkaufsagent einrichten panty
 ```
 
 Der Assistent führt dich durch diese Schritte:
