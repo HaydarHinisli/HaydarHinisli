@@ -1,19 +1,31 @@
-# Vorlage für Panty.com. Selektoren und Adressen werden mit
+# Vorlage für Panty.com (englischsprachig). Selektoren und Adressen werden mit
 #   python -m verkaufsagent einrichten panty
 # im Browser angelernt (Ergebnis landet in daten/plattformen/panty.yaml).
+#
+# Formular: MY OFFERS -> + POST OFFER -> Used Panties -> Formular mit
+# Title, Price (Menü mit festen Stufen), Currency, Form, Material, Size,
+# Wear duration, Wear occupation, Description, Add photo.
 name: panty
 anzeigename: Panty.com
 basis_url: https://www.panty.com
+sprache: en
 stil: >-
-  Marktplatz für getragene Wäsche (nur Erwachsene). Persönlich und charmant, aber dezent –
-  keine expliziten sexuellen Beschreibungen. Artikel, Größe, Material, Farbe und Angaben wie
-  Tragedauer aus den Produktdaten nennen; Hinweis auf diskreten Versand.
+  Marketplace for worn underwear (adults only), international buyers (mainly US/UK).
+  Personal and charming but tasteful – no explicit sexual descriptions. Mention item, size,
+  material, colour and details like wear duration from the product data; mention discreet
+  shipping. The site rewards longer, detailed descriptions – write at least 4–6 sentences.
 titel_max: 60
 beschreibung_max: 2000
+standardwerte:
+  waehrung: EUR
 felder:
-  fotos:        {typ: datei,   pflicht: true,  beschriftung: "Foto-Upload"}
-  titel:        {typ: text,    pflicht: true,  beschriftung: "Titel"}
-  beschreibung: {typ: text,    pflicht: true,  beschriftung: "Beschreibung"}
-  preis:        {typ: text,    pflicht: true,  beschriftung: "Preis"}
-  kategorie:    {typ: auswahl, pflicht: false, beschriftung: "Kategorie"}
-  groesse:      {typ: auswahl, pflicht: false, beschriftung: "Größe"}
+  titel:        {typ: text,    pflicht: true,  beschriftung: "Title"}
+  preis:        {typ: auswahl, pflicht: true,  beschriftung: "Price (Select price)"}
+  waehrung:     {typ: auswahl, pflicht: false, beschriftung: "Currency"}
+  form:         {typ: auswahl, pflicht: false, beschriftung: "Form (Select form)"}
+  material:     {typ: auswahl, pflicht: false, beschriftung: "Material (Select material)"}
+  groesse:      {typ: auswahl, pflicht: false, beschriftung: "Size (Select size)"}
+  tragedauer:   {typ: auswahl, pflicht: false, beschriftung: "Wear duration (Select duration)"}
+  trageanlass:  {typ: auswahl, pflicht: false, beschriftung: "Wear occupation (Select occupation)"}
+  beschreibung: {typ: text,    pflicht: true,  beschriftung: "Description"}
+  fotos:        {typ: datei,   pflicht: true,  beschriftung: "Add photo / PICTURE"}

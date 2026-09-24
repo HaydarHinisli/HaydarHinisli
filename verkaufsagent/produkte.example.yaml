@@ -1,37 +1,30 @@
-# Kopieren nach produkte.yaml. Fotos: Dateien oder ein Ordner (relativ zu dieser Datei).
-# Plattform-Namen: siehe 'python -m verkaufsagent plattformen'.
+# Deine Produkte. Fotos: Ordner oder einzelne Dateien (relativ zu dieser Datei).
+# Werte in Menü-Feldern (Form, Material, Wear duration …) so schreiben, wie sie im Menü
+# der Seite stehen – der Anfang genügt (z. B. "M" findet "Medium").
 
 produkte:
   - id: slip-001
-    name: Spitzenslip schwarz
-    marke: Hunkemöller
-    preis: 25            # wird exakt so eingestellt
-    mindestpreis: 20     # optional: darunter nie (sonst gilt Preis - 30 %)
-    zustand: getragen    # getragen | neu_mit_etikett | neu | sehr_gut | gut | zufriedenstellend
+    name: Orange lace G-string          # Artikelname (bei panty.com auf Englisch)
+    preis: 25                           # wird so eingestellt (bei Preis-Menüs: nächste Stufe darunter)
+    mindestpreis: 20                    # optional: darunter nie
     groesse: M
-    farbe: Schwarz
-    material: Spitze / Baumwolle
-    notizen: Nichtraucherhaushalt.
+    farbe: Orange
+    material: Lace
+    notizen: Smoke-free home.           # Fakten, die in die Beschreibung müssen
     fotos: [fotos/slip-001]
-    plattformen: [crazyslip, creamsi]
-    versand: true
-    # Pro Plattform: Kategorie-Pfad und weitere Formularfelder (Namen wie beim 'einrichten' vergeben)
-    crazyslip:
-      kategorie: ["Slips"]
+    plattformen: [panty]
+    panty:
       felder:
-        tragedauer: "1 Tag"
-    creamsi:
-      kategorie: ["Slips & Strings"]
-      felder:
-        tragedauer: "1 Tag"
+        waehrung: EUR                   # Currency
+        form: String                    # Form
+        tragedauer: "1 day"             # Wear duration
+        trageanlass: Sport              # Wear occupation
 
   - id: bh-002
-    name: Push-up BH rot
+    name: Red push-up bra
     preis: 30
-    verhandelbar: false  # Festpreis, nie reduzieren
+    verhandelbar: false                 # Festpreis, nie reduzieren
     groesse: 75B
-    farbe: Rot
+    farbe: Red
     fotos: [fotos/bh-002]
-    plattformen: [creamsi]
-    creamsi:
-      kategorie: ["BHs"]
+    plattformen: [panty]

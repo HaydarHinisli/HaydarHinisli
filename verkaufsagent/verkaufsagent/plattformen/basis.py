@@ -48,6 +48,7 @@ class Abgebrochen(PlattformFehler):
 class Veroeffentlicht:
     anzeige_id: str | None
     url: str
+    preis: float | None = None  # tatsächlich gesetzter Preis (bei Preis-Menüs evtl. gerundet)
 
 
 @dataclass
@@ -60,6 +61,29 @@ class Statistik:
 
 def preis_text(preis: float) -> str:
     return str(int(preis)) if float(preis).is_integer() else f"{preis:.2f}".replace(".", ",")
+
+
+def _betrag(text: str) -> float | None:
+    """Liest einen Geldbetrag aus Menütext wie '$ 24.99', '25 €' oder '1.000,50'."""
+    treffer = re.search(r"\d[\d.,]*", text or "")
+    if not treffer:
+        return None
+    zahl = treffer.group(0).rstrip(".,")
+    if "," in zahl and "." in zahl:
+        zahl = zahl.replace(".", "").replace(",", ".") if zahl.rfind(",") > zahl.rfind(".") else zahl.replace(",", "")
+    elif "," in zahl:
+        zahl = zahl.replace(",", ".") if len(zahl.split(",")[-1]) <= 2 else zahl.replace(",", "")
+    try:
+        return float(zahl)
+    except ValueError:
+        return None
+
+
+def waehle_preisstufe(stufen: list[float], ziel: float, minimum: float) -> float | None:
+    """Wählt aus festen Preisstufen: exakt, sonst die höchste Stufe <= Ziel (aber >= Minimum).
+    Gibt es keine, None – der Preis wird dann nie unter die Untergrenze oder über das Ziel gesetzt."""
+    passend = [s for s in stufen if minimum - 1e-9 <= s <= ziel + 1e-9]
+    return max(passend) if passend else None
 
 
 def _zahl(text: str | None) -> int | None:
@@ -154,7 +178,7 @@ class Marktplatz:
         if name == "beschreibung":
             return texte.beschreibung
         if name == "preis":
-            return preis_text(preis)
+            return preis
         if name == "fotos":
             return [str(f) for f in produkt.fotos[:20]]
         if name == "kategorie":
@@ -163,16 +187,54 @@ class Marktplatz:
             return produkt.zustand.text
         if name in optionen.felder:
             return optionen.felder[name]
-        if name in _PRODUKT_ATTRIBUTE:
+        if name in _PRODUKT_ATTRIBUTE and getattr(produkt, name):
             return getattr(produkt, name)
-        return None
+        return self.d.standardwerte.get(name)
 
     def _sichtbarer_text(self, text: str, innerhalb: Locator | None = None) -> Locator:
         basis = innerhalb if innerhalb is not None else self.page
         return basis.get_by_text(text, exact=True).locator("visible=true").first
 
-    def _fuellen(self, name: str, feld: Feld, wert) -> None:
+    @staticmethod
+    def _ist_select(loc: Locator) -> bool:
+        return (loc.evaluate("e => e.tagName") or "").lower() == "select"
+
+    @staticmethod
+    def _option_waehlen(loc: Locator, wert: str) -> None:
+        """Wählt in einem <select> die passende Option: exakt, dann Anfang ('M' -> 'Medium'), dann enthalten."""
+        optionen = loc.evaluate("e => Array.from(e.options).map(o => [o.value, o.textContent.trim()])")
+        w = wert.strip().lower()
+        for pruefung in (lambda t: t == w, lambda t: t.startswith(w), lambda t: len(w) >= 3 and w in t):
+            for value, text in optionen:
+                if pruefung(text.lower()) or pruefung(value.lower()):
+                    loc.select_option(value=value)
+                    return
+        raise PlattformFehler(f"Option '{wert}' nicht im Menü (verfügbar: {', '.join(t for _, t in optionen if t)})")
+
+    def preis_setzen(self, loc: Locator, preis: float, minimum: float) -> float:
+        """Setzt den Preis – als Text oder durch Wahl einer festen Preisstufe. Gibt den gesetzten Preis zurück."""
+        if not self._ist_select(loc):
+            loc.fill(preis_text(preis))
+            return preis
+        optionen = loc.evaluate("e => Array.from(e.options).map(o => [o.value, o.textContent.trim()])")
+        stufen = {}
+        for value, text in optionen:
+            betrag = _betrag(text) if _betrag(text) is not None else _betrag(value)
+            if betrag is not None and betrag > 0:
+                stufen.setdefault(betrag, value)
+        gewaehlt = waehle_preisstufe(list(stufen), preis, minimum)
+        if gewaehlt is None:
+            raise PlattformFehler(f"Keine Preisstufe zwischen {minimum:.2f} und {preis:.2f} im Menü "
+                                  f"(verfügbar: {', '.join(f'{s:g}' for s in sorted(stufen)) or '-'})")
+        loc.select_option(value=stufen[gewaehlt])
+        if gewaehlt != preis:
+            log.info("%s: Preis %.2f als Stufe %.2f gesetzt (feste Preisstufen)", self.d.anzeigename, preis, gewaehlt)
+        return gewaehlt
+
+    def _fuellen(self, name: str, feld: Feld, wert, minimum: float = 0) -> float | None:
         loc = self.finde(feld.selektor, feld.beschriftung or name, sichtbar=feld.typ != "datei")
+        if name == "preis":
+            return self.preis_setzen(loc, float(wert), minimum)
         if feld.typ == "text":
             loc.fill(str(wert))
         elif feld.typ == "datei":
@@ -180,12 +242,9 @@ class Marktplatz:
             self.page.wait_for_timeout(1500 + 1000 * min(len(wert), 20))
         elif feld.typ == "auswahl":
             pfad = [str(w) for w in (wert if isinstance(wert, list) else [wert])]
-            if (loc.evaluate("e => e.tagName") or "").lower() == "select":
-                try:
-                    loc.select_option(label=pfad[-1], timeout=3000)
-                except Exception:
-                    loc.select_option(value=pfad[-1], timeout=3000)
-                return
+            if self._ist_select(loc):
+                self._option_waehlen(loc, pfad[-1])
+                return None
             loc.click()
             for ebene in pfad:
                 self._sichtbarer_text(ebene).click(timeout=5000)
@@ -195,6 +254,7 @@ class Marktplatz:
             (ziel if ziel.count() else self._sichtbarer_text(str(wert))).click(timeout=5000)
         elif feld.typ == "haken":
             loc.check() if str(wert).strip().lower() in _JA else loc.uncheck()
+        return None
 
     def veroeffentliche(self, produkt: Produkt, texte: Texte, preis: float) -> Veroeffentlicht:
         if not self.d.eingerichtet:
@@ -204,6 +264,7 @@ class Marktplatz:
         if self._abgemeldet():
             raise NichtAngemeldet(f"Nicht bei {self.d.anzeigename} angemeldet – 'anmelden {self.name}' ausführen")
 
+        gesetzter_preis = preis
         for name, feld in self.d.felder.items():
             wert = self._wert(name, produkt, texte, preis)
             if wert in (None, "", []):
@@ -212,7 +273,9 @@ class Marktplatz:
                                           f"bitte in produkte.yaml unter '{self.name}' angeben")
                 continue
             try:
-                self._fuellen(name, feld, wert)
+                ergebnis = self._fuellen(name, feld, wert, minimum=produkt.untergrenze())
+                if name == "preis" and ergebnis is not None:
+                    gesetzter_preis = ergebnis
             except PlattformFehler:
                 if feld.pflicht:
                     raise
@@ -236,7 +299,7 @@ class Marktplatz:
             log.warning("%s: Angebots-Nummer nicht aus %s lesbar – Preisänderungen für dieses Angebot nicht möglich",
                         self.d.anzeigename, self.page.url)
         url = self.d.anzeige_url.format(id=anzeige_id) if anzeige_id and self.d.anzeige_url else self.page.url
-        return Veroeffentlicht(anzeige_id, url)
+        return Veroeffentlicht(anzeige_id, url, gesetzter_preis)
 
     def _warte_auf_nummer(self, sekunden: float = 15) -> str | None:
         """Viele Seiten leiten nach dem Speichern über Zwischenseiten weiter – bis zur Angebots-Nummer warten."""
@@ -251,7 +314,8 @@ class Marktplatz:
                 return anzeige_id
             self.page.wait_for_timeout(500)
 
-    def aendere_preis(self, inserat: Inserat, preis: float) -> None:
+    def aendere_preis(self, inserat: Inserat, preis: float, minimum: float = 0) -> float:
+        """Setzt einen neuen Preis und gibt den tatsächlich gesetzten zurück."""
         if not (self.d.bearbeiten_url and inserat.anzeige_id):
             raise NichtEingerichtet(f"{self.d.anzeigename}: Preisänderung nicht möglich (Bearbeiten-Seite nicht angelernt "
                                     "oder Angebots-Nummer unbekannt)")
@@ -259,13 +323,17 @@ class Marktplatz:
         if self._abgemeldet():
             raise NichtAngemeldet(f"Nicht bei {self.d.anzeigename} angemeldet")
         feld = self.d.felder.get("preis")
-        self.finde(self.d.bearbeiten_preis or (feld.selektor if feld else []), "Preis").fill(preis_text(preis))
+        loc = self.finde(self.d.bearbeiten_preis or (feld.selektor if feld else []), "Preis")
+        gesetzt = self.preis_setzen(loc, preis, minimum)
+        if inserat.preis_aktuell is not None and gesetzt >= inserat.preis_aktuell:
+            return gesetzt  # keine niedrigere Stufe möglich – nichts speichern
         vorher = self.page.url
         self.finde(self.d.bearbeiten_absenden or self.d.absenden, "Speichern-Knopf").click()
         try:
             self.page.wait_for_url(lambda u: u != vorher, timeout=30000)
         except Exception:
             self.page.wait_for_load_state("networkidle")
+        return gesetzt
 
     def lese_statistik(self, inserat: Inserat) -> Statistik:
         stat = Statistik()

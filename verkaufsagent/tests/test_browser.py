@@ -219,3 +219,32 @@ def test_mitgelieferte_vorlagen():
         d = register.lade(name)
         assert not d.eingerichtet and "neu_url" in d.fehlend()
         assert d.felder["fotos"].typ == "datei" and d.stil
+
+
+PANTY_FORM = """<!doctype html><html><body>
+<input id="title"><select id="price"><option value="">Select price</option>
+<option value="p10">10</option><option value="p15">15</option><option value="p20">20</option><option value="p25">25</option></select>
+<select id="currency"><option value="usd">$ USD</option><option value="eur">€ EUR</option></select>
+<select id="size"><option value="">-</option><option>Small</option><option>Medium</option><option>Large</option></select>
+</body></html>"""
+
+
+def test_menues_wie_bei_panty(umgebung):
+    konf, register, produkt, markt, fabrik = umgebung
+    m = fabrik("testmarkt")
+    try:
+        m.page.set_content(PANTY_FORM)
+        preis = m.page.locator("#price")
+        assert m.preis_setzen(preis, 25, 17.5) == 25 and preis.input_value() == "p25"
+        assert m.preis_setzen(preis, 23, 17.5) == 20 and preis.input_value() == "p20"   # nächste Stufe darunter
+        with pytest.raises(Exception):
+            m.preis_setzen(preis, 24, 21)                                             # keine Stufe erlaubt
+        m._option_waehlen(m.page.locator("#currency"), "EUR")
+        assert m.page.locator("#currency").input_value() == "eur"
+        m._option_waehlen(m.page.locator("#size"), "M")                                # 'M' -> 'Medium'
+        assert m.page.locator("#size").input_value() == "Medium"
+        m.page.locator("#title").fill("x")
+        assert m.preis_setzen(m.page.locator("#title"), 22.5, 0) == 22.5              # Textfeld: freier Preis
+        assert m.page.locator("#title").input_value() == "22,50"
+    finally:
+        m.schliessen()

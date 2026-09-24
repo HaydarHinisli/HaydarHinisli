@@ -82,3 +82,20 @@ def test_pruefung_erkennt_preis_und_links():
     t = vorlage(produkt(), "crazyslip", DEFS["crazyslip"])
     t.beschreibung += " Nur 20 € – mehr auf http://x.de"
     assert "Beschreibung enthält Preis, Link oder E-Mail" in pruefe_texte(t, DEFS["crazyslip"])
+
+
+def test_englische_vorlage():
+    d = Definition(name="panty", anzeigename="Panty.com", basis_url="https://z", sprache="en")
+    p = produkt(plattformen=["panty"], panty={"felder": {"tragedauer": "1 day", "waehrung": "EUR"}})
+    t = vorlage(p, "panty", d)
+    assert pruefe_texte(t, d) == []
+    assert "Size M" in t.titel and "Condition: Worn" in t.beschreibung and "Wear duration: 1 day" in t.beschreibung
+    assert "EUR" not in t.beschreibung and "discreet" in t.beschreibung
+
+
+def test_mitgelieferte_panty_vorlage_ist_englisch():
+    from pathlib import Path
+    from verkaufsagent.plattformdef import Register
+    d = Register(Path("/nicht/vorhanden")).lade("panty")
+    assert d.sprache == "en" and d.standardwerte == {"waehrung": "EUR"}
+    assert d.felder["preis"].typ == "auswahl" and "tragedauer" in d.felder

@@ -26,7 +26,7 @@ BESCHREIBUNG_MIN = 80
 SYSTEM = """Du schreibst Verkaufsangebote für private Verkäufe auf Online-Marktplätzen in Deutschland.
 
 Regeln:
-- Schreibe auf Deutsch, freundlich und persönlich, ohne Übertreibungen und höchstens 2 Emojis.
+- Schreibe in der Sprache, die für die jeweilige Plattform angegeben ist (Deutsch oder Englisch), freundlich und persönlich, ohne Übertreibungen und höchstens 2 Emojis.
 - Nenne nur Fakten aus den Produktdaten und dem, was auf den Fotos eindeutig erkennbar ist. Erfinde keine Maße, Materialien, Tragedauern oder Eigenschaften.
 - Bekannte Mängel und Hinweise aus den Notizen MÜSSEN klar und ehrlich genannt werden.
 - Bleibe dezent: keine expliziten sexuellen Beschreibungen, auch nicht auf Marktplätzen für Erwachsene.
@@ -122,7 +122,8 @@ class TextGenerator:
     def _ki(self, produkt: Produkt, defs: dict[str, Definition]) -> dict[str, Texte]:
         inhalt: list[dict] = [_bild_block(f) for f in produkt.fotos[: self.einst.max_fotos]]
         vorgaben = "\n".join(
-            f"- {pl} ({d.anzeigename}): Titel max. {d.titel_max} Zeichen, Beschreibung max. "
+            f"- {pl} ({d.anzeigename}): Sprache {'Englisch' if d.sprache == 'en' else 'Deutsch'}. "
+            f"Titel max. {d.titel_max} Zeichen, Beschreibung max. "
             f"{d.beschreibung_max} Zeichen. Stil: {d.stil or 'sachlich und freundlich'}"
             for pl, d in defs.items()
         )
@@ -160,32 +161,47 @@ def _kuerzen(text: str, laenge: int) -> str:
     return text[:laenge].rsplit(" ", 1)[0].rstrip(" ,-–")
 
 
+_EN_ZUSTAND = {"getragen": "Worn", "neu_mit_etikett": "New with tags", "neu": "New without tags",
+              "sehr_gut": "Very good", "gut": "Good", "zufriedenstellend": "Satisfactory"}
+_EN_FELD = {"tragedauer": "Wear duration", "trageanlass": "Worn during", "form": "Style", "waehrung": None}
+
+
 def vorlage(p: Produkt, plattform: str, definition: Definition) -> Texte:
     """Regelbasierte Beschreibung – garantiert vollständig, auch ohne KI."""
+    en = definition.sprache == "en"
     titelteile = [p.marke, p.name] if p.marke and p.marke.lower() not in p.name.lower() else [p.name]
     if p.groesse and p.groesse.lower() not in p.name.lower():
-        titelteile.append(f"Gr. {p.groesse}")
+        titelteile.append(f"{'Size' if en else 'Gr.'} {p.groesse}")
     if p.farbe and p.farbe.lower() not in p.name.lower():
         titelteile.append(p.farbe)
     titel = _kuerzen(" ".join(t for t in titelteile if t), definition.titel_max)
 
-    details = []
-    for label, wert in (("Marke", p.marke), ("Größe", p.groesse), ("Farbe", p.farbe), ("Material", p.material)):
-        if wert:
-            details.append(f"• {label}: {wert}")
-    details.append(f"• Zustand: {p.zustand.text}")
+    labels = (("Brand", p.marke), ("Size", p.groesse), ("Colour", p.farbe), ("Material", p.material)) if en else \
+             (("Marke", p.marke), ("Größe", p.groesse), ("Farbe", p.farbe), ("Material", p.material))
+    details = [f"• {label}: {wert}" for label, wert in labels if wert]
+    details.append(f"• {'Condition' if en else 'Zustand'}: {_EN_ZUSTAND[p.zustand.value] if en else p.zustand.text}")
     for name, wert in p.optionen_fuer(plattform).felder.items():
-        details.append(f"• {_feldname(name)}: {wert}")
+        label = _EN_FELD.get(name, _feldname(name)) if en else _feldname(name)
+        if label:
+            details.append(f"• {label}: {wert}")
 
-    abschnitte = [f"Hier biete ich an: {p.name}" + (f" von {p.marke}" if p.marke and p.marke.lower() not in p.name.lower() else "") + ".",
-                  "\n".join(details)]
-    if p.notizen:
-        abschnitte.append(f"Bitte beachten: {p.notizen}")
-    abschnitte.append("Weitere Details siehe Fotos. Bei Fragen oder Wünschen schreib mir gerne!")
-    if p.versand:
-        abschnitte.append("Der Versand erfolgt diskret verpackt.")
-    if p.abholung:
-        abschnitte.append("Abholung ist ebenfalls möglich.")
+    von = p.marke and p.marke.lower() not in p.name.lower()
+    if en:
+        abschnitte = [f"Up for grabs: my {p.name}" + (f" by {p.marke}" if von else "") + ".", "\n".join(details)]
+        if p.notizen:
+            abschnitte.append(f"Please note: {p.notizen}")
+        abschnitte.append("More details in the photos. Feel free to message me with any questions or special requests!")
+        if p.versand:
+            abschnitte.append("Shipped discreetly in plain packaging.")
+    else:
+        abschnitte = [f"Hier biete ich an: {p.name}" + (f" von {p.marke}" if von else "") + ".", "\n".join(details)]
+        if p.notizen:
+            abschnitte.append(f"Bitte beachten: {p.notizen}")
+        abschnitte.append("Weitere Details siehe Fotos. Bei Fragen oder Wünschen schreib mir gerne!")
+        if p.versand:
+            abschnitte.append("Der Versand erfolgt diskret verpackt.")
+        if p.abholung:
+            abschnitte.append("Abholung ist ebenfalls möglich.")
     return Texte(titel=titel, beschreibung="\n\n".join(abschnitte), quelle="vorlage")
 
 

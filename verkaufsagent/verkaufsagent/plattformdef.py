@@ -41,6 +41,9 @@ class Definition(BaseModel):
     titel_max: int = 60
     beschreibung_max: int = 2000
     stil: str = ""
+    sprache: str = Field("de", pattern="^(de|en)$")  # Sprache der Angebotstexte
+    # Werte für Formularfelder, wenn das Produkt keinen eigenen Wert hat (z. B. waehrung: EUR)
+    standardwerte: dict[str, str] = Field(default_factory=dict)
     felder: dict[str, Feld] = Field(default_factory=dict)
     absenden: list[str] = Field(default_factory=list)
     bearbeiten_preis: list[str] = Field(default_factory=list)     # leer = wie Feld 'preis'

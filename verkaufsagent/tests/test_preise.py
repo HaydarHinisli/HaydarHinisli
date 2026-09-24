@@ -112,3 +112,12 @@ def test_angebot_nie_unter_untergrenze_auch_spaet():
     b = bewerte_angebot(produkt(), 100, 60, tage_online=365)
     assert b.aktion == "gegenangebot" and b.betrag >= 70
     assert bewerte_angebot(produkt(), 100, 71, tage_online=365).aktion == "annehmen"
+
+
+def test_preisstufen_aus_menue():
+    from verkaufsagent.plattformen.basis import _betrag, waehle_preisstufe
+    assert [_betrag(t) for t in ("$ 24.99", "25 €", "1.000,50", "19,90", "Select price")] == [24.99, 25.0, 1000.5, 19.9, None]
+    stufen = [10, 15, 20, 25, 30, 40]
+    assert waehle_preisstufe(stufen, 25, 17.5) == 25      # exakt
+    assert waehle_preisstufe(stufen, 23, 17.5) == 20      # nie über dem Zielpreis
+    assert waehle_preisstufe(stufen, 22, 21) is None      # nie unter die Untergrenze

@@ -115,6 +115,7 @@ class Agent:
         inserat.status, inserat.fehler = "online", None
         inserat.anzeige_id, inserat.url = ergebnis.anzeige_id, ergebnis.url
         inserat.titel, inserat.beschreibung = texte.titel, texte.beschreibung
+        preis = ergebnis.preis if ergebnis.preis is not None else preis
         inserat.preis_aktuell, inserat.online_seit = preis, jetzt
         self.speicher.speichere(inserat)
         log.info("%s online: %s (%.2f €)", inserat.schluessel, ergebnis.url, preis)
@@ -159,13 +160,16 @@ class Agent:
                 log.error("%s: Preisregel verletzt (%.2f €) – keine Änderung", inserat.schluessel, neu)
                 continue
             try:
-                plattform.aendere_preis(inserat, neu)
+                neu = plattform.aendere_preis(inserat, neu, produkt.untergrenze())
             except NichtEingerichtet as e:
                 log.warning("%s: Preis sollte auf %.2f € sinken, aber: %s", inserat.schluessel, neu, e)
                 continue
             except Exception as e:
                 bild = plattform.screenshot(f"{produkt.id}-preis-fehler")
                 log.error("%s: Preisänderung fehlgeschlagen: %s (Screenshot: %s)", inserat.schluessel, e, bild)
+                continue
+            if neu >= inserat.preis_aktuell:
+                log.info("%s: keine passende niedrigere Preisstufe – Preis bleibt %.2f €", inserat.schluessel, inserat.preis_aktuell)
                 continue
             jetzt = self.jetzt()
             inserat.preisverlauf.append(Preisaenderung(zeitpunkt=jetzt, alt=inserat.preis_aktuell, neu=neu, grund=entscheidung.grund))
