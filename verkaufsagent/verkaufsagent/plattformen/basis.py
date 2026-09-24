@@ -315,8 +315,14 @@ class Marktplatz:
         """Setzt den Preis – als Text oder durch Wahl einer festen Preisstufe. Gibt den gesetzten Preis zurück."""
         menue = self._menue(loc)
         if menue is None:
-            loc.fill(preis_text(preis))
-            return preis
+            try:
+                beschreibbar = loc.is_editable()
+            except Exception:
+                beschreibbar = True
+            if beschreibbar:
+                loc.fill(preis_text(preis))
+                return preis
+            return self._preis_per_klickliste(loc, preis, minimum)
         anzeige, loc = loc, menue
         optionen = loc.evaluate("e => Array.from(e.options).map(o => [o.value, o.textContent.trim()])")
         stufen = {}
@@ -332,6 +338,21 @@ class Marktplatz:
         self._anzeige_setzen(anzeige, loc)
         if gewaehlt != preis:
             log.info("%s: Preis %.2f als Stufe %.2f gesetzt (feste Preisstufen)", self.d.anzeigename, preis, gewaehlt)
+        return gewaehlt
+
+    def _preis_per_klickliste(self, loc: Locator, preis: float, minimum: float) -> float:
+        """Gestaltetes Preis-Menü ohne echtes <select>: aufklicken, sichtbare Stufen lesen, passende anklicken."""
+        loc.click()
+        self.page.wait_for_timeout(500)
+        eintraege = self.page.locator("li:visible, [role=option]:visible")
+        texte = [t.strip() for t in eintraege.all_inner_texts()]
+        stufen = {b: t for t in texte if (b := _betrag(t)) is not None and b > 0}
+        gewaehlt = waehle_preisstufe(list(stufen), preis, minimum)
+        if gewaehlt is None:
+            self.page.keyboard.press("Escape")
+            raise PlattformFehler(f"Keine Preisstufe zwischen {minimum:.2f} und {preis:.2f} im Menü "
+                                  f"(verfügbar: {', '.join(f'{s:g}' for s in sorted(stufen)) or '-'})")
+        self._sichtbarer_text(stufen[gewaehlt]).click(timeout=5000)
         return gewaehlt
 
     def _fuellen(self, name: str, feld: Feld, wert, minimum: float = 0) -> float | None:

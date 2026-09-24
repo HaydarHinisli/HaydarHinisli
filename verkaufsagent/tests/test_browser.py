@@ -500,3 +500,21 @@ def test_gestaltete_menues_mit_verstecktem_select_wie_panty(umgebung):
         assert m.page.locator("select[name=price]").input_value() == "20"          # unverändert
     finally:
         m.schliessen()
+
+
+KLICKLISTE = """<!doctype html><html><body>
+<input id="preis" readonly value="Select price" onclick="liste.hidden=false">
+<ul id="liste" hidden><li onclick="preis.value=this.textContent;liste.hidden=true">$ 15</li>
+<li onclick="preis.value=this.textContent;liste.hidden=true">$ 20</li>
+<li onclick="preis.value=this.textContent;liste.hidden=true">$ 30</li></ul></body></html>"""
+
+
+def test_preis_aus_reiner_klickliste(umgebung):
+    konf, register, produkt, markt, fabrik = umgebung
+    m = fabrik("testmarkt")
+    try:
+        m.page.set_content(KLICKLISTE)
+        assert m.preis_setzen(m.page.locator("#preis"), 25, 17.5) == 20
+        assert m.page.locator("#preis").input_value() == "$ 20"
+    finally:
+        m.schliessen()
