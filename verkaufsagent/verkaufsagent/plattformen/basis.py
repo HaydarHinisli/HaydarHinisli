@@ -263,6 +263,13 @@ class Marktplatz:
         self.page.goto(self.d.neu_url)
         if self._abgemeldet():
             raise NichtAngemeldet(f"Nicht bei {self.d.anzeigename} angemeldet – 'anmelden {self.name}' ausführen")
+        for nr, schritt in enumerate(self.d.navigation, 1):
+            self.finde(schritt, f"Weg zum Formular, Klick {nr}").click()
+            try:
+                self.page.wait_for_load_state("domcontentloaded", timeout=15000)
+            except Exception:
+                pass
+            self.page.wait_for_timeout(800)
 
         gesetzter_preis = preis
         for name, feld in self.d.felder.items():

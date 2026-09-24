@@ -33,6 +33,9 @@ class Definition(BaseModel):
     basis_url: str
     login_url: str | None = None
     neu_url: str | None = None
+    # Klicks, die nach dem Öffnen von neu_url nötig sind, bis das Formular erscheint
+    # (für Seiten, deren Formular keine eigene Adresse hat). Je Schritt eine Liste von Selektoren.
+    navigation: list[list[str]] = Field(default_factory=list)
     bearbeiten_url: str | None = None  # mit {id}
     anzeige_url: str | None = None     # mit {id}
     id_muster: str = r"(\d{4,})"

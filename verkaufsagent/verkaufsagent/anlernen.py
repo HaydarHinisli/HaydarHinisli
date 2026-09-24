@@ -29,7 +29,7 @@ REKORDER = r"""
       const v = el.getAttribute(a);
       if (v && !zufaellig(v)) aus.push(`${tag}[${a}="${v.replace(/"/g, '\\"')}"]`);
     }
-    if (tag === 'button' || el.getAttribute('role') === 'button') {
+    if (tag === 'button' || tag === 'a' || el.getAttribute('role') === 'button') {
       const t = (el.innerText || '').trim();
       if (t && t.length < 40) aus.push(`${tag}:has-text("${t.replace(/"/g, '\\"')}")`);
     }
@@ -56,6 +56,15 @@ REKORDER = r"""
   const ziel = (el) => el.closest('input,textarea,select,button,[role=combobox],[role=button],[contenteditable=true]') || el;
   const abfangen = (ev) => {
     if (!window.__va.aktiv) return;
+    if (window.__va.durchlassen) {
+      // Navigations-Modus: Klick wird ausgeführt, aber gemerkt (übersteht auch einen Seitenwechsel)
+      if (ev.type !== 'click') return;
+      const el = ev.target.closest('a,button,[role=button],[role=menuitem],input[type=submit],li') || ev.target;
+      const daten = {selektoren: selektoren(el), text: (el.innerText || el.value || '').trim().slice(0, 40)};
+      window.__va.auswahl = daten;
+      try { sessionStorage.setItem('__va_auswahl', JSON.stringify(daten)); } catch (e) {}
+      return;
+    }
     ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation();
     if (ev.type !== 'click') return;
     const el = ziel(ev.target);
@@ -136,6 +145,9 @@ class Assistent:
                 break
             text = "   Jetzt Enter drücken, wenn das Formular offen ist … "
         d.neu_url = self.page.url
+        d.navigation = []
+        if not (urlsplit(d.neu_url).path.strip("/") or urlsplit(d.neu_url).query):
+            self._navigation_aufnehmen(d)
         self.ausgabe(f"   ✔ Formular-Adresse: {d.neu_url}")
 
         self.ausgabe("\n2) Jetzt die Felder: Klicke im Browser auf das genannte Feld und drücke dann hier Enter.\n"
@@ -174,6 +186,35 @@ class Assistent:
         self.ausgabe("✔ Einrichtung vollständig – der Agent kann jetzt inserieren." if not fehlt
                      else f"⚠ Noch nicht vollständig, es fehlt: {', '.join(fehlt)}. 'einrichten {d.name}' erneut ausführen.")
         return d
+
+    def _navigation_aufnehmen(self, d: Definition) -> None:
+        """Für Formulare ohne eigene Adresse: den Klickweg von der Startseite zum Formular merken."""
+        self.ausgabe("\n   Das Formular hat keine eigene Adresse – der Agent muss sich jedes Mal durchklicken.\n"
+                     "   Die Startseite wird gleich neu geladen. Klicke dann im Agent-Browser nacheinander den Weg\n"
+                     "   zum Formular (z. B. MY OFFERS → + POST OFFER → Used Panties). Diese Klicks werden ausgeführt.")
+        self.page.goto(d.neu_url)
+        schritte: list[list[str]] = []
+        while True:
+            self._bereit()
+            self.page.evaluate("window.__va.aktiv = true; window.__va.durchlassen = true; window.__va.auswahl = null;"
+                               "try { sessionStorage.removeItem('__va_auswahl') } catch (e) {}")
+            antwort = self.frage(f"   Schritt {len(schritte) + 1}: im Browser klicken, dann hier Enter "
+                                 "(ist das Formular zu sehen: f + Enter) … ")
+            self._bereit()
+            daten = self.page.evaluate(
+                "(() => { try { const d = sessionStorage.getItem('__va_auswahl'); if (d) return JSON.parse(d) } catch (e) {}"
+                " return window.__va.auswahl })()")
+            self.page.evaluate("window.__va.aktiv = false; window.__va.durchlassen = false;"
+                               "try { sessionStorage.removeItem('__va_auswahl') } catch (e) {}")
+            if daten and daten.get("selektoren"):
+                schritte.append(daten["selektoren"])
+                self.ausgabe(f"      ✔ „{daten.get('text') or daten['selektoren'][0]}“")
+            elif not antwort.strip().lower().startswith("f"):
+                self.ausgabe("      ⚠ kein Klick erkannt – bitte im Agent-Browser klicken")
+            if antwort.strip().lower().startswith("f"):
+                break
+        d.navigation = schritte
+        self.ausgabe(f"   ✔ Weg zum Formular gemerkt ({len(schritte)} Klicks)")
 
     def _angebotsseiten(self, d: Definition) -> None:
         """Optional: Angebots- und Bearbeiten-Seite – für Statistik und Preisänderungen."""

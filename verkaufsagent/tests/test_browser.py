@@ -255,3 +255,96 @@ def test_menues_wie_bei_panty(umgebung):
         assert m.page.locator("#title").input_value() == "22,50"
     finally:
         m.schliessen()
+
+
+SPA_BASIS = "https://www.spa-markt.test"
+SPA_SEITE = """<!doctype html><html><body>
+<nav><a href="#" id="nav-offers" onclick="zeige('angebote');return false">MY OFFERS</a></nav>
+<div id="start">Willkommen</div>
+<div id="angebote" hidden><button type="button" onclick="zeige('kategorien')">+ POST OFFER</button></div>
+<div id="kategorien" hidden><ul><li onclick="zeige('formular')">Used Panties</li><li>Foot fetish</li></ul></div>
+<form id="formular" hidden action="/offer/save" method="get">
+  <input name="title" id="title"><select name="price" id="price"><option value="">Select price</option>
+  <option>15</option><option>20</option><option>25</option></select>
+  <textarea name="desc" id="desc"></textarea><input type="file" name="bild" id="bild">
+  <button type="submit" id="post">Post offer</button>
+</form>
+<script>function zeige(id){for(const b of ['start','angebote','kategorien','formular'])document.getElementById(b).hidden=(b!==id);}</script>
+</body></html>"""
+
+
+def test_formular_ohne_eigene_adresse_wie_panty(tmp_path, monkeypatch):
+    """Formular erscheint nur per Klicks (Adresse bleibt '/'): Klickweg wird angelernt und beim Einstellen nachgeklickt."""
+    foto = tmp_path / "f.jpg"
+    Image.new("RGB", (50, 50)).save(foto)
+    eigene = tmp_path / "daten" / "plattformen"
+    eigene.mkdir(parents=True)
+    (eigene / "spa.yaml").write_text(yaml.safe_dump({
+        "name": "spa", "anzeigename": "SPA", "basis_url": SPA_BASIS, "sprache": "en",
+        "felder": {"titel": {"typ": "text", "pflicht": True}, "preis": {"typ": "auswahl", "pflicht": True},
+                   "beschreibung": {"typ": "text", "pflicht": True}, "fotos": {"typ": "datei", "pflicht": True}},
+    }, sort_keys=False), encoding="utf-8")
+    konf = Konfiguration(auto_veroeffentlichen=True, datenordner=tmp_path / "daten",
+                         ki=KiEinstellungen(aktiv=False), browser=BrowserEinstellungen(langsam_ms=0, timeout_ms=6000))
+    register = Register(konf.datenordner)
+    gesendet = []
+
+    def route(r):
+        url = urlparse(r.request.url)
+        if url.path == "/offer/save":
+            gesendet.append({k: v[0] for k, v in parse_qs(url.query).items()})
+            return r.fulfill(status=200, content_type="text/html", body="<script>location.replace('/offer/77712')</script>")
+        if url.path.startswith("/offer/"):
+            return r.fulfill(status=200, content_type="text/html", body="<p>Offer</p>")
+        return r.fulfill(status=200, content_type="text/html; charset=utf-8", body=SPA_SEITE)
+
+    with sync_playwright() as pw:
+        def fabrik(name):
+            m = Marktplatz(pw, konf, register.lade(name))
+            m.ctx.route("**/*", route)
+            return m
+
+        m = fabrik("spa")
+        p = m.page
+        klick = lambda sel: (lambda: p.click(sel))  # noqa: E731
+        schritte = [
+            klick("#nav-offers"), klick("text=+ POST OFFER"), klick("text=Used Panties"),  # Formular öffnen (Adresse bleibt /)
+            "j",                                                                           # "Formular ist wirklich hier"
+            klick("#nav-offers"), klick("text=+ POST OFFER"), (klick("text=Used Panties"), "f"),  # Klickweg anlernen
+            klick("#title"), klick("#price"), klick("#desc"), klick("#bild"),              # Felder
+            "",                                                                            # keine weiteren Felder
+            klick("#post"),                                                                # Absenden (nicht ausgelöst)
+            "", "",                                                                        # optionale Seiten überspringen
+        ]
+
+        def frage(_text):
+            s = schritte.pop(0)
+            if isinstance(s, tuple):
+                s[0]()
+                return s[1]
+            return s if isinstance(s, str) else (s() and "") or ""
+
+        # Schritt 1: der Nutzer klickt sich erst durch, dann Enter -> Warnung "nur Startseite" -> 'j'
+        erst = [schritte.pop(0), schritte.pop(0), schritte.pop(0)]
+        schritte.insert(0, lambda: [f() for f in erst])
+        try:
+            d = Assistent(m, register, frage=frage, ausgabe=lambda *a: None).ausfuehren()
+        finally:
+            m.schliessen()
+        assert not schritte
+        assert len(d.navigation) == 3 and d.eingerichtet, d.fehlend()
+        assert any("MY OFFERS" in s for s in d.navigation[0])
+        assert gesendet == []
+
+        produkt = Produkt.model_validate(dict(id="s1", name="Orange lace G-string", preis=24, groesse="M",
+                                              fotos=[foto], plattformen=["spa"]))
+        speicher = Speicher(konf.datenordner)
+        agent = Agent(konf, [produkt], speicher, TextGenerator(konf.ki, register.lade), fabrik)
+        try:
+            assert agent.inseriere_neue() == 1
+        finally:
+            agent.schliessen()
+        assert gesendet[0]["title"].startswith("Orange lace G-string") and gesendet[0]["price"] == "20"  # Stufe <= 24
+        assert "Size: M" in gesendet[0]["desc"]
+        i = speicher.hole("s1", "spa")
+        assert (i.status, i.anzeige_id, i.preis_aktuell) == ("online", "77712", 20)
