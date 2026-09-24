@@ -111,7 +111,7 @@ def umgebung(tmp_path):
         yield konf, register, produkt, markt, fabrik
 
 
-def anlernen(fabrik, register):
+def anlernen(fabrik, register, erst_startseite=False):
     """Spielt den Nutzer im Assistenten: jede Frage = eine Aktion im Browser."""
     m = fabrik("testmarkt")
     p = m.page
@@ -122,8 +122,9 @@ def anlernen(fabrik, register):
     def gehe(pfad):
         return lambda: p.goto(BASIS + pfad)
 
+    start = ["", gehe("/angebot/neu"), ""] if erst_startseite else [gehe("/angebot/neu")]
     schritte = [
-        gehe("/angebot/neu"),                               # 1) Formular öffnen
+        *start,                                             # 1) Formular öffnen
         klick("text=Fotos hinzufügen"),                     # Fotos
         klick("#titel"), klick("textarea"), klick("#preis"),
         klick("[data-testid=kategorie-auswahl]"),           # eigenes Dropdown
@@ -199,6 +200,12 @@ def test_anlernen_und_kompletter_ablauf(umgebung, monkeypatch):
         assert speicher.hole("slip-001", "testmarkt").status == "entfernt"
     finally:
         agent.schliessen()
+
+
+def test_startseite_wird_nicht_als_formular_gespeichert(umgebung):
+    konf, register, produkt, markt, fabrik = umgebung
+    d = anlernen(fabrik, register, erst_startseite=True)  # Enter auf der Startseite -> Warnung, dann Formular
+    assert d.neu_url == f"{BASIS}/angebot/neu" and d.eingerichtet
 
 
 def test_nicht_eingerichtete_plattform_wird_klar_gemeldet(umgebung):

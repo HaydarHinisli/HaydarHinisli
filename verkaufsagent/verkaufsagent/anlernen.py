@@ -122,8 +122,19 @@ class Assistent:
     def ausfuehren(self) -> Definition:
         d = self.m.d.model_copy(deep=True)
         self.page.goto(d.login_url or d.basis_url)
-        self.frage(f"\n1) Melde dich im Browser bei {d.anzeigename} an (falls nötig) und öffne die Seite, auf der man\n"
-                   "   ein NEUES Angebot erstellt. Dann hier Enter drücken … ")
+        self.page.bring_to_front()
+        text = (f"\n1) Im Browserfenster, das der Agent gerade geöffnet hat (NICHT in Safari/deinem normalen Browser):\n"
+                f"   bei {d.anzeigename} anmelden und das Formular für ein NEUES Angebot öffnen.\n"
+                "   Erst wenn das Formular zu sehen ist, hier Enter drücken … ")
+        while True:
+            self.frage(text)
+            if urlsplit(self.page.url).path.strip("/") or urlsplit(self.page.url).query:
+                break
+            antwort = self.frage(f"   ⚠ Der Browser zeigt nur die Startseite ({self.page.url}), nicht das Angebotsformular.\n"
+                                 "   Formular öffnen und Enter drücken – oder 'j' + Enter, falls das Formular wirklich hier ist: ")
+            if antwort.strip().lower().startswith("j"):
+                break
+            text = "   Jetzt Enter drücken, wenn das Formular offen ist … "
         d.neu_url = self.page.url
         self.ausgabe(f"   ✔ Formular-Adresse: {d.neu_url}")
 
