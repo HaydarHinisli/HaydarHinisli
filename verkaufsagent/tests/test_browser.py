@@ -537,3 +537,14 @@ def test_link_im_zugeklappten_menue_wird_ausgeloest(umgebung):
             m._klick_schritt(["#gibt-es-nicht"], "X", 500)
     finally:
         m.schliessen()
+
+
+def test_erstes_sichtbares_element_bei_mehreren_treffern(umgebung):
+    konf, register, produkt, markt, fabrik = umgebung
+    m = fabrik("testmarkt")
+    try:
+        m.page.set_content("""<form hidden><input type="submit" name="submit" id="a"></form>
+            <form><input type="submit" name="submit" id="b" value="LOGIN"></form>""")
+        assert m.finde(['input[name="submit"]'], "Login-Knopf", 1000).get_attribute("id") == "b"
+    finally:
+        m.schliessen()

@@ -259,15 +259,23 @@ class Assistent:
                    "   Wenn du abgemeldet bist, hier Enter … ")
         self.ausgabe("\n2) Klicke jetzt den Weg zum Login-Formular (z. B. auf LOGIN). Nach jedem Klick hier Enter.\n"
                      "   Diese Klicks werden ausgeführt.")
-        d.login_klicks = self._klickweg("das Login-Formular")
-        if d.login_klicks:
-            d.abgemeldet_zeichen = d.login_klicks[0]  # z. B. der LOGIN-Link: sichtbar = abgemeldet
+        klicks = self._klickweg("das Login-Formular")
+        # Ein LOGIN-Link/-Knopf ist nur sichtbar, solange man abgemeldet ist
+        d.abgemeldet_zeichen = next((k for k in klicks if any(s.startswith(("a:has-text", "button:has-text")) for s in k)), [])
+        if urlsplit(self.page.url).path.strip("/"):
+            # Die Login-Seite hat eine eigene Adresse – die ist zuverlässiger als Klicks
+            d.login_url, d.login_klicks = self.page.url, []
+            self.ausgabe(f"   ✔ Login-Seite: {d.login_url}")
+        else:
+            d.login_klicks = klicks
         self.ausgabe("\n3) Jetzt die Felder (Klicks werden abgefangen, es wird nichts abgeschickt):")
-        d.login_benutzer = self._klick_aufnehmen("   Klicke auf das Feld für E-Mail bzw. Benutzername … ")
-        d.login_passwort = self._klick_aufnehmen("   Klicke auf das Passwort-Feld … ")
-        d.login_merken = self._klick_aufnehmen("   Klicke auf das Kästchen „Remember me“ / „Angemeldet bleiben“ "
-                                               "(gibt es keins: nur Enter) … ")
-        d.login_absenden = self._klick_aufnehmen("   Klicke auf den Anmelden-/Login-Knopf … ")
+        for attr, text in (("login_benutzer", "auf das Feld für E-Mail bzw. Benutzername"),
+                           ("login_passwort", "auf das Passwort-Feld"),
+                           ("login_merken", "auf das Kästchen „Remember me“ / „Angemeldet bleiben“ (gibt es keins: nur Enter)"),
+                           ("login_absenden", "auf den Anmelden-/Login-Knopf")):
+            sel = self._klick_aufnehmen(f"   Klicke {text} … ")
+            setattr(d, attr, sel)
+            self.ausgabe(f"      ✔ {sel[0]}" if sel else "      – übersprungen")
         if not d.login_eingerichtet:
             self.ausgabe("⚠ Nicht alle Login-Felder erkannt – bitte 'login' noch einmal ausführen.")
             return d

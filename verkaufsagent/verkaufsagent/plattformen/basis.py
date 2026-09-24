@@ -147,9 +147,10 @@ class Marktplatz:
         frist = time.monotonic() + (timeout_ms or self.konf.browser.timeout_ms) / 1000
         while True:
             for sel in selektoren:
-                loc = self.page.locator(sel).first
+                # bei mehreren Treffern das erste SICHTBARE Element (versteckte Doppelgänger überspringen)
+                loc = (self.page.locator(sel).locator("visible=true") if sichtbar else self.page.locator(sel)).first
                 try:
-                    if loc.count() and (not sichtbar or loc.is_visible()):
+                    if loc.count():
                         return loc
                 except Exception:
                     pass
@@ -175,8 +176,10 @@ class Marktplatz:
         if not (self.d.login_eingerichtet and zugang):
             return False
         log.info("%s: nicht angemeldet – melde mich automatisch an", self.d.anzeigename)
+        if self.d.login_url and not self.d.login_klicks:
+            self.page.goto(self.d.login_url)
         for nr, schritt in enumerate(self.d.login_klicks, 1):
-            self.finde(schritt, f"Weg zum Login, Klick {nr}").click()
+            self._klick_schritt(schritt, f"Weg zum Login, Klick {nr}", 10000)
             self.page.wait_for_timeout(800)
         self.finde(self.d.login_benutzer, "Login: Benutzername/E-Mail").fill(zugang[0])
         self.finde(self.d.login_passwort, "Login: Passwort").fill(zugang[1])
@@ -402,19 +405,14 @@ class Marktplatz:
         if not (self.d.navigation and auf_der_seite):
             self.page.goto(self.d.neu_url)
         self.sicherstellen_angemeldet()
-        for nr, schritt in enumerate(self.d.navigation, 1):
-            try:
-                self._klick_schritt(schritt, f"Weg zum Formular, Klick {nr}", 5000 if nr == 1 else 10000)
-            except PlattformFehler:
-                if nr > 1 or self.page.url == self.d.neu_url:
-                    raise
-                self.page.goto(self.d.neu_url)  # Logo nicht gefunden – doch neu laden
-                self._klick_schritt(schritt, f"Weg zum Formular, Klick {nr}", 10000)
-            try:
-                self.page.wait_for_load_state("domcontentloaded", timeout=15000)
-            except Exception:
-                pass
-            self.page.wait_for_timeout(800)
+        try:
+            self._zum_formular()
+        except PlattformFehler:
+            # Häufigster Grund: unterwegs abgemeldet (z. B. „My Offers“ fehlt) – anmelden und neu versuchen
+            if not self.anmelden_automatisch():
+                raise
+            self.page.goto(self.d.neu_url)
+            self._zum_formular()
 
         gesetzter_preis = preis
         for name, feld in self.d.felder.items():
@@ -452,6 +450,21 @@ class Marktplatz:
                         self.d.anzeigename, self.page.url)
         url = self.d.anzeige_url.format(id=anzeige_id) if anzeige_id and self.d.anzeige_url else self.page.url
         return Veroeffentlicht(anzeige_id, url, gesetzter_preis)
+
+    def _zum_formular(self) -> None:
+        for nr, schritt in enumerate(self.d.navigation, 1):
+            try:
+                self._klick_schritt(schritt, f"Weg zum Formular, Klick {nr}", 5000 if nr == 1 else 10000)
+            except PlattformFehler:
+                if nr > 1 or self.page.url == self.d.neu_url:
+                    raise
+                self.page.goto(self.d.neu_url)  # Logo nicht gefunden – doch neu laden
+                self._klick_schritt(schritt, f"Weg zum Formular, Klick {nr}", 10000)
+            try:
+                self.page.wait_for_load_state("domcontentloaded", timeout=15000)
+            except Exception:
+                pass
+            self.page.wait_for_timeout(800)
 
     def _klick_schritt(self, selektoren: list[str], was: str, timeout_ms: int) -> None:
         """Klickt einen Schritt eines Klickwegs. Steckt der Link in einem zugeklappten Menü
