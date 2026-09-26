@@ -64,15 +64,9 @@ function assetHash(rel) {
 }
 const cssUrl = `/assets/css/style.css?v=${assetHash('assets/css/style.css')}`;
 const jsUrl = `/assets/js/main.js?v=${assetHash('assets/js/main.js')}`;
+const introGateUrl = `/assets/js/intro-gate.js?v=${assetHash('assets/js/intro-gate.js')}`;
 const introJsUrl = `/assets/js/intro.js?v=${assetHash('assets/js/intro.js')}`;
-let introAsset;
-function introStyles() {
-  if (!introAsset) {
-    const css = readFileSync(join(ROOT, 'assets/css/intro.css'), 'utf8') + introCss();
-    introAsset = { css, url: `/assets/css/intro.css?v=${createHash('sha256').update(css).digest('hex').slice(0, 10)}` };
-  }
-  return introAsset;
-}
+const introCssUrl = `/assets/css/intro.css?v=${assetHash('assets/css/intro.css')}`;
 
 // Liest Breite/Höhe aus einer WebP-Datei (für width/height-Attribute gegen Layout-Verschiebungen).
 function webpSize(file) {
@@ -130,17 +124,11 @@ const ICONS = {
   box: '<path d="M4 7.5L12 4l8 3.5v9L12 20l-8-3.5z"/><path d="M4 7.5l8 3.5 8-3.5M12 11v9"/>',
   done: '<path d="M6 12.5l4 4 8-9"/>',
   router: '<circle cx="5.5" cy="12" r="2"/><path d="M7.5 12H11l7-6M11 12h7M11 12l7 6"/>',
+  globe: '<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.4 2.4 3.5 5.2 3.5 8.5s-1.1 6.1-3.5 8.5c-2.4-2.4-3.5-5.2-3.5-8.5s1.1-6.1 3.5-8.5z"/>',
+  braces: '<path d="M9 4.5H8a2 2 0 0 0-2 2V10a2 2 0 0 1-2 2 2 2 0 0 1 2 2v3.5a2 2 0 0 0 2 2h1M15 4.5h1a2 2 0 0 1 2 2V10a2 2 0 0 0 2 2 2 2 0 0 0-2 2v3.5a2 2 0 0 1-2 2h-1"/>',
+  iterator: '<path d="M10 6.5h9.5M10 12h9.5M10 17.5h9.5"/><path d="M4 9l2.5 3L4 15"/>',
+  hash: '<path d="M9.5 4l-2 16M16.5 4l-2 16M5 9h15M4 15h15"/>',
 };
-
-// Nur das Symbol (für die Intro-Kacheln), weiß auf farbiger Kachel.
-function bareIcon(icon) {
-  if (icon === 'logo') {
-    return `<svg class="im__icon" viewBox="0 0 24 24" focusable="false"><text x="12" y="18.5" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="19" font-weight="600" fill="#0b1f16">4</text></svg>`;
-  }
-  if (!ICONS[icon]) throw new Error(`Unbekanntes Modul-Symbol "${icon}". Erlaubt: logo, ${Object.keys(ICONS).join(', ')}`);
-  const stroke = icon === 'done' ? '#0b1f16' : '#fff';
-  return `<svg class="im__icon" viewBox="0 0 24 24" focusable="false" fill="none" stroke="${stroke}" stroke-width="${icon === 'done' ? 2.6 : 1.9}" stroke-linecap="round" stroke-linejoin="round">${ICONS[icon]}</svg>`;
-}
 
 function moduleIcon(icon, color, cls = 'module__icon') {
   if (icon === 'logo') {
@@ -151,27 +139,33 @@ function moduleIcon(icon, color, cls = 'module__icon') {
   return `<svg class="${cls}" viewBox="0 0 64 64" focusable="false"><circle cx="32" cy="32" r="32" fill="${esc(color)}"/><g transform="translate(14 14) scale(1.5)" fill="none" stroke="${stroke}" stroke-width="${icon === 'done' ? 2.4 : 1.6}" stroke-linecap="round" stroke-linejoin="round">${ICONS[icon]}</g></svg>`;
 }
 
-// Kopfbereich: Module fliegen aus allen Richtungen heran und bilden eine Workflow-Kette.
-// Die sichtbare Szene ist dekorativ (aria-hidden); für Screenreader gibt es die Liste darunter.
+// Ein Modul im Make-Stil (farbiger Kreis mit Symbol, Name, Aktion). Wird im Kopfbereich und im Intro verwendet.
+function moduleHTML(m, cls) {
+  return `<div class="module ${cls}${m.router ? ' module--router' : ''}">
+              <div class="module__body">
+                <span class="module__ring"></span>
+                ${moduleIcon(m.icon, m.color)}
+                ${m.trigger ? '<span class="module__trigger"><svg viewBox="0 0 24 24" focusable="false"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 8v4.5l3 1.8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></span>' : ''}
+                ${m.router ? '' : '<span class="module__count">1</span>'}
+              </div>
+              ${m.router ? '' : `<span class="module__app">${esc(m.app)}</span>
+              <span class="module__action">${esc(m.action)}</span>`}
+            </div>`;
+}
+
+const heroModules = (lang) => {
+  const list = t[lang].intro.modules.filter((m) => m.hero);
+  if (list.length !== 4) throw new Error(`content/${lang}.json: genau 4 Intro-Module brauchen "hero": true (aktuell ${list.length})`);
+  return list;
+};
+
+// Kopfbereich: Workflow-Kette aus den vier "hero"-Modulen. Dekorativ (aria-hidden); für Screenreader gibt es die Liste darunter.
 function heroScene(modules, label) {
   const ghosts = [
     ['cart', '#E47911'], ['doc', '#475569'], ['spark', '#0F766E'], ['chat', '#7C3AED'], ['bell', '#B45309'], ['filter', '#334155'],
   ];
   const chain = modules
-    .map((m, i) => {
-      const mod = `<div class="module module--${i + 1}">
-              <div class="module__body">
-                <span class="module__ring"></span>
-                ${moduleIcon(m.icon, m.color)}
-                ${m.trigger ? '<span class="module__trigger"><svg viewBox="0 0 24 24" focusable="false"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 8v4.5l3 1.8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></span>' : ''}
-                <span class="module__count">1</span>
-              </div>
-              <span class="module__app">${esc(m.app)}</span>
-              <span class="module__action">${esc(m.action)}</span>
-            </div>`;
-      const link = i < modules.length - 1 ? `\n            <div class="link link--${i + 1}"><span class="link__pulse"></span></div>` : '';
-      return mod + link;
-    })
+    .map((m, i) => moduleHTML(m, `module--${i + 1}`) + (i < modules.length - 1 ? `\n            <div class="link link--${i + 1}"><span class="link__pulse"></span></div>` : ''))
     .join('\n            ');
   return `<div class="scene" aria-hidden="true">
           <div class="scene__grid"></div>
@@ -188,136 +182,30 @@ function heroScene(modules, label) {
 }
 
 // ---------- Intro (nur Startseite, einmal pro Sitzung) ----------
-// Module fliegen aus allen Richtungen heran, bilden einen verzweigten Workflow,
-// ein Durchlauf startet, dann fliegen sie auseinander und geben die Seite frei.
-// Aufbau: 0 Auslöser → 1 Firma → Router → drei Zweige (2→3, 4→5, 6→7) → 8, 9 → 10 Ergebnis.
-
-const INTRO = (() => {
-  // Positionen (Kreismittelpunkt) im Querformat, Bühne 75em × 40em
-  const land = [[5, 20], [15.5, 20], [34, 7.5], [44, 7.5], [34, 20], [44, 20], [34, 32.5], [44, 32.5], [55, 13.5], [55, 29], [67, 20]];
-  const router = [24.5, 20];
-  // Hochformat (Smartphone), Bühne 26em × 46em: gleicher Ablauf, von oben nach unten
-  const toPortrait = ([x, y]) => [+(13 + (y - 20) * 0.68).toFixed(2), +(3.5 + (x - 5) * 0.63).toFixed(2)];
-  const nodes = { land: [...land, router], port: [...land, router].map(toPortrait) }; // Index 11 = Router
-  const R = 11;
-  const links = [[0, 1], [1, R], [R, 2], [R, 4], [R, 6], [2, 3], [4, 5], [6, 7], [3, 8], [5, 8], [7, 9], [8, 10], [9, 10]];
-  const depth = { 0: 0, 1: 1, [R]: 2, 2: 3, 4: 3, 6: 3, 3: 4, 5: 4, 7: 4, 8: 5, 9: 5, 10: 6 };
-
-  // Zeitplan in Sekunden
-  const T = { drawStart: 1.7, drawStep: 0.1, runStart: 2.1, runStep: 0.17, burst: 3.45, overlayOut: 3.7 };
-
-  // Reproduzierbarer Zufall, damit jeder Build dieselbe Choreografie erzeugt
-  let seed = 4;
-  const rnd = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
-  const between = (a, b) => a + (b - a) * rnd();
-  const sign = () => (rnd() < 0.5 ? -1 : 1);
-  const f = (n) => +n.toFixed(2);
-
-  const count = land.length + 1;
-  const fly = Array.from({ length: count }, (_, i) => {
-    const angle = (i / count) * Math.PI * 2 + between(-0.3, 0.3);
-    const dist = between(48, 70);
-    return {
-      delay: f(between(0.05, 0.6)),
-      from: `translate3d(${f(Math.cos(angle) * dist)}em, ${f(Math.sin(angle) * dist * 0.75)}em, ${f(between(-110, 45))}em) rotateX(${f(sign() * between(160, 340))}deg) rotateY(${f(sign() * between(180, 360))}deg) rotateZ(${f(sign() * between(20, 70))}deg)`,
-    };
-  });
-  const burst = (layout, w, h) =>
-    nodes[layout].map(([x, y]) => {
-      const dx = x - w / 2, dy = y - h / 2, len = Math.hypot(dx, dy) || 1;
-      const d = between(35, 60);
-      return `translate3d(${f((dx / len) * d)}em, ${f((dy / len) * d)}em, ${f(between(60, 110))}em) rotateX(${f(sign() * between(60, 160))}deg) rotateY(${f(sign() * between(60, 180))}deg) rotateZ(${f(sign() * between(10, 50))}deg)`;
-    });
-  const bursts = { land: burst('land', 75, 40), port: burst('port', 26, 46) };
-  const burstDelay = Array.from({ length: count }, () => f(T.burst + between(0, 0.12)));
-  return { nodes, R, links, depth, T, fly, bursts, burstDelay };
-})();
-
-function introPath([x1, y1], [x2, y2], layout) {
-  if (layout === 'land') {
-    const mx = f2((x1 + x2) / 2);
-    return `M${x1} ${y1}C${mx} ${y1} ${mx} ${y2} ${x2} ${y2}`;
-  }
-  const my = f2((y1 + y2) / 2);
-  return `M${x1} ${y1}C${x1} ${my} ${x2} ${my} ${x2} ${y2}`;
-}
-function f2(n) { return +n.toFixed(2); }
-
-function introColors(lang) {
-  return [...t[lang].intro.modules.map((m) => m.color), '#94A3B8']; // Index 11 = Router
-}
-
-// Leuchtende, gepunktete Verbindungen auf dem Boden, Farbverlauf von Modul zu Modul.
-function introLinks(layout, lang) {
-  const { nodes, links, depth, T } = INTRO;
-  const colors = introColors(lang);
-  const [w, h] = layout === 'land' ? [75, 40] : [26, 46];
-  const defs = [], paths = [];
-  links.forEach(([a, b], k) => {
-    const [p1, p2] = [nodes[layout][a], nodes[layout][b]];
-    const d = introPath(p1, p2, layout);
-    const id = `${layout}${k + 1}`;
-    const run = f2(T.runStart + depth[a] * T.runStep);
-    defs.push(`<linearGradient id="g${id}" gradientUnits="userSpaceOnUse" x1="${p1[0]}" y1="${p1[1]}" x2="${p2[0]}" y2="${p2[1]}"><stop offset="0" stop-color="${esc(colors[a])}"/><stop offset="1" stop-color="${esc(colors[b])}"/></linearGradient>
-            <mask id="m${id}" maskUnits="userSpaceOnUse" x="-10" y="-10" width="${w + 20}" height="${h + 20}"><path class="intro__reveal il--${k + 1}" d="${d}" pathLength="1"/></mask>`);
-    paths.push(`<path class="intro__link" d="${d}" stroke="url(#g${id})" mask="url(#m${id})"/>
-          <circle class="intro__packet" r="0.34"><animateMotion dur="${T.runStep}s" begin="${run}s" fill="freeze" path="${d}"/><animate attributeName="opacity" values="0;1;1;0" dur="${T.runStep + 0.05}s" begin="${run}s"/></circle>`);
-  });
-  return `<svg class="intro__links intro__links--${layout}" viewBox="0 0 ${w} ${h}" focusable="false">
-          <defs>
-            <filter id="glow${layout}" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="0.28" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-            ${defs.join('\n            ')}
-          </defs>
-          <g filter="url(#glow${layout})">
-          ${paths.join('\n          ')}
-          </g>
-        </svg>`;
-}
-
-function introModule(n, icon, label, extra = '') {
-  return `<div class="im im--${n}${extra}">
-            <span class="im__glow"></span>
-            <div class="im__stand">
-              <div class="im__tile">${bareIcon(icon)}</div>
-              <div class="im__base"><span>${esc(label)}</span></div>
-            </div>
-          </div>`;
-}
+// Das Markup der Module entsteht hier; Positionen, Verbindungen und Animationen berechnet assets/js/intro.js
+// passend zur Bildschirmgröße. Aufbau: 0 → 1 → Router(2) → drei Zweige (3→4, 5→6, 7→8).
+const INTRO_LAYOUT = {
+  links: [[0, 1], [1, 2], [2, 3], [3, 4], [2, 5], [5, 6], [2, 7], [7, 8]],
+  // Kreismittelpunkte in Rastereinheiten, Querformat (Hochformat: x und y getauscht)
+  land: [[-2.25, 0], [-1.1, 0], [-0.1, 0], [1.05, -1], [2.25, -1], [1.05, 0], [2.25, 0], [1.05, 1], [2.25, 1]],
+};
 
 function introBlock(lang) {
   const tx = t[lang].intro;
-  if (tx.modules.length !== 11) throw new Error(`content/${lang}.json: intro.modules braucht genau 11 Module (aktuell ${tx.modules.length})`);
-  const mods = tx.modules.map((m, i) => introModule(i + 1, m.icon, m.app, i === 10 ? ' im--final' : '')).join('\n          ');
+  if (tx.modules.length !== 9) throw new Error(`content/${lang}.json: intro.modules braucht genau 9 Module (aktuell ${tx.modules.length})`);
+  let h = 0;
+  const mods = tx.modules.map((m) => moduleHTML(m, `intro__module${m.hero ? ` intro__module--hero" data-hero="${h++}` : ''}`)).join('\n          ');
   return `<div class="intro" id="intro" aria-hidden="true">
-    <div class="intro__light"></div>
-    <div class="intro__stage">
-      <div class="intro__floor"></div>
-      ${introLinks('land', lang)}
-      ${introLinks('port', lang)}
-      <div class="intro__modules">
+    <div class="intro__bg"><span class="intro__blob intro__blob--1"></span><span class="intro__blob intro__blob--2"></span></div>
+    <div class="intro__camera">
+      <svg class="intro__links" focusable="false"></svg>
+      <div class="intro__stage">
           ${mods}
-          ${introModule(12, 'router', tx.router || 'Router', ' im--router')}
       </div>
     </div>
   </div>
-  <button class="intro__skip" type="button">${esc(tx.skip)} →</button>`;
-}
-
-// Erzeugt die positionsabhängigen Intro-Regeln (Positionen, Flugbahnen, Zeitplan).
-function introCss() {
-  const { nodes, fly, bursts, burstDelay, links, depth, T, R } = INTRO;
-  const rules = [];
-  const modDepth = (i) => (i === R ? depth[R] : depth[i]);
-  for (let i = 0; i < nodes.land.length; i++) {
-    const n = i + 1;
-    const pulse = f2(T.runStart - T.runStep + modDepth(i) * T.runStep + (i === 0 ? 0 : T.runStep * 0.9));
-    rules.push(`.im--${n} { left: ${nodes.land[i][0]}em; top: ${nodes.land[i][1]}em; --from: ${fly[i].from}; --burst: ${bursts.land[i]}; animation-delay: ${fly[i].delay}s, ${burstDelay[i]}s; }`);
-    rules.push(`.im--${n} { --c: ${introColors('de')[i]}; }`);
-    rules.push(`.im--${n} .im__tile::before, .im--${n} .im__glow { animation-delay: ${pulse}s; }`);
-  }
-  links.forEach(([a], k) => rules.push(`.intro__reveal.il--${k + 1} { animation-delay: ${f2(T.drawStart + depth[a] * T.drawStep)}s; }`));
-  const port = nodes.port.map((p, i) => `  .im--${i + 1} { left: ${p[0]}em; top: ${p[1]}em; --burst: ${bursts.port[i]}; }`);
-  return `\n/* ---- generiert von build.mjs ---- */\n${rules.join('\n')}\n@media (max-aspect-ratio: 4/5) {\n${port.join('\n')}\n}\n`;
+  <button class="intro__skip" type="button">${esc(tx.skip)} →</button>
+  <script type="application/json" id="intro-data">${JSON.stringify(INTRO_LAYOUT)}</script>`;
 }
 
 const paragraphs = (arr) => (Array.isArray(arr) ? arr : [arr]).map((p) => `<p>${esc(p)}</p>`).join('\n');
@@ -339,7 +227,7 @@ function layout({ lang, page, alternates, title, description, body, noindex = fa
   ).join('\n  ');
 
   return `<!doctype html>
-<html lang="${lang}">
+<html lang="${lang}"${intro ? ` data-intro="${esc(site.introVariant || 'clean')}"` : ''}>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -365,7 +253,7 @@ function layout({ lang, page, alternates, title, description, body, noindex = fa
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <link rel="preload" href="/assets/fonts/inter-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/assets/fonts/inter-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="${cssUrl}">${intro ? `\n  <link rel="stylesheet" href="${introStyles().url}">\n  <script src="${introJsUrl}"></script>` : ''}
+  <link rel="stylesheet" href="${cssUrl}">${intro ? `\n  <link rel="stylesheet" href="${introCssUrl}">\n  <script src="${introGateUrl}"></script>\n  <script src="${introJsUrl}" defer></script>` : ''}
   <noscript><link rel="stylesheet" href="/assets/css/nojs.css"></noscript>
   <script src="${jsUrl}" defer></script>${jsonLd}
 </head>
@@ -437,7 +325,7 @@ function homePage(lang) {
           <a class="button" href="#${a.contact}">${esc(tx.hero.button)}</a>
         </div>
         <div class="hero__visual">
-          ${heroScene(tx.hero.modules, tx.ui.flowLabel)}
+          ${heroScene(heroModules(lang), tx.ui.flowLabel)}
         </div>
       </div>
     </section>
@@ -735,7 +623,6 @@ out('/robots.txt', `User-agent: *\nAllow: /\n\nSitemap: ${site.domain}/sitemap.x
 // Statische Dateien
 cpSync(join(ROOT, 'assets'), join(DIST, 'assets'), { recursive: true });
 cpSync(join(ROOT, 'static'), DIST, { recursive: true });
-writeFileSync(join(DIST, 'assets/css/intro.css'), introStyles().css);
 
 console.log(`Fertig: ${written.length} Dateien in dist/`);
 for (const p of written) console.log('  ' + p);

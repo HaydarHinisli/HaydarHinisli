@@ -1,20 +1,99 @@
-/* 4ELEMENTS – Intro der Startseite. Aktiv nur, wenn assets/js/intro.js die Klasse .intro setzt.
-   Positionen, Flugbahnen und Zeitplan je Modul werden von build.mjs angehängt. */
+/* 4ELEMENTS – Intro der Startseite. Aktiv nur mit der Klasse .is-intro (gesetzt von assets/js/intro-gate.js).
+   Aussehen der Module = Module im Kopfbereich (style.css); hier nur Bühne, Verbindungen und Effekte.
+   Bewegungen steuert assets/js/intro.js. */
 
 .intro, .intro__skip { display: none; }
-html.is-intro { overflow: hidden; }
+
 html.is-intro .intro {
   display: block;
   position: fixed;
   inset: 0;
   z-index: 1000;
   overflow: hidden;
-  background: #05070a;
-  perspective: 80em;
-  perspective-origin: 50% 30%;
-  font-size: min(1.1vw, 2.05vh);
-  animation: intro-out 0.55s ease 3.7s forwards;
+  perspective: 1100px;
 }
+
+/* Hintergrund: Weiß mit dem gepunkteten Raster aus dem Make-Editor bzw. dem Kopfbereich */
+.intro__bg {
+  position: absolute;
+  inset: 0;
+  background: var(--bg);
+}
+.intro__bg::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle, #cfd4d9 1.1px, transparent 1.4px) 0 0 / 22px 22px;
+  -webkit-mask-image: radial-gradient(ellipse 60% 55% at 50% 50%, #000 30%, transparent 100%);
+  mask-image: radial-gradient(ellipse 60% 55% at 50% 50%, #000 30%, transparent 100%);
+}
+.intro__blob { display: none; }
+
+.intro__camera {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  will-change: transform;
+}
+.intro__links { position: absolute; left: 0; top: 0; overflow: visible; }
+.intro__dots {
+  fill: none;
+  stroke: #b9c0c7;
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-dasharray: 0 11;
+}
+.intro__reveal {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 14;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+}
+
+.intro__stage { position: absolute; inset: 0; transform-style: preserve-3d; }
+.intro__module {
+  position: absolute;
+  left: 0;
+  top: 0;
+  opacity: 0;
+  will-change: transform, opacity;
+}
+.intro .module__ring {
+  inset: -0.35em;
+  border: 0.16em solid var(--accent);
+  opacity: 0;
+}
+.intro .module__count { transform: scale(0); }
+.intro .module--router { width: auto; }
+.intro .module--router .module__body { width: 2.9em; height: 2.9em; margin: 0; }
+
+.intro__packet {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 10px 3px rgba(61, 220, 151, 0.55);
+  offset-rotate: 0deg;
+  offset-anchor: center;
+  opacity: 0;
+  will-change: offset-distance, opacity;
+}
+.intro__packet--trail { width: 8px; height: 8px; box-shadow: none; }
+
+.intro__confetti {
+  position: absolute;
+  width: 11px;
+  height: 11px;
+  margin: -5.5px 0 0 -5.5px;
+  border-radius: 2px;
+  opacity: 0;
+  will-change: transform, opacity;
+}
+
 html.is-intro .intro__skip {
   display: block;
   position: fixed;
@@ -22,223 +101,25 @@ html.is-intro .intro__skip {
   bottom: 1.25rem;
   z-index: 1001;
   padding: 0.6rem 1rem;
-  border: 1px solid rgba(255, 255, 255, 0.22);
+  border: 1px solid var(--border);
   border-radius: 999px;
-  background: rgba(11, 13, 16, 0.6);
-  color: rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.85);
+  color: var(--text-muted);
   font: 400 0.8125rem/1 var(--mono);
   cursor: pointer;
-  animation: intro-out 0.4s ease 3.6s forwards;
 }
-html.is-intro .intro__skip:hover { color: #fff; border-color: rgba(255, 255, 255, 0.5); }
-html.is-intro .intro__skip:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+html.is-intro .intro__skip:hover { color: var(--text); border-color: var(--text-muted); }
 
-/* Kamera: Winkel als animierbare Eigenschaften, damit die Module sich zur Kamera drehen können */
-@property --tilt { syntax: '<angle>'; inherits: true; initial-value: 40deg; }
-@property --orbit { syntax: '<angle>'; inherits: true; initial-value: -8deg; }
-
-.intro__light {
+/* Verspielt: weiche Farbflächen im Hintergrund */
+html.intro-verspielt .intro__blob {
+  display: block;
   position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(ellipse 40% 35% at 50% 0%, rgba(90, 140, 255, 0.22), transparent 70%),
-    radial-gradient(ellipse 60% 45% at 50% 60%, rgba(61, 220, 151, 0.07), transparent 75%),
-    radial-gradient(ellipse 80% 70% at 50% 50%, transparent 50%, rgba(0, 0, 0, 0.6) 100%);
-}
-
-.intro__stage {
-  --tilt: 40deg;
-  --orbit: -8deg;
-  position: absolute;
-  left: 50%;
-  top: 52%;
-  width: 75em;
-  height: 40em;
-  margin: -20em 0 0 -37.5em;
-  transform-style: preserve-3d;
-  transform: rotateX(var(--tilt)) rotateZ(var(--orbit));
-  animation: intro-camera 3.5s cubic-bezier(0.3, 0.6, 0.25, 1) both;
-}
-
-/* Dunkler, leicht spiegelnder Boden mit feinem Raster */
-.intro__floor {
-  position: absolute;
-  inset: -30em -35em;
-  background:
-    linear-gradient(rgba(255, 255, 255, 0.035) 0.05em, transparent 0.05em) 0 0 / 3em 3em,
-    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 0.05em, transparent 0.05em) 0 0 / 3em 3em,
-    radial-gradient(ellipse 45% 45% at 50% 50%, #151a22, #07090c 80%);
-  -webkit-mask-image: radial-gradient(ellipse 50% 50% at 50% 50%, #000 30%, transparent 80%);
-  mask-image: radial-gradient(ellipse 50% 50% at 50% 50%, #000 30%, transparent 80%);
-  transform: translateZ(-0.1em);
-  animation: intro-fade 1s ease both;
-}
-
-.intro__links {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  overflow: visible;
-  animation: intro-fade-out 0.3s ease 3.4s forwards;
-}
-.intro__links--port { display: none; }
-.intro__link { fill: none; stroke-width: 0.42; stroke-linecap: round; stroke-dasharray: 0 0.78; }
-.intro__reveal {
-  fill: none;
-  stroke: #fff;
-  stroke-width: 1.4;
-  stroke-dasharray: 1;
-  stroke-dashoffset: 1;
-  animation: intro-draw 0.45s ease-out both;
-}
-.intro__packet { fill: #fff; opacity: 0; }
-
-.intro__modules { position: absolute; inset: 0; transform-style: preserve-3d; }
-
-/* Modul: glänzende App-Kachel auf dunklem Sockel, steht auf dem Boden und schaut zur Kamera */
-.im {
-  --c: #3ddc97;
-  position: absolute;
-  width: 0;
-  height: 0;
-  --s: 1.15em;
-  transform-style: preserve-3d;
-  animation: im-fly 1.4s cubic-bezier(0.16, 1, 0.3, 1) both, im-burst 0.8s cubic-bezier(0.55, 0, 0.8, 0.2) forwards;
-}
-.im__glow, .im__stand { font-size: var(--s); }
-.im__glow {
-  position: absolute;
-  left: -5em;
-  top: -3em;
-  width: 10em;
-  height: 6em;
+  width: 60vmax;
+  height: 60vmax;
   border-radius: 50%;
-  background: radial-gradient(closest-side, color-mix(in srgb, var(--c) 55%, transparent), transparent);
-  opacity: 0.75;
-  animation: im-glow 0.8s ease-out forwards;
+  filter: blur(60px);
+  opacity: 0.35;
+  will-change: transform;
 }
-.im__stand {
-  position: absolute;
-  left: -5em;
-  bottom: -0.9em;
-  width: 10em;
-  padding-top: 2.5em;
-  display: grid;
-  justify-items: center;
-  transform-origin: 50% calc(100% - 0.9em);
-  transform: rotateZ(calc(var(--orbit) * -1)) rotateX(calc(var(--tilt) * -1 + 14deg));
-}
-.im__tile {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  place-items: center;
-  width: 4.1em;
-  height: 4.1em;
-  margin-bottom: -0.6em;
-  border-radius: 1.1em;
-  background: linear-gradient(155deg,
-    color-mix(in srgb, var(--c) 55%, #fff) 0%,
-    var(--c) 42%,
-    color-mix(in srgb, var(--c) 62%, #000) 100%);
-  box-shadow:
-    inset 0 0.12em 0.04em rgba(255, 255, 255, 0.55),
-    inset 0 -0.35em 0.5em rgba(0, 0, 0, 0.3),
-    0 0 1.5em color-mix(in srgb, var(--c) 75%, transparent),
-    0 0.5em 0.9em rgba(0, 0, 0, 0.55);
-}
-.im__tile::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  animation: im-flash 0.8s ease-out forwards;
-}
-.im__tile::after {
-  content: '';
-  position: absolute;
-  inset: 0.14em 0.2em 48%;
-  border-radius: 0.95em 0.95em 45% 45% / 0.95em 0.95em 30% 30%;
-  background: linear-gradient(rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0.02));
-}
-.im__icon { position: relative; z-index: 1; width: 2.3em; height: 2.3em; filter: drop-shadow(0 0.08em 0.06em rgba(0, 0, 0, 0.35)); }
-
-.im__base {
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  width: 6.2em;
-  height: 1.95em;
-  padding-bottom: 0.38em;
-  border-radius: 0.55em;
-  background: linear-gradient(#2c323a 0%, #1a1e24 32%, #0d0f12 34%, #0a0c0f 100%);
-  box-shadow:
-    inset 0 0.08em 0 rgba(255, 255, 255, 0.16),
-    inset 0 -0.06em 0 color-mix(in srgb, var(--c) 60%, transparent),
-    0 0.2em 1.1em color-mix(in srgb, var(--c) 45%, transparent),
-    0 0.7em 1.2em rgba(0, 0, 0, 0.7);
-}
-.im__base span { font: 600 0.74em/1 var(--font); color: #fff; white-space: nowrap; letter-spacing: -0.01em; }
-
-.im--final .im__tile { width: 5em; height: 5em; border-radius: 1.3em; }
-.im--final .im__icon { width: 2.9em; height: 2.9em; }
-.im--final .im__base { width: 7.2em; }
-.im--final .im__base span { font-size: 0.9em; color: #3ddc97; }
-
-.im--router .im__tile { width: 2.8em; height: 2.8em; border-radius: 0.8em; margin-bottom: -0.45em; }
-.im--router .im__icon { width: 1.7em; height: 1.7em; }
-.im--router .im__base { width: 4.6em; height: 1.6em; padding-bottom: 0.3em; }
-.im--router .im__base span { font-size: 0.62em; }
-
-/* Hochformat (Smartphone) */
-@media (max-aspect-ratio: 4/5) {
-  html.is-intro .intro { font-size: min(3.1vw, 1.75vh); }
-  .intro__stage { --tilt: 24deg; --orbit: 0deg; width: 26em; height: 46em; margin: -23em 0 0 -13em; top: 48%; animation-name: intro-camera-port; }
-  .im { --s: 0.95em; }
-  .intro__links--land { display: none; }
-  .intro__links--port { display: block; }
-}
-
-/* Die Seite entsteht, während das Intro sich auflöst */
-html.is-intro .site-header { animation: page-drop 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) 3.75s both; }
-html.is-intro .hero__text > * { animation: page-rise 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) 3.8s both; }
-html.is-intro .hero__text > :nth-child(2) { animation-delay: 3.9s; }
-html.is-intro .hero__text > :nth-child(3) { animation-delay: 4s; }
-html.is-intro .hero__visual { animation: page-zoom 1s cubic-bezier(0.2, 0.8, 0.2, 1) 3.85s both; }
-
-/* Überspringen: sofort ausblenden, Seite im Endzustand */
-html.is-intro-skip .intro, html.is-intro-skip .intro__skip { animation: intro-out 0.35s ease forwards !important; }
-html.is-intro-skip .site-header, html.is-intro-skip .hero__text > *, html.is-intro-skip .hero__visual { animation: none !important; }
-
-@keyframes intro-camera {
-  from { --tilt: 62deg; --orbit: -160deg; transform: rotateX(var(--tilt)) rotateZ(var(--orbit)) scale(0.8); }
-  to { --tilt: 40deg; --orbit: -8deg; transform: rotateX(var(--tilt)) rotateZ(var(--orbit)) scale(1); }
-}
-@keyframes intro-camera-port {
-  from { --tilt: 50deg; --orbit: -140deg; transform: rotateX(var(--tilt)) rotateZ(var(--orbit)) scale(0.8); }
-  to { --tilt: 24deg; --orbit: 0deg; transform: rotateX(var(--tilt)) rotateZ(var(--orbit)) scale(1); }
-}
-@keyframes im-fly {
-  from { transform: var(--from); }
-  to { transform: translate3d(0, 0, 0) rotateX(0deg) rotateY(0deg) rotateZ(0deg); }
-}
-@keyframes im-burst {
-  from { transform: translate3d(0, 0, 0) rotateX(0deg) rotateY(0deg) rotateZ(0deg); }
-  to { transform: var(--burst); }
-}
-@keyframes im-flash {
-  0% { box-shadow: 0 0 2.2em 0.5em var(--c), inset 0 0 0 0.12em rgba(255, 255, 255, 0.8); }
-  100% { box-shadow: 0 0 2.2em 0.5em transparent, inset 0 0 0 0.12em rgba(255, 255, 255, 0); }
-}
-@keyframes im-glow {
-  0% { opacity: 1; transform: scale(1.35); }
-  100% { opacity: 0.75; transform: none; }
-}
-@keyframes intro-draw { to { stroke-dashoffset: 0; } }
-@keyframes intro-fade { from { opacity: 0; } }
-@keyframes intro-fade-out { to { opacity: 0; } }
-@keyframes intro-out { to { opacity: 0; visibility: hidden; } }
-@keyframes page-drop { from { transform: translateY(-100%); } }
-@keyframes page-rise { from { transform: translateY(2.5rem); } }
-@keyframes page-zoom { from { transform: scale(0.9) translateY(1rem); opacity: 0; } }
+html.intro-verspielt .intro__blob--1 { left: -15vmax; top: -20vmax; background: #b8f3d9; }
+html.intro-verspielt .intro__blob--2 { right: -20vmax; bottom: -25vmax; background: #d9ccff; }

@@ -36,109 +36,73 @@
   "hero": {
     "headline": "Automatisierungen, die laufen.",
     "subline": "Ich automatisiere wiederkehrende Abläufe für Online-Händler und sorge dafür, dass sie zuverlässig weiterlaufen.",
-    "button": "Anfrage stellen",
-    "_modules": "Module der animierten Workflow-Grafik im Kopfbereich. icon: bag, sheet, check, filter, mail, bell, cart, doc, spark, chat. trigger: true zeigt das Uhr-Symbol (Auslöser) wie in Make.",
-    "modules": [
-      {
-        "app": "Shopify",
-        "action": "Neue Bestellung",
-        "icon": "bag",
-        "color": "#5E8E3E",
-        "trigger": true
-      },
-      {
-        "app": "Google Sheets",
-        "action": "Zeile hinzufügen",
-        "icon": "sheet",
-        "color": "#188038"
-      },
-      {
-        "app": "Prüfung",
-        "action": "Daten prüfen",
-        "icon": "check",
-        "color": "#6D28D9"
-      },
-      {
-        "app": "E-Mail",
-        "action": "Nachricht senden",
-        "icon": "mail",
-        "color": "#1A73E8"
-      }
-    ]
+    "button": "Anfrage stellen"
   },
   "intro": {
-    "_hinweis": "Intro-Animation der Startseite (einmal pro Sitzung). Genau 11 Module in dieser Reihenfolge: 1 Auslöser, 2 Firma, 3–8 drei Zweige (je zwei), 9–10 Zusammenführung, 11 Ergebnis. Farben am besten kräftig (Neon), z. B. #22C55E. icon: mail, logo, bag, sheet, store, spark, doc, check, pulse, user, bell, cart, filter, chat, box, done.",
+    "_hinweis": "Intro der Startseite und Workflow im Kopfbereich. Genau 9 Module in fester Rolle: 1 Auslöser, 2 zweites Modul, 3 Router, 4–5 oberer Zweig, 6–7 mittlerer Zweig, 8–9 unterer Zweig. Module mit \"hero\": true erscheinen danach im Kopfbereich (genau 4). Symbole: bag, sheet, router, globe, braces, spark, mail, iterator, hash, check, filter, doc, cart, bell, chat, store, user, box, pulse.",
     "skip": "Intro überspringen",
     "modules": [
       {
-        "app": "Anfrage",
-        "action": "E-Mail eingegangen",
-        "icon": "mail",
-        "color": "#2563EB",
-        "trigger": true
-      },
-      {
-        "app": "4ELEMENTS",
-        "action": "Ablauf analysiert",
-        "icon": "logo",
-        "color": "#3DDC97"
-      },
-      {
-        "app": "Shop",
-        "action": "Bestellungen",
+        "app": "Shopify",
+        "action": "Watch Orders",
         "icon": "bag",
-        "color": "#22C55E"
+        "color": "#5E8E3E",
+        "trigger": true,
+        "hero": true
       },
       {
-        "app": "Tabelle",
-        "action": "Daten übertragen",
+        "app": "Google Sheets",
+        "action": "Add a Row",
         "icon": "sheet",
-        "color": "#16A34A"
+        "color": "#0F9D58",
+        "hero": true
       },
       {
-        "app": "Marktplatz",
-        "action": "Bestand geprüft",
-        "icon": "store",
-        "color": "#F97316"
+        "app": "Router",
+        "action": "",
+        "icon": "router",
+        "color": "#8A96A3",
+        "router": true
       },
       {
-        "app": "KI",
-        "action": "Anfragen sortiert",
+        "app": "HTTP",
+        "action": "Make a Request",
+        "icon": "globe",
+        "color": "#2D7FF9"
+      },
+      {
+        "app": "JSON",
+        "action": "Parse JSON",
+        "icon": "braces",
+        "color": "#7E57C2"
+      },
+      {
+        "app": "OpenAI",
+        "action": "Create a Completion",
         "icon": "spark",
-        "color": "#A855F7"
+        "color": "#10A37F",
+        "hero": true
       },
       {
-        "app": "Rechnung",
-        "action": "Automatisch erstellt",
-        "icon": "doc",
-        "color": "#0EA5E9"
+        "app": "Gmail",
+        "action": "Send an Email",
+        "icon": "mail",
+        "color": "#EA4335",
+        "hero": true
       },
       {
-        "app": "Abnahme",
-        "action": "Kriterien erfüllt",
-        "icon": "check",
-        "color": "#8B5CF6"
+        "app": "Iterator",
+        "action": "Iterate Items",
+        "icon": "iterator",
+        "color": "#6BAF3A"
       },
       {
-        "app": "Monitoring",
-        "action": "Fehler abgefangen",
-        "icon": "pulse",
-        "color": "#EF4444"
-      },
-      {
-        "app": "Betreuung",
-        "action": "Monatsbericht",
-        "icon": "user",
-        "color": "#14B8A6"
-      },
-      {
-        "app": "Läuft.",
-        "action": "Automatisierung aktiv",
-        "icon": "done",
-        "color": "#3DDC97"
+        "app": "Slack",
+        "action": "Create a Message",
+        "icon": "hash",
+        "color": "#4A154B"
       }
-    ],
-    "router": "Router"
+    ]
   },
   "problem": {
     "label": "Das Problem",

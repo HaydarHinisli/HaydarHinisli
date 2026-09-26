@@ -520,18 +520,18 @@ main { padding-top: var(--header-h); }
   .scene { animation: scene-float 12s ease-in-out 5.2s infinite alternate; }
 
   /* Anflug aus allen Richtungen, mit Drehung im Raum */
-  .module { animation: module-fly 1.8s cubic-bezier(0.16, 1, 0.3, 1) both; }
-  .module--1 { --from: translate3d(-26em, 9em, -30em) rotateX(-25deg) rotateY(300deg) rotateZ(-20deg); animation-delay: 0.4s; }
-  .module--2 { --from: translate3d(5em, -24em, 20em) rotateX(260deg) rotateY(-30deg) rotateZ(25deg); animation-delay: 0.9s; }
-  .module--3 { --from: translate3d(30em, -5em, -45em) rotateX(20deg) rotateY(-320deg) rotateZ(15deg); animation-delay: 0.15s; }
-  .module--4 { --from: translate3d(16em, 22em, 26em) rotateX(-240deg) rotateY(40deg) rotateZ(-30deg); animation-delay: 0.65s; }
-  .module--5 { --from: translate3d(-12em, -22em, -24em) rotateX(40deg) rotateY(280deg) rotateZ(10deg); animation-delay: 1.05s; }
+  .chain .module { animation: module-fly 1.8s cubic-bezier(0.16, 1, 0.3, 1) both; }
+  .chain .module--1 { --from: translate3d(-26em, 9em, -30em) rotateX(-25deg) rotateY(300deg) rotateZ(-20deg); animation-delay: 0.4s; }
+  .chain .module--2 { --from: translate3d(5em, -24em, 20em) rotateX(260deg) rotateY(-30deg) rotateZ(25deg); animation-delay: 0.9s; }
+  .chain .module--3 { --from: translate3d(30em, -5em, -45em) rotateX(20deg) rotateY(-320deg) rotateZ(15deg); animation-delay: 0.15s; }
+  .chain .module--4 { --from: translate3d(16em, 22em, 26em) rotateX(-240deg) rotateY(40deg) rotateZ(-30deg); animation-delay: 0.65s; }
+  .chain .module--5 { --from: translate3d(-12em, -22em, -24em) rotateX(40deg) rotateY(280deg) rotateZ(10deg); animation-delay: 1.05s; }
 
   /* Danach schwebt jedes Modul leicht versetzt */
-  .module--1 { animation: module-fly 1.8s cubic-bezier(0.16, 1, 0.3, 1) 0.4s both, module-bob 4.5s ease-in-out 5.2s infinite alternate; }
-  .module--2 { animation: module-fly 1.8s cubic-bezier(0.16, 1, 0.3, 1) 0.9s both, module-bob 5s ease-in-out 5.8s infinite alternate; }
-  .module--3 { animation: module-fly 1.8s cubic-bezier(0.16, 1, 0.3, 1) 0.15s both, module-bob 4.2s ease-in-out 5.5s infinite alternate; }
-  .module--4 { animation: module-fly 1.8s cubic-bezier(0.16, 1, 0.3, 1) 0.65s both, module-bob 4.8s ease-in-out 6.1s infinite alternate; }
+  .chain .module--1 { animation: module-fly 1.8s cubic-bezier(0.16, 1, 0.3, 1) 0.4s both, module-bob 4.5s ease-in-out 5.2s infinite alternate; }
+  .chain .module--2 { animation: module-fly 1.8s cubic-bezier(0.16, 1, 0.3, 1) 0.9s both, module-bob 5s ease-in-out 5.8s infinite alternate; }
+  .chain .module--3 { animation: module-fly 1.8s cubic-bezier(0.16, 1, 0.3, 1) 0.15s both, module-bob 4.2s ease-in-out 5.5s infinite alternate; }
+  .chain .module--4 { animation: module-fly 1.8s cubic-bezier(0.16, 1, 0.3, 1) 0.65s both, module-bob 4.8s ease-in-out 6.1s infinite alternate; }
 
   .ghost { animation: ghost-in 1.6s ease-out both, ghost-drift 9s ease-in-out 1.6s infinite alternate; }
   .ghost--2 { animation-delay: 0.3s, 1.9s; animation-duration: 1.6s, 11s; }
@@ -541,30 +541,30 @@ main { padding-top: var(--header-h); }
   .ghost--6 { animation-delay: 0.4s, 2s; animation-duration: 1.6s, 9.5s; }
 
   /* Verbindungen entstehen nacheinander */
-  .link { animation: link-draw 0.4s ease-out both; }
-  .link--1 { animation-delay: 2.6s; }
-  .link--2 { animation-delay: 2.8s; }
-  .link--3 { animation-delay: 3s; }
-  .link--4 { animation-delay: 3.2s; }
+  .chain .link { animation: link-draw 0.4s ease-out both; }
+  .chain .link--1 { animation-delay: 2.6s; }
+  .chain .link--2 { animation-delay: 2.8s; }
+  .chain .link--3 { animation-delay: 3s; }
+  .chain .link--4 { animation-delay: 3.2s; }
 
   /* Ein Durchlauf: Impuls wandert durch die Kette, jedes Modul meldet „1“ */
-  .link__pulse { animation: pulse-run 0.4s ease-in-out both; }
-  .link--1 .link__pulse { animation-delay: 3.75s; }
-  .link--2 .link__pulse { animation-delay: 4.2s; }
-  .link--3 .link__pulse { animation-delay: 4.65s; }
-  .link--4 .link__pulse { animation-delay: 5.1s; }
+  .chain .link__pulse { animation: pulse-run 0.4s ease-in-out both; }
+  .chain .link--1 .link__pulse { animation-delay: 3.75s; }
+  .chain .link--2 .link__pulse { animation-delay: 4.2s; }
+  .chain .link--3 .link__pulse { animation-delay: 4.65s; }
+  .chain .link--4 .link__pulse { animation-delay: 5.1s; }
 
-  .module__ring { animation: ring 0.7s ease-out both; }
-  .module__count { animation: count-pop 0.35s cubic-bezier(0.3, 1.6, 0.5, 1) both; }
-  .module--1 .module__ring, .module--1 .module__count { animation-delay: 3.4s; }
-  .module--2 .module__ring, .module--2 .module__count { animation-delay: 4.15s; }
-  .module--3 .module__ring, .module--3 .module__count { animation-delay: 4.6s; }
-  .module--4 .module__ring, .module--4 .module__count { animation-delay: 5.05s; }
-  .module--5 .module__ring, .module--5 .module__count { animation-delay: 5.5s; }
+  .chain .module__ring { animation: ring 0.7s ease-out both; }
+  .chain .module__count { animation: count-pop 0.35s cubic-bezier(0.3, 1.6, 0.5, 1) both; }
+  .chain .module--1 .module__ring, .chain .module--1 .module__count { animation-delay: 3.4s; }
+  .chain .module--2 .module__ring, .chain .module--2 .module__count { animation-delay: 4.15s; }
+  .chain .module--3 .module__ring, .chain .module--3 .module__count { animation-delay: 4.6s; }
+  .chain .module--4 .module__ring, .chain .module--4 .module__count { animation-delay: 5.05s; }
+  .chain .module--5 .module__ring, .chain .module--5 .module__count { animation-delay: 5.5s; }
 
   @container (max-width: 470px) {
-    .link { animation-name: link-draw-v; }
-    .link__pulse { animation-name: pulse-run-v; }
+    .chain .link { animation-name: link-draw-v; }
+    .chain .link__pulse { animation-name: pulse-run-v; }
   }
 }
 
@@ -617,6 +617,19 @@ main { padding-top: var(--header-h); }
   from { transform: scale(0); opacity: 0; }
   to { transform: none; opacity: 1; }
 }
+
+/* Nach dem Intro: Die Kette steht bereits (die Intro-Module sind hineingeflogen),
+   nur das sanfte Schweben läuft weiter. */
+html.is-intro .chain .module, html.is-intro .chain .link, html.is-intro .scene__ghosts, html.is-intro .scene__grid { opacity: 0; }
+html.is-intro .scene { transform: none; }
+html.intro-played .scene { transition: transform 1.2s cubic-bezier(0.65, 0, 0.35, 1); }
+html.is-intro .chain .module, html.is-intro .scene { animation: none; }
+html.intro-played .chain .module { animation-name: none, module-bob; }
+html.is-intro .chain .link, html.is-intro .chain .link__pulse,
+html.is-intro .chain .module__ring, html.is-intro .chain .module__count,
+html.intro-played .chain .link, html.intro-played .chain .link__pulse,
+html.intro-played .chain .module__ring, html.intro-played .chain .module__count { animation: none; }
+html.intro-played .scene__ghosts, html.intro-played .scene__grid { transition: opacity 0.8s ease; }
 
 /* ---------- Problem ---------- */
 

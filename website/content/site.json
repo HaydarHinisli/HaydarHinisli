@@ -21,5 +21,8 @@
   "phone": "",
 
   "_portrait": "Porträtfoto als WebP in assets/img/ ablegen und Dateinamen eintragen, z. B. \"haydar-hinisli.webp\". Leer lassen = Platzhalter.",
-  "portrait": ""
+  "portrait": "",
+
+  "_introVariant": "Intro der Startseite: \"clean\" (ruhig, im Layout der Seite) oder \"verspielt\" (3D, Federbewegung, Konfetti). \"aus\" schaltet das Intro ab. Vorschau jeder Variante: /?intro=clean bzw. /?intro=verspielt",
+  "introVariant": "clean"
 }

@@ -37,109 +37,73 @@
   "hero": {
     "headline": "Automations that keep running.",
     "subline": "I automate recurring workflows for online retailers and make sure they keep running reliably.",
-    "button": "Send an inquiry",
-    "_modules": "Modules of the animated workflow graphic in the hero. icon: bag, sheet, check, filter, mail, bell, cart, doc, spark, chat.",
-    "modules": [
-      {
-        "app": "Shopify",
-        "action": "New order",
-        "icon": "bag",
-        "color": "#5E8E3E",
-        "trigger": true
-      },
-      {
-        "app": "Google Sheets",
-        "action": "Add a row",
-        "icon": "sheet",
-        "color": "#188038"
-      },
-      {
-        "app": "Check",
-        "action": "Validate data",
-        "icon": "check",
-        "color": "#6D28D9"
-      },
-      {
-        "app": "Email",
-        "action": "Send notification",
-        "icon": "mail",
-        "color": "#1A73E8"
-      }
-    ]
+    "button": "Send an inquiry"
   },
   "intro": {
-    "_hinweis": "Intro animation (once per session). Exactly 11 modules in this order: 1 trigger, 2 company, 3–8 three branches (two each), 9–10 merge, 11 result.",
+    "_hinweis": "Homepage intro and hero workflow. Exactly 9 modules in fixed roles; the 4 with \"hero\": true also appear in the hero. Icons: bag, sheet, router, globe, braces, spark, mail, iterator, hash, check, filter, doc, cart, bell, chat, store, user, box, pulse.",
     "skip": "Skip intro",
     "modules": [
       {
-        "app": "Inquiry",
-        "action": "Email received",
-        "icon": "mail",
-        "color": "#2563EB",
-        "trigger": true
-      },
-      {
-        "app": "4ELEMENTS",
-        "action": "Workflow analysed",
-        "icon": "logo",
-        "color": "#3DDC97"
-      },
-      {
-        "app": "Shop",
-        "action": "Orders",
+        "app": "Shopify",
+        "action": "Watch Orders",
         "icon": "bag",
-        "color": "#22C55E"
+        "color": "#5E8E3E",
+        "trigger": true,
+        "hero": true
       },
       {
-        "app": "Spreadsheet",
-        "action": "Data transferred",
+        "app": "Google Sheets",
+        "action": "Add a Row",
         "icon": "sheet",
-        "color": "#16A34A"
+        "color": "#0F9D58",
+        "hero": true
       },
       {
-        "app": "Marketplace",
-        "action": "Stock checked",
-        "icon": "store",
-        "color": "#F97316"
+        "app": "Router",
+        "action": "",
+        "icon": "router",
+        "color": "#8A96A3",
+        "router": true
       },
       {
-        "app": "AI",
-        "action": "Requests sorted",
+        "app": "HTTP",
+        "action": "Make a Request",
+        "icon": "globe",
+        "color": "#2D7FF9"
+      },
+      {
+        "app": "JSON",
+        "action": "Parse JSON",
+        "icon": "braces",
+        "color": "#7E57C2"
+      },
+      {
+        "app": "OpenAI",
+        "action": "Create a Completion",
         "icon": "spark",
-        "color": "#A855F7"
+        "color": "#10A37F",
+        "hero": true
       },
       {
-        "app": "Invoice",
-        "action": "Created automatically",
-        "icon": "doc",
-        "color": "#0EA5E9"
+        "app": "Gmail",
+        "action": "Send an Email",
+        "icon": "mail",
+        "color": "#EA4335",
+        "hero": true
       },
       {
-        "app": "Acceptance",
-        "action": "Criteria met",
-        "icon": "check",
-        "color": "#8B5CF6"
+        "app": "Iterator",
+        "action": "Iterate Items",
+        "icon": "iterator",
+        "color": "#6BAF3A"
       },
       {
-        "app": "Monitoring",
-        "action": "Errors caught",
-        "icon": "pulse",
-        "color": "#EF4444"
-      },
-      {
-        "app": "Support",
-        "action": "Monthly report",
-        "icon": "user",
-        "color": "#14B8A6"
-      },
-      {
-        "app": "Running.",
-        "action": "Automation active",
-        "icon": "done",
-        "color": "#3DDC97"
+        "app": "Slack",
+        "action": "Create a Message",
+        "icon": "hash",
+        "color": "#4A154B"
       }
-    ],
-    "router": "Router"
+    ]
   },
   "problem": {
     "label": "The problem",
