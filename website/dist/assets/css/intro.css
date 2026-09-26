@@ -9,9 +9,10 @@ html.is-intro .intro {
   inset: 0;
   z-index: 1000;
   overflow: hidden;
-  background: #0b0d10;
-  perspective: 90em;
-  font-size: min(1.25vw, 2.3vh);
+  background: #05070a;
+  perspective: 80em;
+  perspective-origin: 50% 30%;
+  font-size: min(1.1vw, 2.05vh);
   animation: intro-out 0.55s ease 3.7s forwards;
 }
 html.is-intro .intro__skip {
@@ -32,34 +33,45 @@ html.is-intro .intro__skip {
 html.is-intro .intro__skip:hover { color: #fff; border-color: rgba(255, 255, 255, 0.5); }
 html.is-intro .intro__skip:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 
-.intro__glow {
+/* Kamera: Winkel als animierbare Eigenschaften, damit die Module sich zur Kamera drehen können */
+@property --tilt { syntax: '<angle>'; inherits: true; initial-value: 40deg; }
+@property --orbit { syntax: '<angle>'; inherits: true; initial-value: -8deg; }
+
+.intro__light {
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(ellipse 45% 40% at 55% 50%, rgba(61, 220, 151, 0.12), transparent 70%),
-    radial-gradient(ellipse 60% 60% at 30% 40%, rgba(124, 58, 237, 0.08), transparent 70%);
+    radial-gradient(ellipse 40% 35% at 50% 0%, rgba(90, 140, 255, 0.22), transparent 70%),
+    radial-gradient(ellipse 60% 45% at 50% 60%, rgba(61, 220, 151, 0.07), transparent 75%),
+    radial-gradient(ellipse 80% 70% at 50% 50%, transparent 50%, rgba(0, 0, 0, 0.6) 100%);
 }
 
 .intro__stage {
+  --tilt: 40deg;
+  --orbit: -8deg;
   position: absolute;
   left: 50%;
-  top: 50%;
+  top: 52%;
   width: 75em;
   height: 40em;
   margin: -20em 0 0 -37.5em;
   transform-style: preserve-3d;
-  transform: rotateX(12deg) rotateY(-8deg);
-  animation: intro-camera 3.6s cubic-bezier(0.25, 0.8, 0.3, 1) both;
+  transform: rotateX(var(--tilt)) rotateZ(var(--orbit));
+  animation: intro-camera 3.5s cubic-bezier(0.3, 0.6, 0.25, 1) both;
 }
 
-.intro__grid {
+/* Dunkler, leicht spiegelnder Boden mit feinem Raster */
+.intro__floor {
   position: absolute;
-  inset: -25em -30em;
-  background: radial-gradient(circle, rgba(255, 255, 255, 0.09) 0.07em, transparent 0.09em) 0 0 / 1.6em 1.6em;
-  -webkit-mask-image: radial-gradient(ellipse 50% 50% at 50% 50%, #000 20%, transparent 75%);
-  mask-image: radial-gradient(ellipse 50% 50% at 50% 50%, #000 20%, transparent 75%);
-  transform: translateZ(-3em);
-  animation: intro-fade 1.2s ease 0.1s both;
+  inset: -30em -35em;
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.035) 0.05em, transparent 0.05em) 0 0 / 3em 3em,
+    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 0.05em, transparent 0.05em) 0 0 / 3em 3em,
+    radial-gradient(ellipse 45% 45% at 50% 50%, #151a22, #07090c 80%);
+  -webkit-mask-image: radial-gradient(ellipse 50% 50% at 50% 50%, #000 30%, transparent 80%);
+  mask-image: radial-gradient(ellipse 50% 50% at 50% 50%, #000 30%, transparent 80%);
+  transform: translateZ(-0.1em);
+  animation: intro-fade 1s ease both;
 }
 
 .intro__links {
@@ -68,78 +80,124 @@ html.is-intro .intro__skip:focus-visible { outline: 2px solid var(--accent); out
   width: 100%;
   height: 100%;
   overflow: visible;
-  transform: translateZ(-0.5em);
   animation: intro-fade-out 0.3s ease 3.4s forwards;
 }
 .intro__links--port { display: none; }
-.intro__link {
+.intro__link { fill: none; stroke-width: 0.42; stroke-linecap: round; stroke-dasharray: 0 0.78; }
+.intro__reveal {
   fill: none;
-  stroke: rgba(255, 255, 255, 0.3);
-  stroke-width: 0.09;
+  stroke: #fff;
+  stroke-width: 1.4;
   stroke-dasharray: 1;
   stroke-dashoffset: 1;
-  animation: intro-draw 0.4s ease-out both;
+  animation: intro-draw 0.45s ease-out both;
 }
-.intro__packet { fill: #3ddc97; opacity: 0; filter: drop-shadow(0 0 0.25px #3ddc97); }
+.intro__packet { fill: #fff; opacity: 0; }
 
 .intro__modules { position: absolute; inset: 0; transform-style: preserve-3d; }
 
-/* Modul im Make-Stil */
+/* Modul: glänzende App-Kachel auf dunklem Sockel, steht auf dem Boden und schaut zur Kamera */
 .im {
+  --c: #3ddc97;
   position: absolute;
-  width: 9em;
-  margin: -1.8em 0 0 -4.5em;
+  width: 0;
+  height: 0;
+  --s: 1.15em;
+  transform-style: preserve-3d;
+  animation: im-fly 1.4s cubic-bezier(0.16, 1, 0.3, 1) both, im-burst 0.8s cubic-bezier(0.55, 0, 0.8, 0.2) forwards;
+}
+.im__glow, .im__stand { font-size: var(--s); }
+.im__glow {
+  position: absolute;
+  left: -5em;
+  top: -3em;
+  width: 10em;
+  height: 6em;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--c) 55%, transparent), transparent);
+  opacity: 0.75;
+  animation: im-glow 0.8s ease-out forwards;
+}
+.im__stand {
+  position: absolute;
+  left: -5em;
+  bottom: -0.9em;
+  width: 10em;
+  padding-top: 2.5em;
   display: grid;
   justify-items: center;
-  text-align: center;
-  color: #fff;
-  backface-visibility: visible;
-  animation: im-fly 1.35s cubic-bezier(0.16, 1, 0.3, 1) both, im-burst 0.8s cubic-bezier(0.55, 0, 0.8, 0.2) forwards;
+  transform-origin: 50% calc(100% - 0.9em);
+  transform: rotateZ(calc(var(--orbit) * -1)) rotateX(calc(var(--tilt) * -1 + 14deg));
 }
-.im__body { position: relative; width: 3.6em; height: 3.6em; margin-bottom: 0.7em; }
-.im__body::before {
-  content: '';
-  position: absolute;
-  inset: -0.28em;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 0 1.6em rgba(0, 0, 0, 0.5);
-}
-.im__icon { position: relative; display: block; width: 100%; height: 100%; }
-.im__ring { position: absolute; inset: -0.28em; border-radius: 50%; animation: im-ring 0.7s ease-out both; }
-.im__trigger {
-  position: absolute;
-  left: -0.4em;
-  bottom: -0.25em;
+.im__tile {
+  position: relative;
+  z-index: 1;
   display: grid;
   place-items: center;
-  width: 1.35em;
-  height: 1.35em;
-  border-radius: 50%;
-  background: #fff;
-  color: #1c1f23;
+  width: 4.1em;
+  height: 4.1em;
+  margin-bottom: -0.6em;
+  border-radius: 1.1em;
+  background: linear-gradient(155deg,
+    color-mix(in srgb, var(--c) 55%, #fff) 0%,
+    var(--c) 42%,
+    color-mix(in srgb, var(--c) 62%, #000) 100%);
+  box-shadow:
+    inset 0 0.12em 0.04em rgba(255, 255, 255, 0.55),
+    inset 0 -0.35em 0.5em rgba(0, 0, 0, 0.3),
+    0 0 1.5em color-mix(in srgb, var(--c) 75%, transparent),
+    0 0.5em 0.9em rgba(0, 0, 0, 0.55);
 }
-.im__trigger svg { width: 0.9em; height: 0.9em; }
-.im__app { font: 600 0.8em/1.2 var(--font); white-space: nowrap; }
-.im__action { font: 400 0.62em/1.3 var(--font); color: #9ba3ab; margin-top: 0.15em; white-space: nowrap; }
+.im__tile::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  animation: im-flash 0.8s ease-out forwards;
+}
+.im__tile::after {
+  content: '';
+  position: absolute;
+  inset: 0.14em 0.2em 48%;
+  border-radius: 0.95em 0.95em 45% 45% / 0.95em 0.95em 30% 30%;
+  background: linear-gradient(rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0.02));
+}
+.im__icon { position: relative; z-index: 1; width: 2.3em; height: 2.3em; filter: drop-shadow(0 0.08em 0.06em rgba(0, 0, 0, 0.35)); }
 
-.im--final { margin-top: -2.3em; }
-.im--final .im__body { width: 4.6em; height: 4.6em; }
-.im--final .im__body::before { background: #3ddc97; box-shadow: 0 0 2.4em rgba(61, 220, 151, 0.55); }
-.im--final .im__app { font-size: 1.05em; color: #3ddc97; }
+.im__base {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  width: 6.2em;
+  height: 1.95em;
+  padding-bottom: 0.38em;
+  border-radius: 0.55em;
+  background: linear-gradient(#2c323a 0%, #1a1e24 32%, #0d0f12 34%, #0a0c0f 100%);
+  box-shadow:
+    inset 0 0.08em 0 rgba(255, 255, 255, 0.16),
+    inset 0 -0.06em 0 color-mix(in srgb, var(--c) 60%, transparent),
+    0 0.2em 1.1em color-mix(in srgb, var(--c) 45%, transparent),
+    0 0.7em 1.2em rgba(0, 0, 0, 0.7);
+}
+.im__base span { font: 600 0.74em/1 var(--font); color: #fff; white-space: nowrap; letter-spacing: -0.01em; }
 
-.im--router { width: 1.5em; margin: -0.75em 0 0 -0.75em; }
-.im--router .im__body { width: 1.5em; height: 1.5em; margin: 0; }
-.im--router .im__body::before { inset: -0.15em; }
+.im--final .im__tile { width: 5em; height: 5em; border-radius: 1.3em; }
+.im--final .im__icon { width: 2.9em; height: 2.9em; }
+.im--final .im__base { width: 7.2em; }
+.im--final .im__base span { font-size: 0.9em; color: #3ddc97; }
+
+.im--router .im__tile { width: 2.8em; height: 2.8em; border-radius: 0.8em; margin-bottom: -0.45em; }
+.im--router .im__icon { width: 1.7em; height: 1.7em; }
+.im--router .im__base { width: 4.6em; height: 1.6em; padding-bottom: 0.3em; }
+.im--router .im__base span { font-size: 0.62em; }
 
 /* Hochformat (Smartphone) */
 @media (max-aspect-ratio: 4/5) {
-  html.is-intro .intro { font-size: min(3.6vw, 2.05vh); }
-  .intro__stage { width: 26em; height: 46em; margin: -23em 0 0 -13em; }
+  html.is-intro .intro { font-size: min(3.1vw, 1.75vh); }
+  .intro__stage { --tilt: 24deg; --orbit: 0deg; width: 26em; height: 46em; margin: -23em 0 0 -13em; top: 48%; animation-name: intro-camera-port; }
+  .im { --s: 0.95em; }
   .intro__links--land { display: none; }
   .intro__links--port { display: block; }
-  .im { width: 8em; margin-left: -4em; }
-  .im__action { font-size: 0.56em; }
 }
 
 /* Die Seite entsteht, während das Intro sich auflöst */
@@ -154,21 +212,28 @@ html.is-intro-skip .intro, html.is-intro-skip .intro__skip { animation: intro-ou
 html.is-intro-skip .site-header, html.is-intro-skip .hero__text > *, html.is-intro-skip .hero__visual { animation: none !important; }
 
 @keyframes intro-camera {
-  from { transform: rotateX(34deg) rotateY(-30deg) rotateZ(6deg) scale(0.82); }
-  to { transform: rotateX(12deg) rotateY(-8deg) rotateZ(0deg) scale(1); }
+  from { --tilt: 62deg; --orbit: -160deg; transform: rotateX(var(--tilt)) rotateZ(var(--orbit)) scale(0.8); }
+  to { --tilt: 40deg; --orbit: -8deg; transform: rotateX(var(--tilt)) rotateZ(var(--orbit)) scale(1); }
+}
+@keyframes intro-camera-port {
+  from { --tilt: 50deg; --orbit: -140deg; transform: rotateX(var(--tilt)) rotateZ(var(--orbit)) scale(0.8); }
+  to { --tilt: 24deg; --orbit: 0deg; transform: rotateX(var(--tilt)) rotateZ(var(--orbit)) scale(1); }
 }
 @keyframes im-fly {
-  0% { opacity: 0; transform: var(--from); filter: blur(0.35em); }
-  35% { opacity: 1; }
-  100% { opacity: 1; transform: translate3d(0, 0, 0) rotateX(0deg) rotateY(0deg) rotateZ(0deg); filter: blur(0); }
+  from { transform: var(--from); }
+  to { transform: translate3d(0, 0, 0) rotateX(0deg) rotateY(0deg) rotateZ(0deg); }
 }
 @keyframes im-burst {
-  0% { opacity: 1; transform: translate3d(0, 0, 0) rotateX(0deg) rotateY(0deg) rotateZ(0deg); filter: blur(0); }
-  100% { opacity: 0; transform: var(--burst); filter: blur(0.4em); }
+  from { transform: translate3d(0, 0, 0) rotateX(0deg) rotateY(0deg) rotateZ(0deg); }
+  to { transform: var(--burst); }
 }
-@keyframes im-ring {
-  0% { box-shadow: 0 0 0 0 rgba(61, 220, 151, 0.8); }
-  100% { box-shadow: 0 0 0 1.1em rgba(61, 220, 151, 0); }
+@keyframes im-flash {
+  0% { box-shadow: 0 0 2.2em 0.5em var(--c), inset 0 0 0 0.12em rgba(255, 255, 255, 0.8); }
+  100% { box-shadow: 0 0 2.2em 0.5em transparent, inset 0 0 0 0.12em rgba(255, 255, 255, 0); }
+}
+@keyframes im-glow {
+  0% { opacity: 1; transform: scale(1.35); }
+  100% { opacity: 0.75; transform: none; }
 }
 @keyframes intro-draw { to { stroke-dashoffset: 0; } }
 @keyframes intro-fade { from { opacity: 0; } }
@@ -180,42 +245,54 @@ html.is-intro-skip .site-header, html.is-intro-skip .hero__text > *, html.is-int
 
 /* ---- generiert von build.mjs ---- */
 .im--1 { left: 5em; top: 20em; --from: translate3d(56.91em, -13.2em, 19.36em) rotateX(-317.65deg) rotateY(-308.78deg) rotateZ(56.94deg); --burst: translate3d(-44.1em, 0em, 64.92em) rotateX(-125.72deg) rotateY(-160.71deg) rotateZ(48.39deg); animation-delay: 0.06s, 3.48s; }
-.im--1 .im__ring { animation-delay: 1.93s; }
+.im--1 { --c: #2563EB; }
+.im--1 .im__tile::before, .im--1 .im__glow { animation-delay: 1.93s; }
 .im--2 { left: 15.5em; top: 20em; --from: translate3d(42.53em, 19.3em, -88.57em) rotateX(-181.38deg) rotateY(185.54deg) rotateZ(33.37deg); --burst: translate3d(-53.09em, 0em, 73.51em) rotateX(120.82deg) rotateY(147.05deg) rotateZ(32.04deg); animation-delay: 0.23s, 3.49s; }
-.im--2 .im__ring { animation-delay: 2.25s; }
+.im--2 { --c: #3DDC97; }
+.im--2 .im__tile::before, .im--2 .im__glow { animation-delay: 2.25s; }
 .im--3 { left: 34em; top: 7.5em; --from: translate3d(26.37em, 44.09em, 1.87em) rotateX(-179.39deg) rotateY(-290.82deg) rotateZ(60.24deg); --burst: translate3d(-16.17em, -57.75em, 89.51em) rotateX(-98.23deg) rotateY(-158.6deg) rotateZ(-33.7deg); animation-delay: 0.25s, 3.49s; }
-.im--3 .im__ring { animation-delay: 2.59s; }
+.im--3 { --c: #22C55E; }
+.im--3 .im__tile::before, .im--3 .im__glow { animation-delay: 2.59s; }
 .im--4 { left: 44em; top: 7.5em; --from: translate3d(-4.15em, 36.67em, -80.57em) rotateX(216.33deg) rotateY(184.62deg) rotateZ(43.07deg); --burst: translate3d(26.91em, -51.75em, 91.75em) rotateX(85.96deg) rotateY(-174.49deg) rotateZ(43.78deg); animation-delay: 0.08s, 3.55s; }
-.im--4 .im__ring { animation-delay: 2.76s; }
+.im--4 { --c: #16A34A; }
+.im--4 .im__tile::before, .im--4 .im__glow { animation-delay: 2.76s; }
 .im--5 { left: 34em; top: 20em; --from: translate3d(-49.89em, 35.16em, -107.92em) rotateX(212.33deg) rotateY(276.99deg) rotateZ(-57.28deg); --burst: translate3d(-47.6em, 0em, 99.95em) rotateX(-111.71deg) rotateY(132.6deg) rotateZ(-18.49deg); animation-delay: 0.54s, 3.52s; }
-.im--5 .im__ring { animation-delay: 2.59s; }
+.im--5 { --c: #F97316; }
+.im--5 .im__tile::before, .im--5 .im__glow { animation-delay: 2.59s; }
 .im--6 { left: 44em; top: 20em; --from: translate3d(-48.18em, 36.03em, -94.56em) rotateX(-279.89deg) rotateY(286.31deg) rotateZ(32.11deg); --burst: translate3d(59.78em, 0em, 105.29em) rotateX(141.3deg) rotateY(-132.8deg) rotateZ(32.72deg); animation-delay: 0.57s, 3.53s; }
-.im--6 .im__ring { animation-delay: 2.76s; }
+.im--6 { --c: #A855F7; }
+.im--6 .im__tile::before, .im--6 .im__glow { animation-delay: 2.76s; }
 .im--7 { left: 34em; top: 32.5em; --from: translate3d(-48.28em, -2.58em, -67.2em) rotateX(335.66deg) rotateY(-245.33deg) rotateZ(34.75deg); --burst: translate3d(-14.76em, 52.72em, 92.06em) rotateX(114.26deg) rotateY(-137.86deg) rotateZ(-28.45deg); animation-delay: 0.09s, 3.56s; }
-.im--7 .im__ring { animation-delay: 2.59s; }
+.im--7 { --c: #0EA5E9; }
+.im--7 .im__tile::before, .im--7 .im__glow { animation-delay: 2.59s; }
 .im--8 { left: 44em; top: 32.5em; --from: translate3d(-58.29em, -10.02em, -8.43em) rotateX(-314.4deg) rotateY(216.06deg) rotateZ(-24.04deg); --burst: translate3d(16.29em, 31.32em, 87.02em) rotateX(-142.12deg) rotateY(-157.1deg) rotateZ(-39.07deg); animation-delay: 0.11s, 3.5s; }
-.im--8 .im__ring { animation-delay: 2.76s; }
+.im--8 { --c: #8B5CF6; }
+.im--8 .im__tile::before, .im--8 .im__glow { animation-delay: 2.76s; }
 .im--9 { left: 55em; top: 13.5em; --from: translate3d(-35.1em, -35.6em, 6.84em) rotateX(-253.27deg) rotateY(342.3deg) rotateZ(47.71deg); --burst: translate3d(47.03em, -17.47em, 103.05em) rotateX(123.57deg) rotateY(-113.21deg) rotateZ(10.95deg); animation-delay: 0.08s, 3.48s; }
-.im--9 .im__ring { animation-delay: 2.93s; }
+.im--9 { --c: #EF4444; }
+.im--9 .im__tile::before, .im--9 .im__glow { animation-delay: 2.93s; }
 .im--10 { left: 55em; top: 29em; --from: translate3d(13.6em, -38.39em, -101.77em) rotateX(-229.11deg) rotateY(245.89deg) rotateZ(-53.08deg); --burst: translate3d(40.05em, 20.6em, 73.51em) rotateX(-144.9deg) rotateY(123.71deg) rotateZ(21.95deg); animation-delay: 0.27s, 3.48s; }
-.im--10 .im__ring { animation-delay: 2.93s; }
+.im--10 { --c: #14B8A6; }
+.im--10 .im__tile::before, .im--10 .im__glow { animation-delay: 2.93s; }
 .im--11 { left: 67em; top: 20em; --from: translate3d(20.69em, -47.93em, 0.56em) rotateX(211.59deg) rotateY(-203.8deg) rotateZ(-69.7deg); --burst: translate3d(53.9em, 0em, 100.44em) rotateX(141.77deg) rotateY(-78.87deg) rotateZ(-12.31deg); animation-delay: 0.13s, 3.56s; }
-.im--11 .im__ring { animation-delay: 3.1s; }
+.im--11 { --c: #3DDC97; }
+.im--11 .im__tile::before, .im--11 .im__glow { animation-delay: 3.1s; }
 .im--12 { left: 24.5em; top: 20em; --from: translate3d(66.06em, -17.01em, -22.74em) rotateX(-226.27deg) rotateY(333.18deg) rotateZ(46.09deg); --burst: translate3d(-45.34em, 0em, 92.81em) rotateX(-110.63deg) rotateY(170.28deg) rotateZ(-44.5deg); animation-delay: 0.17s, 3.48s; }
-.im--12 .im__ring { animation-delay: 2.42s; }
-.il--1 { animation-delay: 1.7s; }
-.il--2 { animation-delay: 1.8s; }
-.il--3 { animation-delay: 1.9s; }
-.il--4 { animation-delay: 1.9s; }
-.il--5 { animation-delay: 1.9s; }
-.il--6 { animation-delay: 2s; }
-.il--7 { animation-delay: 2s; }
-.il--8 { animation-delay: 2s; }
-.il--9 { animation-delay: 2.1s; }
-.il--10 { animation-delay: 2.1s; }
-.il--11 { animation-delay: 2.1s; }
-.il--12 { animation-delay: 2.2s; }
-.il--13 { animation-delay: 2.2s; }
+.im--12 { --c: #94A3B8; }
+.im--12 .im__tile::before, .im--12 .im__glow { animation-delay: 2.42s; }
+.intro__reveal.il--1 { animation-delay: 1.7s; }
+.intro__reveal.il--2 { animation-delay: 1.8s; }
+.intro__reveal.il--3 { animation-delay: 1.9s; }
+.intro__reveal.il--4 { animation-delay: 1.9s; }
+.intro__reveal.il--5 { animation-delay: 1.9s; }
+.intro__reveal.il--6 { animation-delay: 2s; }
+.intro__reveal.il--7 { animation-delay: 2s; }
+.intro__reveal.il--8 { animation-delay: 2s; }
+.intro__reveal.il--9 { animation-delay: 2.1s; }
+.intro__reveal.il--10 { animation-delay: 2.1s; }
+.intro__reveal.il--11 { animation-delay: 2.1s; }
+.intro__reveal.il--12 { animation-delay: 2.2s; }
+.intro__reveal.il--13 { animation-delay: 2.2s; }
 @media (max-aspect-ratio: 4/5) {
   .im--1 { left: 13em; top: 3.5em; --burst: translate3d(0em, -40.07em, 101.31em) rotateX(67.64deg) rotateY(71.99deg) rotateZ(20.43deg); }
   .im--2 { left: 13em; top: 10.12em; --burst: translate3d(0em, -56.34em, 107.79em) rotateX(132.82deg) rotateY(139.98deg) rotateZ(-32.4deg); }

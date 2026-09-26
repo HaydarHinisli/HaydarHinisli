@@ -67,69 +67,69 @@
     ]
   },
   "intro": {
-    "_hinweis": "Intro-Animation der Startseite (einmal pro Sitzung). Genau 11 Module in dieser Reihenfolge: 1 Auslöser, 2 Firma, 3–8 drei Zweige (je zwei), 9–10 Zusammenführung, 11 Ergebnis. icon: mail, logo, bag, sheet, store, spark, doc, check, pulse, user, bell, cart, filter, chat, box, done.",
+    "_hinweis": "Intro-Animation der Startseite (einmal pro Sitzung). Genau 11 Module in dieser Reihenfolge: 1 Auslöser, 2 Firma, 3–8 drei Zweige (je zwei), 9–10 Zusammenführung, 11 Ergebnis. Farben am besten kräftig (Neon), z. B. #22C55E. icon: mail, logo, bag, sheet, store, spark, doc, check, pulse, user, bell, cart, filter, chat, box, done.",
     "skip": "Intro überspringen",
     "modules": [
       {
         "app": "Anfrage",
         "action": "E-Mail eingegangen",
         "icon": "mail",
-        "color": "#1A73E8",
+        "color": "#2563EB",
         "trigger": true
       },
       {
         "app": "4ELEMENTS",
         "action": "Ablauf analysiert",
         "icon": "logo",
-        "color": "#1C1F23"
+        "color": "#3DDC97"
       },
       {
         "app": "Shop",
         "action": "Bestellungen",
         "icon": "bag",
-        "color": "#5E8E3E"
+        "color": "#22C55E"
       },
       {
         "app": "Tabelle",
         "action": "Daten übertragen",
         "icon": "sheet",
-        "color": "#188038"
+        "color": "#16A34A"
       },
       {
         "app": "Marktplatz",
         "action": "Bestand geprüft",
         "icon": "store",
-        "color": "#E47911"
+        "color": "#F97316"
       },
       {
         "app": "KI",
         "action": "Anfragen sortiert",
         "icon": "spark",
-        "color": "#7C3AED"
+        "color": "#A855F7"
       },
       {
         "app": "Rechnung",
         "action": "Automatisch erstellt",
         "icon": "doc",
-        "color": "#0891B2"
+        "color": "#0EA5E9"
       },
       {
         "app": "Abnahme",
         "action": "Kriterien erfüllt",
         "icon": "check",
-        "color": "#6D28D9"
+        "color": "#8B5CF6"
       },
       {
         "app": "Monitoring",
         "action": "Fehler abgefangen",
         "icon": "pulse",
-        "color": "#DC2626"
+        "color": "#EF4444"
       },
       {
         "app": "Betreuung",
         "action": "Monatsbericht",
         "icon": "user",
-        "color": "#0F766E"
+        "color": "#14B8A6"
       },
       {
         "app": "Läuft.",
@@ -137,7 +137,8 @@
         "icon": "done",
         "color": "#3DDC97"
       }
-    ]
+    ],
+    "router": "Router"
   },
   "problem": {
     "label": "Das Problem",

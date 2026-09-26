@@ -75,62 +75,62 @@
         "app": "Inquiry",
         "action": "Email received",
         "icon": "mail",
-        "color": "#1A73E8",
+        "color": "#2563EB",
         "trigger": true
       },
       {
         "app": "4ELEMENTS",
         "action": "Workflow analysed",
         "icon": "logo",
-        "color": "#1C1F23"
+        "color": "#3DDC97"
       },
       {
         "app": "Shop",
         "action": "Orders",
         "icon": "bag",
-        "color": "#5E8E3E"
+        "color": "#22C55E"
       },
       {
         "app": "Spreadsheet",
         "action": "Data transferred",
         "icon": "sheet",
-        "color": "#188038"
+        "color": "#16A34A"
       },
       {
         "app": "Marketplace",
         "action": "Stock checked",
         "icon": "store",
-        "color": "#E47911"
+        "color": "#F97316"
       },
       {
         "app": "AI",
         "action": "Requests sorted",
         "icon": "spark",
-        "color": "#7C3AED"
+        "color": "#A855F7"
       },
       {
         "app": "Invoice",
         "action": "Created automatically",
         "icon": "doc",
-        "color": "#0891B2"
+        "color": "#0EA5E9"
       },
       {
         "app": "Acceptance",
         "action": "Criteria met",
         "icon": "check",
-        "color": "#6D28D9"
+        "color": "#8B5CF6"
       },
       {
         "app": "Monitoring",
         "action": "Errors caught",
         "icon": "pulse",
-        "color": "#DC2626"
+        "color": "#EF4444"
       },
       {
         "app": "Support",
         "action": "Monthly report",
         "icon": "user",
-        "color": "#0F766E"
+        "color": "#14B8A6"
       },
       {
         "app": "Running.",
@@ -138,7 +138,8 @@
         "icon": "done",
         "color": "#3DDC97"
       }
-    ]
+    ],
+    "router": "Router"
   },
   "problem": {
     "label": "The problem",

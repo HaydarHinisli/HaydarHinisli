@@ -129,7 +129,18 @@ const ICONS = {
   user: '<circle cx="12" cy="8.5" r="3.5"/><path d="M5 20c.8-3.6 3.6-5.5 7-5.5s6.2 1.9 7 5.5"/>',
   box: '<path d="M4 7.5L12 4l8 3.5v9L12 20l-8-3.5z"/><path d="M4 7.5l8 3.5 8-3.5M12 11v9"/>',
   done: '<path d="M6 12.5l4 4 8-9"/>',
+  router: '<circle cx="5.5" cy="12" r="2"/><path d="M7.5 12H11l7-6M11 12h7M11 12l7 6"/>',
 };
+
+// Nur das Symbol (für die Intro-Kacheln), weiß auf farbiger Kachel.
+function bareIcon(icon) {
+  if (icon === 'logo') {
+    return `<svg class="im__icon" viewBox="0 0 24 24" focusable="false"><text x="12" y="18.5" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="19" font-weight="600" fill="#0b1f16">4</text></svg>`;
+  }
+  if (!ICONS[icon]) throw new Error(`Unbekanntes Modul-Symbol "${icon}". Erlaubt: logo, ${Object.keys(ICONS).join(', ')}`);
+  const stroke = icon === 'done' ? '#0b1f16' : '#fff';
+  return `<svg class="im__icon" viewBox="0 0 24 24" focusable="false" fill="none" stroke="${stroke}" stroke-width="${icon === 'done' ? 2.6 : 1.9}" stroke-linecap="round" stroke-linejoin="round">${ICONS[icon]}</svg>`;
+}
 
 function moduleIcon(icon, color, cls = 'module__icon') {
   if (icon === 'logo') {
@@ -232,45 +243,60 @@ function introPath([x1, y1], [x2, y2], layout) {
 }
 function f2(n) { return +n.toFixed(2); }
 
-function introLinks(layout) {
+function introColors(lang) {
+  return [...t[lang].intro.modules.map((m) => m.color), '#94A3B8']; // Index 11 = Router
+}
+
+// Leuchtende, gepunktete Verbindungen auf dem Boden, Farbverlauf von Modul zu Modul.
+function introLinks(layout, lang) {
   const { nodes, links, depth, T } = INTRO;
+  const colors = introColors(lang);
   const [w, h] = layout === 'land' ? [75, 40] : [26, 46];
-  const paths = links.map(([a, b], k) => {
-    const d = introPath(nodes[layout][a], nodes[layout][b], layout);
+  const defs = [], paths = [];
+  links.forEach(([a, b], k) => {
+    const [p1, p2] = [nodes[layout][a], nodes[layout][b]];
+    const d = introPath(p1, p2, layout);
+    const id = `${layout}${k + 1}`;
     const run = f2(T.runStart + depth[a] * T.runStep);
-    return `<path class="intro__link il--${k + 1}" d="${d}" pathLength="1"/>
-          <circle class="intro__packet" r="0.32"><animateMotion dur="${T.runStep}s" begin="${run}s" fill="freeze" path="${d}"/><animate attributeName="opacity" values="0;1;1;0" dur="${T.runStep + 0.05}s" begin="${run}s"/></circle>`;
+    defs.push(`<linearGradient id="g${id}" gradientUnits="userSpaceOnUse" x1="${p1[0]}" y1="${p1[1]}" x2="${p2[0]}" y2="${p2[1]}"><stop offset="0" stop-color="${esc(colors[a])}"/><stop offset="1" stop-color="${esc(colors[b])}"/></linearGradient>
+            <mask id="m${id}" maskUnits="userSpaceOnUse" x="-10" y="-10" width="${w + 20}" height="${h + 20}"><path class="intro__reveal il--${k + 1}" d="${d}" pathLength="1"/></mask>`);
+    paths.push(`<path class="intro__link" d="${d}" stroke="url(#g${id})" mask="url(#m${id})"/>
+          <circle class="intro__packet" r="0.34"><animateMotion dur="${T.runStep}s" begin="${run}s" fill="freeze" path="${d}"/><animate attributeName="opacity" values="0;1;1;0" dur="${T.runStep + 0.05}s" begin="${run}s"/></circle>`);
   });
   return `<svg class="intro__links intro__links--${layout}" viewBox="0 0 ${w} ${h}" focusable="false">
+          <defs>
+            <filter id="glow${layout}" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="0.28" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+            ${defs.join('\n            ')}
+          </defs>
+          <g filter="url(#glow${layout})">
           ${paths.join('\n          ')}
+          </g>
         </svg>`;
+}
+
+function introModule(n, icon, label, extra = '') {
+  return `<div class="im im--${n}${extra}">
+            <span class="im__glow"></span>
+            <div class="im__stand">
+              <div class="im__tile">${bareIcon(icon)}</div>
+              <div class="im__base"><span>${esc(label)}</span></div>
+            </div>
+          </div>`;
 }
 
 function introBlock(lang) {
   const tx = t[lang].intro;
   if (tx.modules.length !== 11) throw new Error(`content/${lang}.json: intro.modules braucht genau 11 Module (aktuell ${tx.modules.length})`);
-  const mods = tx.modules
-    .map(
-      (m, i) => `<div class="im im--${i + 1}${i === 10 ? ' im--final' : ''}">
-            <div class="im__body">
-              <span class="im__ring"></span>
-              ${moduleIcon(m.icon, m.color, 'im__icon')}
-              ${m.trigger ? '<span class="im__trigger"><svg viewBox="0 0 24 24" focusable="false"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 8v4.5l3 1.8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></span>' : ''}
-            </div>
-            <span class="im__app">${esc(m.app)}</span>
-            <span class="im__action">${esc(m.action)}</span>
-          </div>`
-    )
-    .join('\n          ');
+  const mods = tx.modules.map((m, i) => introModule(i + 1, m.icon, m.app, i === 10 ? ' im--final' : '')).join('\n          ');
   return `<div class="intro" id="intro" aria-hidden="true">
-    <div class="intro__glow"></div>
+    <div class="intro__light"></div>
     <div class="intro__stage">
-      <div class="intro__grid"></div>
-      ${introLinks('land')}
-      ${introLinks('port')}
+      <div class="intro__floor"></div>
+      ${introLinks('land', lang)}
+      ${introLinks('port', lang)}
       <div class="intro__modules">
           ${mods}
-          <div class="im im--router im--12"><div class="im__body"><span class="im__ring"></span><svg class="im__icon" viewBox="0 0 24 24" focusable="false"><circle cx="12" cy="12" r="11" fill="#fff"/><path d="M6 12h4M10 12l7-5M10 12h7M10 12l7 5" fill="none" stroke="#1c1f23" stroke-width="1.8" stroke-linecap="round"/></svg></div></div>
+          ${introModule(12, 'router', tx.router || 'Router', ' im--router')}
       </div>
     </div>
   </div>
@@ -286,9 +312,10 @@ function introCss() {
     const n = i + 1;
     const pulse = f2(T.runStart - T.runStep + modDepth(i) * T.runStep + (i === 0 ? 0 : T.runStep * 0.9));
     rules.push(`.im--${n} { left: ${nodes.land[i][0]}em; top: ${nodes.land[i][1]}em; --from: ${fly[i].from}; --burst: ${bursts.land[i]}; animation-delay: ${fly[i].delay}s, ${burstDelay[i]}s; }`);
-    rules.push(`.im--${n} .im__ring { animation-delay: ${pulse}s; }`);
+    rules.push(`.im--${n} { --c: ${introColors('de')[i]}; }`);
+    rules.push(`.im--${n} .im__tile::before, .im--${n} .im__glow { animation-delay: ${pulse}s; }`);
   }
-  links.forEach(([a], k) => rules.push(`.il--${k + 1} { animation-delay: ${f2(T.drawStart + depth[a] * T.drawStep)}s; }`));
+  links.forEach(([a], k) => rules.push(`.intro__reveal.il--${k + 1} { animation-delay: ${f2(T.drawStart + depth[a] * T.drawStep)}s; }`));
   const port = nodes.port.map((p, i) => `  .im--${i + 1} { left: ${p[0]}em; top: ${p[1]}em; --burst: ${bursts.port[i]}; }`);
   return `\n/* ---- generiert von build.mjs ---- */\n${rules.join('\n')}\n@media (max-aspect-ratio: 4/5) {\n${port.join('\n')}\n}\n`;
 }
