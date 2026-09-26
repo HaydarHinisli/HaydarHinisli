@@ -13,6 +13,12 @@ Voraussetzung: [Node.js](https://nodejs.org) (Version 18 oder neuer) ist install
 
 Nur den Text **zwischen den Anführungszeichen** ändern. Anführungszeichen im Text als `\"` schreiben. Die Zeichen `{ } [ ] , :` nicht löschen.
 
+### Intro und Workflow-Grafik
+
+- **Intro** (läuft einmal pro Sitzung beim ersten Aufruf der Startseite): Begriffe, Symbole und Farben der 11 Module stehen in `de.json`/`en.json` unter `intro.modules`. Reihenfolge und Anzahl (genau 11) nicht ändern, nur die Inhalte.
+- **Workflow im Kopfbereich**: `hero.modules`.
+- Erlaubte Symbole: `mail, logo, bag, sheet, store, spark, doc, check, pulse, user, bell, cart, filter, chat, box, done`.
+
 ## 2. Anwendungsfall-Seite anlegen
 
 1. Die Datei `content/anwendungsfaelle/shopify-bestellungen-google-sheets.json` kopieren und umbenennen, z. B. `amazon-bestandswarnung.json`.

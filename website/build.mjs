@@ -64,6 +64,15 @@ function assetHash(rel) {
 }
 const cssUrl = `/assets/css/style.css?v=${assetHash('assets/css/style.css')}`;
 const jsUrl = `/assets/js/main.js?v=${assetHash('assets/js/main.js')}`;
+const introJsUrl = `/assets/js/intro.js?v=${assetHash('assets/js/intro.js')}`;
+let introAsset;
+function introStyles() {
+  if (!introAsset) {
+    const css = readFileSync(join(ROOT, 'assets/css/intro.css'), 'utf8') + introCss();
+    introAsset = { css, url: `/assets/css/intro.css?v=${createHash('sha256').update(css).digest('hex').slice(0, 10)}` };
+  }
+  return introAsset;
+}
 
 // Liest Breite/Höhe aus einer WebP-Datei (für width/height-Attribute gegen Layout-Verschiebungen).
 function webpSize(file) {
@@ -115,11 +124,20 @@ const ICONS = {
   doc: '<path d="M7 3.5h7l4.5 4.5v12.5H7z"/><path d="M14 3.5V8h4.5M10 13h5.5M10 16.5h5.5"/>',
   spark: '<path d="M12 4l1.8 5.2L19 11l-5.2 1.8L12 18l-1.8-5.2L5 11l5.2-1.8L12 4z"/><path d="M18.5 3.5v3M17 5h3"/>',
   chat: '<path d="M4.5 5.5h15v10h-9l-4.5 3.5v-3.5h-1.5z"/><path d="M8.5 10.5h7"/>',
+  store: '<path d="M4 9.5l1.5-5h13L20 9.5"/><path d="M4 9.5h16v1.5a2.7 2.7 0 0 1-5.3 0 2.7 2.7 0 0 1-5.4 0A2.7 2.7 0 0 1 4 11z"/><path d="M5.5 13.5V20h13v-6.5"/>',
+  pulse: '<path d="M3 12h4l2-5 4 10 2-5h6"/>',
+  user: '<circle cx="12" cy="8.5" r="3.5"/><path d="M5 20c.8-3.6 3.6-5.5 7-5.5s6.2 1.9 7 5.5"/>',
+  box: '<path d="M4 7.5L12 4l8 3.5v9L12 20l-8-3.5z"/><path d="M4 7.5l8 3.5 8-3.5M12 11v9"/>',
+  done: '<path d="M6 12.5l4 4 8-9"/>',
 };
 
-function moduleIcon(icon, color) {
+function moduleIcon(icon, color, cls = 'module__icon') {
+  if (icon === 'logo') {
+    return `<svg class="${cls}" viewBox="0 0 64 64" focusable="false"><circle cx="32" cy="32" r="32" fill="${esc(color)}"/><text x="32" y="43.5" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="32" font-weight="600" fill="#3ddc97">4</text></svg>`;
+  }
+  const stroke = icon === 'done' ? '#0b1f16' : '#fff';
   if (!ICONS[icon]) throw new Error(`Unbekanntes Modul-Symbol "${icon}". Erlaubt: ${Object.keys(ICONS).join(', ')}`);
-  return `<svg class="module__icon" viewBox="0 0 64 64" focusable="false"><circle cx="32" cy="32" r="32" fill="${esc(color)}"/><g transform="translate(14 14) scale(1.5)" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${ICONS[icon]}</g></svg>`;
+  return `<svg class="${cls}" viewBox="0 0 64 64" focusable="false"><circle cx="32" cy="32" r="32" fill="${esc(color)}"/><g transform="translate(14 14) scale(1.5)" fill="none" stroke="${stroke}" stroke-width="${icon === 'done' ? 2.4 : 1.6}" stroke-linecap="round" stroke-linejoin="round">${ICONS[icon]}</g></svg>`;
 }
 
 // Kopfbereich: Module fliegen aus allen Richtungen heran und bilden eine Workflow-Kette.
@@ -158,11 +176,128 @@ function heroScene(modules, label) {
         </ol>`;
 }
 
+// ---------- Intro (nur Startseite, einmal pro Sitzung) ----------
+// Module fliegen aus allen Richtungen heran, bilden einen verzweigten Workflow,
+// ein Durchlauf startet, dann fliegen sie auseinander und geben die Seite frei.
+// Aufbau: 0 Auslöser → 1 Firma → Router → drei Zweige (2→3, 4→5, 6→7) → 8, 9 → 10 Ergebnis.
+
+const INTRO = (() => {
+  // Positionen (Kreismittelpunkt) im Querformat, Bühne 75em × 40em
+  const land = [[5, 20], [15.5, 20], [34, 7.5], [44, 7.5], [34, 20], [44, 20], [34, 32.5], [44, 32.5], [55, 13.5], [55, 29], [67, 20]];
+  const router = [24.5, 20];
+  // Hochformat (Smartphone), Bühne 26em × 46em: gleicher Ablauf, von oben nach unten
+  const toPortrait = ([x, y]) => [+(13 + (y - 20) * 0.68).toFixed(2), +(3.5 + (x - 5) * 0.63).toFixed(2)];
+  const nodes = { land: [...land, router], port: [...land, router].map(toPortrait) }; // Index 11 = Router
+  const R = 11;
+  const links = [[0, 1], [1, R], [R, 2], [R, 4], [R, 6], [2, 3], [4, 5], [6, 7], [3, 8], [5, 8], [7, 9], [8, 10], [9, 10]];
+  const depth = { 0: 0, 1: 1, [R]: 2, 2: 3, 4: 3, 6: 3, 3: 4, 5: 4, 7: 4, 8: 5, 9: 5, 10: 6 };
+
+  // Zeitplan in Sekunden
+  const T = { drawStart: 1.7, drawStep: 0.1, runStart: 2.1, runStep: 0.17, burst: 3.45, overlayOut: 3.7 };
+
+  // Reproduzierbarer Zufall, damit jeder Build dieselbe Choreografie erzeugt
+  let seed = 4;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
+  const between = (a, b) => a + (b - a) * rnd();
+  const sign = () => (rnd() < 0.5 ? -1 : 1);
+  const f = (n) => +n.toFixed(2);
+
+  const count = land.length + 1;
+  const fly = Array.from({ length: count }, (_, i) => {
+    const angle = (i / count) * Math.PI * 2 + between(-0.3, 0.3);
+    const dist = between(48, 70);
+    return {
+      delay: f(between(0.05, 0.6)),
+      from: `translate3d(${f(Math.cos(angle) * dist)}em, ${f(Math.sin(angle) * dist * 0.75)}em, ${f(between(-110, 45))}em) rotateX(${f(sign() * between(160, 340))}deg) rotateY(${f(sign() * between(180, 360))}deg) rotateZ(${f(sign() * between(20, 70))}deg)`,
+    };
+  });
+  const burst = (layout, w, h) =>
+    nodes[layout].map(([x, y]) => {
+      const dx = x - w / 2, dy = y - h / 2, len = Math.hypot(dx, dy) || 1;
+      const d = between(35, 60);
+      return `translate3d(${f((dx / len) * d)}em, ${f((dy / len) * d)}em, ${f(between(60, 110))}em) rotateX(${f(sign() * between(60, 160))}deg) rotateY(${f(sign() * between(60, 180))}deg) rotateZ(${f(sign() * between(10, 50))}deg)`;
+    });
+  const bursts = { land: burst('land', 75, 40), port: burst('port', 26, 46) };
+  const burstDelay = Array.from({ length: count }, () => f(T.burst + between(0, 0.12)));
+  return { nodes, R, links, depth, T, fly, bursts, burstDelay };
+})();
+
+function introPath([x1, y1], [x2, y2], layout) {
+  if (layout === 'land') {
+    const mx = f2((x1 + x2) / 2);
+    return `M${x1} ${y1}C${mx} ${y1} ${mx} ${y2} ${x2} ${y2}`;
+  }
+  const my = f2((y1 + y2) / 2);
+  return `M${x1} ${y1}C${x1} ${my} ${x2} ${my} ${x2} ${y2}`;
+}
+function f2(n) { return +n.toFixed(2); }
+
+function introLinks(layout) {
+  const { nodes, links, depth, T } = INTRO;
+  const [w, h] = layout === 'land' ? [75, 40] : [26, 46];
+  const paths = links.map(([a, b], k) => {
+    const d = introPath(nodes[layout][a], nodes[layout][b], layout);
+    const run = f2(T.runStart + depth[a] * T.runStep);
+    return `<path class="intro__link il--${k + 1}" d="${d}" pathLength="1"/>
+          <circle class="intro__packet" r="0.32"><animateMotion dur="${T.runStep}s" begin="${run}s" fill="freeze" path="${d}"/><animate attributeName="opacity" values="0;1;1;0" dur="${T.runStep + 0.05}s" begin="${run}s"/></circle>`;
+  });
+  return `<svg class="intro__links intro__links--${layout}" viewBox="0 0 ${w} ${h}" focusable="false">
+          ${paths.join('\n          ')}
+        </svg>`;
+}
+
+function introBlock(lang) {
+  const tx = t[lang].intro;
+  if (tx.modules.length !== 11) throw new Error(`content/${lang}.json: intro.modules braucht genau 11 Module (aktuell ${tx.modules.length})`);
+  const mods = tx.modules
+    .map(
+      (m, i) => `<div class="im im--${i + 1}${i === 10 ? ' im--final' : ''}">
+            <div class="im__body">
+              <span class="im__ring"></span>
+              ${moduleIcon(m.icon, m.color, 'im__icon')}
+              ${m.trigger ? '<span class="im__trigger"><svg viewBox="0 0 24 24" focusable="false"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 8v4.5l3 1.8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></span>' : ''}
+            </div>
+            <span class="im__app">${esc(m.app)}</span>
+            <span class="im__action">${esc(m.action)}</span>
+          </div>`
+    )
+    .join('\n          ');
+  return `<div class="intro" id="intro" aria-hidden="true">
+    <div class="intro__glow"></div>
+    <div class="intro__stage">
+      <div class="intro__grid"></div>
+      ${introLinks('land')}
+      ${introLinks('port')}
+      <div class="intro__modules">
+          ${mods}
+          <div class="im im--router im--12"><div class="im__body"><span class="im__ring"></span><svg class="im__icon" viewBox="0 0 24 24" focusable="false"><circle cx="12" cy="12" r="11" fill="#fff"/><path d="M6 12h4M10 12l7-5M10 12h7M10 12l7 5" fill="none" stroke="#1c1f23" stroke-width="1.8" stroke-linecap="round"/></svg></div></div>
+      </div>
+    </div>
+  </div>
+  <button class="intro__skip" type="button">${esc(tx.skip)} →</button>`;
+}
+
+// Erzeugt die positionsabhängigen Intro-Regeln (Positionen, Flugbahnen, Zeitplan).
+function introCss() {
+  const { nodes, fly, bursts, burstDelay, links, depth, T, R } = INTRO;
+  const rules = [];
+  const modDepth = (i) => (i === R ? depth[R] : depth[i]);
+  for (let i = 0; i < nodes.land.length; i++) {
+    const n = i + 1;
+    const pulse = f2(T.runStart - T.runStep + modDepth(i) * T.runStep + (i === 0 ? 0 : T.runStep * 0.9));
+    rules.push(`.im--${n} { left: ${nodes.land[i][0]}em; top: ${nodes.land[i][1]}em; --from: ${fly[i].from}; --burst: ${bursts.land[i]}; animation-delay: ${fly[i].delay}s, ${burstDelay[i]}s; }`);
+    rules.push(`.im--${n} .im__ring { animation-delay: ${pulse}s; }`);
+  }
+  links.forEach(([a], k) => rules.push(`.il--${k + 1} { animation-delay: ${f2(T.drawStart + depth[a] * T.drawStep)}s; }`));
+  const port = nodes.port.map((p, i) => `  .im--${i + 1} { left: ${p[0]}em; top: ${p[1]}em; --burst: ${bursts.port[i]}; }`);
+  return `\n/* ---- generiert von build.mjs ---- */\n${rules.join('\n')}\n@media (max-aspect-ratio: 4/5) {\n${port.join('\n')}\n}\n`;
+}
+
 const paragraphs = (arr) => (Array.isArray(arr) ? arr : [arr]).map((p) => `<p>${esc(p)}</p>`).join('\n');
 
 // ---------- Layout ----------
 
-function layout({ lang, page, alternates, title, description, body, noindex = false, jsonLd = '' }) {
+function layout({ lang, page, alternates, title, description, body, noindex = false, jsonLd = '', intro = false }) {
   const tx = t[lang];
   const other = lang === 'de' ? 'en' : 'de';
   const url = site.domain + alternates[lang];
@@ -203,11 +338,11 @@ function layout({ lang, page, alternates, title, description, body, noindex = fa
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <link rel="preload" href="/assets/fonts/inter-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/assets/fonts/inter-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="${cssUrl}">
+  <link rel="stylesheet" href="${cssUrl}">${intro ? `\n  <link rel="stylesheet" href="${introStyles().url}">\n  <script src="${introJsUrl}"></script>` : ''}
   <noscript><link rel="stylesheet" href="/assets/css/nojs.css"></noscript>
   <script src="${jsUrl}" defer></script>${jsonLd}
 </head>
-<body>
+<body>${intro ? '\n  ' + introBlock(lang) : ''}
   <a class="skip-link" href="#main">${esc(tx.ui.skipLink)}</a>
   <header class="site-header">
     <div class="container site-header__inner">
@@ -393,6 +528,7 @@ ${tx.process.steps
     title: tx.meta.title,
     description: tx.meta.description,
     body,
+    intro: true,
     jsonLd: `\n  <script type="application/ld+json">${JSON.stringify(jsonLd).replace(/</g, '\\u003c')}</script>`,
   });
 }
@@ -572,6 +708,7 @@ out('/robots.txt', `User-agent: *\nAllow: /\n\nSitemap: ${site.domain}/sitemap.x
 // Statische Dateien
 cpSync(join(ROOT, 'assets'), join(DIST, 'assets'), { recursive: true });
 cpSync(join(ROOT, 'static'), DIST, { recursive: true });
+writeFileSync(join(DIST, 'assets/css/intro.css'), introStyles().css);
 
 console.log(`Fertig: ${written.length} Dateien in dist/`);
 for (const p of written) console.log('  ' + p);

@@ -1,14 +1,11 @@
 {
   "_hinweis": "Alle deutschen Texte der Website. Nur die Texte in Anführungszeichen ändern, danach 'npm run build' ausführen. Siehe ANLEITUNG.md.",
-
   "lang": "de",
   "locale": "de_DE",
-
   "meta": {
     "title": "4ELEMENTS – Automatisierung für Online-Händler | Make, Shopify, Amazon",
     "description": "Ich automatisiere wiederkehrende Abläufe für Online-Händler mit Make – Shopify, Amazon, Tabellen, E-Mail – und betreue laufende Automatisierungen. 4ELEMENTS e.K., Berlin."
   },
-
   "ui": {
     "skipLink": "Zum Inhalt springen",
     "logoTagline": "Automation & Integrationen",
@@ -18,7 +15,6 @@
     "langSwitchLabel": "Sprache wählen",
     "flowLabel": "Beispiel eines Automatisierungsablaufs"
   },
-
   "nav": {
     "services": "Leistungen",
     "support": "Betreuung",
@@ -26,7 +22,6 @@
     "contact": "Kontakt",
     "useCases": "Anwendungsfälle"
   },
-
   "anchors": {
     "services": "leistungen",
     "support": "betreuung",
@@ -34,30 +29,120 @@
     "about": "ueber-mich",
     "contact": "kontakt"
   },
-
   "mail": {
     "subject": "Anfrage Automatisierung",
     "packageSubject": "Anfrage Betreuung"
   },
-
   "hero": {
     "headline": "Automatisierungen, die laufen.",
     "subline": "Ich automatisiere wiederkehrende Abläufe für Online-Händler und sorge dafür, dass sie zuverlässig weiterlaufen.",
     "button": "Anfrage stellen",
     "_modules": "Module der animierten Workflow-Grafik im Kopfbereich. icon: bag, sheet, check, filter, mail, bell, cart, doc, spark, chat. trigger: true zeigt das Uhr-Symbol (Auslöser) wie in Make.",
     "modules": [
-      { "app": "Shopify", "action": "Neue Bestellung", "icon": "bag", "color": "#5E8E3E", "trigger": true },
-      { "app": "Google Sheets", "action": "Zeile hinzufügen", "icon": "sheet", "color": "#188038" },
-      { "app": "Prüfung", "action": "Daten prüfen", "icon": "check", "color": "#6D28D9" },
-      { "app": "E-Mail", "action": "Nachricht senden", "icon": "mail", "color": "#1A73E8" }
+      {
+        "app": "Shopify",
+        "action": "Neue Bestellung",
+        "icon": "bag",
+        "color": "#5E8E3E",
+        "trigger": true
+      },
+      {
+        "app": "Google Sheets",
+        "action": "Zeile hinzufügen",
+        "icon": "sheet",
+        "color": "#188038"
+      },
+      {
+        "app": "Prüfung",
+        "action": "Daten prüfen",
+        "icon": "check",
+        "color": "#6D28D9"
+      },
+      {
+        "app": "E-Mail",
+        "action": "Nachricht senden",
+        "icon": "mail",
+        "color": "#1A73E8"
+      }
     ]
   },
-
+  "intro": {
+    "_hinweis": "Intro-Animation der Startseite (einmal pro Sitzung). Genau 11 Module in dieser Reihenfolge: 1 Auslöser, 2 Firma, 3–8 drei Zweige (je zwei), 9–10 Zusammenführung, 11 Ergebnis. icon: mail, logo, bag, sheet, store, spark, doc, check, pulse, user, bell, cart, filter, chat, box, done.",
+    "skip": "Intro überspringen",
+    "modules": [
+      {
+        "app": "Anfrage",
+        "action": "E-Mail eingegangen",
+        "icon": "mail",
+        "color": "#1A73E8",
+        "trigger": true
+      },
+      {
+        "app": "4ELEMENTS",
+        "action": "Ablauf analysiert",
+        "icon": "logo",
+        "color": "#1C1F23"
+      },
+      {
+        "app": "Shop",
+        "action": "Bestellungen",
+        "icon": "bag",
+        "color": "#5E8E3E"
+      },
+      {
+        "app": "Tabelle",
+        "action": "Daten übertragen",
+        "icon": "sheet",
+        "color": "#188038"
+      },
+      {
+        "app": "Marktplatz",
+        "action": "Bestand geprüft",
+        "icon": "store",
+        "color": "#E47911"
+      },
+      {
+        "app": "KI",
+        "action": "Anfragen sortiert",
+        "icon": "spark",
+        "color": "#7C3AED"
+      },
+      {
+        "app": "Rechnung",
+        "action": "Automatisch erstellt",
+        "icon": "doc",
+        "color": "#0891B2"
+      },
+      {
+        "app": "Abnahme",
+        "action": "Kriterien erfüllt",
+        "icon": "check",
+        "color": "#6D28D9"
+      },
+      {
+        "app": "Monitoring",
+        "action": "Fehler abgefangen",
+        "icon": "pulse",
+        "color": "#DC2626"
+      },
+      {
+        "app": "Betreuung",
+        "action": "Monatsbericht",
+        "icon": "user",
+        "color": "#0F766E"
+      },
+      {
+        "app": "Läuft.",
+        "action": "Automatisierung aktiv",
+        "icon": "done",
+        "color": "#3DDC97"
+      }
+    ]
+  },
   "problem": {
     "label": "Das Problem",
     "text": "Bestellungen übertragen, Rechnungen erstellen, Bestand prüfen, Anfragen sortieren. Jeden Tag dieselben Handgriffe, und jeder kostet Zeit und birgt Fehler. Automatisierungen lösen das, aber nur, solange sie gepflegt werden."
   },
-
   "services": {
     "headline": "Leistungen",
     "cards": [
@@ -75,7 +160,6 @@
       }
     ]
   },
-
   "support": {
     "headline": "Betreuung für laufende Automatisierungen.",
     "subline": "Monatlich kündbar. Kosten für Make und andere Tools trägst du selbst.",
@@ -120,36 +204,43 @@
     ],
     "note": "Größere Neuentwicklungen biete ich separat an. Voraussetzung ist ein Zugang zu deiner Make-Organisation."
   },
-
   "process": {
     "headline": "So arbeite ich",
     "steps": [
-      { "title": "Gespräch", "text": "Du beschreibst deinen Ablauf, ich prüfe, was sich automatisieren lässt." },
-      { "title": "Abnahmekriterien", "text": "Wir legen vorher fest, woran wir erkennen, dass alles funktioniert." },
-      { "title": "Umsetzung", "text": "Getestet, gegen Fehler abgesichert und verständlich dokumentiert." },
-      { "title": "Betreuung", "text": "Auf Wunsch kümmere ich mich dauerhaft darum, dass alles läuft." }
+      {
+        "title": "Gespräch",
+        "text": "Du beschreibst deinen Ablauf, ich prüfe, was sich automatisieren lässt."
+      },
+      {
+        "title": "Abnahmekriterien",
+        "text": "Wir legen vorher fest, woran wir erkennen, dass alles funktioniert."
+      },
+      {
+        "title": "Umsetzung",
+        "text": "Getestet, gegen Fehler abgesichert und verständlich dokumentiert."
+      },
+      {
+        "title": "Betreuung",
+        "text": "Auf Wunsch kümmere ich mich dauerhaft darum, dass alles läuft."
+      }
     ]
   },
-
   "about": {
     "headline": "Über mich",
     "text": "Ich bin Haydar Hinisli und seit 2021 selbst Online-Händler mit eigener Marke auf Amazon. Die Abläufe, die ich automatisiere, kenne ich aus eigener Erfahrung. Mein Unternehmen 4ELEMENTS e.K. sitzt in Berlin.",
     "photoAlt": "Porträt von Haydar Hinisli",
     "photoPlaceholder": "Porträtfoto folgt"
   },
-
   "contact": {
     "headline": "Kontakt",
     "text": "Beschreib mir kurz, welche Tools du nutzt und was automatisiert werden soll. Du bekommst innerhalb eines Werktags eine Antwort.",
     "button": "E-Mail schreiben"
   },
-
   "footer": {
     "imprint": "Impressum",
     "privacy": "Datenschutz",
     "copyright": "© 2026 4ELEMENTS e.K."
   },
-
   "useCases": {
     "overviewTitle": "Anwendungsfälle",
     "overviewIntro": "Konkrete Abläufe, die ich für Online-Händler automatisiere.",
@@ -166,7 +257,6 @@
     "ctaButton": "Anfrage stellen",
     "backToOverview": "Alle Anwendungsfälle"
   },
-
   "imprint": {
     "title": "Impressum",
     "metaTitle": "Impressum | 4ELEMENTS e.K.",
@@ -183,13 +273,11 @@
     "vatText": "Umsatzsteuer-Identifikationsnummer gemäß § 27 a Umsatzsteuergesetz:",
     "sectionResponsible": "Verantwortlich für den Inhalt"
   },
-
   "privacy": {
     "title": "Datenschutzerklärung",
     "metaTitle": "Datenschutzerklärung | 4ELEMENTS e.K.",
     "metaDescription": "Datenschutzerklärung der Website 4elements-digital.de."
   },
-
   "notFound": {
     "title": "Seite nicht gefunden",
     "text": "Diese Seite gibt es nicht (mehr).",
