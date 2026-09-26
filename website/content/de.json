@@ -1,0 +1,192 @@
+{
+  "_hinweis": "Alle deutschen Texte der Website. Nur die Texte in Anführungszeichen ändern, danach 'npm run build' ausführen. Siehe ANLEITUNG.md.",
+
+  "lang": "de",
+  "locale": "de_DE",
+
+  "meta": {
+    "title": "4ELEMENTS – Automatisierung für Online-Händler | Make, Shopify, Amazon",
+    "description": "Ich automatisiere wiederkehrende Abläufe für Online-Händler mit Make – Shopify, Amazon, Tabellen, E-Mail – und betreue laufende Automatisierungen. 4ELEMENTS e.K., Berlin."
+  },
+
+  "ui": {
+    "skipLink": "Zum Inhalt springen",
+    "logoTagline": "Automation & Integrationen",
+    "menuOpen": "Menü öffnen",
+    "menuClose": "Menü schließen",
+    "navLabel": "Hauptnavigation",
+    "langSwitchLabel": "Sprache wählen",
+    "flowLabel": "Beispiel eines Automatisierungsablaufs"
+  },
+
+  "nav": {
+    "services": "Leistungen",
+    "support": "Betreuung",
+    "process": "So arbeite ich",
+    "contact": "Kontakt",
+    "useCases": "Anwendungsfälle"
+  },
+
+  "anchors": {
+    "services": "leistungen",
+    "support": "betreuung",
+    "process": "so-arbeite-ich",
+    "about": "ueber-mich",
+    "contact": "kontakt"
+  },
+
+  "mail": {
+    "subject": "Anfrage Automatisierung",
+    "packageSubject": "Anfrage Betreuung"
+  },
+
+  "hero": {
+    "headline": "Automatisierungen, die laufen.",
+    "subline": "Ich automatisiere wiederkehrende Abläufe für Online-Händler und sorge dafür, dass sie zuverlässig weiterlaufen.",
+    "button": "Anfrage stellen",
+    "flowSteps": ["Bestellung", "Tabelle", "Prüfung", "Benachrichtigung"]
+  },
+
+  "problem": {
+    "label": "Das Problem",
+    "text": "Bestellungen übertragen, Rechnungen erstellen, Bestand prüfen, Anfragen sortieren. Jeden Tag dieselben Handgriffe, und jeder kostet Zeit und birgt Fehler. Automatisierungen lösen das, aber nur, solange sie gepflegt werden."
+  },
+
+  "services": {
+    "headline": "Leistungen",
+    "cards": [
+      {
+        "title": "Neue Automatisierungen",
+        "text": "Ich verbinde Shop, Marktplatz, Tabellen, E-Mail und KI-Dienste zu Abläufen, die ohne Handarbeit funktionieren."
+      },
+      {
+        "title": "Reparatur und Stabilisierung",
+        "text": "Bestehende Make-Szenarien, die unzuverlässig laufen, prüfe ich, repariere sie und sichere sie gegen Fehler ab."
+      },
+      {
+        "title": "Laufende Betreuung",
+        "text": "Ich überwache deine Automatisierungen und behebe Fehler, bevor sie dich Umsatz kosten."
+      }
+    ]
+  },
+
+  "support": {
+    "headline": "Betreuung für laufende Automatisierungen.",
+    "subline": "Monatlich kündbar. Kosten für Make und andere Tools trägst du selbst.",
+    "labels": {
+      "scenarios": "Szenarien",
+      "fixes": "Fehlerbehebung",
+      "changes": "Anpassungen inklusive",
+      "report": "Monatsbericht"
+    },
+    "button": "Anfrage stellen",
+    "plans": [
+      {
+        "name": "Basis",
+        "price": "99 €",
+        "period": "/ Monat",
+        "scenarios": "bis 3",
+        "fixes": "innerhalb von 2 Werktagen",
+        "changes": "–",
+        "report": "ja",
+        "highlight": false
+      },
+      {
+        "name": "Standard",
+        "price": "249 €",
+        "period": "/ Monat",
+        "scenarios": "bis 8",
+        "fixes": "innerhalb von 1 Werktag",
+        "changes": "bis 1 Std. / Monat",
+        "report": "ja",
+        "highlight": true
+      },
+      {
+        "name": "Premium",
+        "price": "499 €",
+        "period": "/ Monat",
+        "scenarios": "bis 15",
+        "fixes": "am selben Werktag",
+        "changes": "bis 3 Std. / Monat",
+        "report": "ja, plus bevorzugte Bearbeitung neuer Wünsche",
+        "highlight": false
+      }
+    ],
+    "note": "Größere Neuentwicklungen biete ich separat an. Voraussetzung ist ein Zugang zu deiner Make-Organisation."
+  },
+
+  "process": {
+    "headline": "So arbeite ich",
+    "steps": [
+      { "title": "Gespräch", "text": "Du beschreibst deinen Ablauf, ich prüfe, was sich automatisieren lässt." },
+      { "title": "Abnahmekriterien", "text": "Wir legen vorher fest, woran wir erkennen, dass alles funktioniert." },
+      { "title": "Umsetzung", "text": "Getestet, gegen Fehler abgesichert und verständlich dokumentiert." },
+      { "title": "Betreuung", "text": "Auf Wunsch kümmere ich mich dauerhaft darum, dass alles läuft." }
+    ]
+  },
+
+  "about": {
+    "headline": "Über mich",
+    "text": "Ich bin Haydar Hinisli und seit 2021 selbst Online-Händler mit eigener Marke auf Amazon. Die Abläufe, die ich automatisiere, kenne ich aus eigener Erfahrung. Mein Unternehmen 4ELEMENTS e.K. sitzt in Berlin.",
+    "photoAlt": "Porträt von Haydar Hinisli",
+    "photoPlaceholder": "Porträtfoto folgt"
+  },
+
+  "contact": {
+    "headline": "Kontakt",
+    "text": "Beschreib mir kurz, welche Tools du nutzt und was automatisiert werden soll. Du bekommst innerhalb eines Werktags eine Antwort.",
+    "button": "E-Mail schreiben"
+  },
+
+  "footer": {
+    "imprint": "Impressum",
+    "privacy": "Datenschutz",
+    "copyright": "© 2026 4ELEMENTS e.K."
+  },
+
+  "useCases": {
+    "overviewTitle": "Anwendungsfälle",
+    "overviewIntro": "Konkrete Abläufe, die ich für Online-Händler automatisiere.",
+    "overviewMetaTitle": "Anwendungsfälle – Automatisierung für Online-Händler | 4ELEMENTS",
+    "overviewMetaDescription": "Beispiele für Automatisierungen mit Make: Shopify, Amazon, Google Sheets, E-Mail und mehr.",
+    "readMore": "Zum Anwendungsfall",
+    "problemHeading": "Das Problem",
+    "solutionHeading": "Die Lösung",
+    "resultHeading": "Das Ergebnis",
+    "screenshotHeading": "Das Make-Szenario",
+    "screenshotPlaceholder": "Screenshot des Make-Szenarios folgt",
+    "ctaHeading": "Passt das zu deinem Shop?",
+    "ctaText": "Beschreib mir kurz, welche Tools du nutzt und was automatisiert werden soll. Du bekommst innerhalb eines Werktags eine Antwort.",
+    "ctaButton": "Anfrage stellen",
+    "backToOverview": "Alle Anwendungsfälle"
+  },
+
+  "imprint": {
+    "title": "Impressum",
+    "metaTitle": "Impressum | 4ELEMENTS e.K.",
+    "metaDescription": "Impressum der 4ELEMENTS e.K., Berlin.",
+    "sectionProvider": "Angaben gemäß § 5 DDG",
+    "labelOwner": "Inhaber",
+    "sectionContact": "Kontakt",
+    "labelEmail": "E-Mail",
+    "labelPhone": "Telefon",
+    "sectionRegister": "Registereintrag",
+    "labelCourt": "Registergericht",
+    "labelRegisterNo": "Registernummer",
+    "sectionVat": "Umsatzsteuer-ID",
+    "vatText": "Umsatzsteuer-Identifikationsnummer gemäß § 27 a Umsatzsteuergesetz:",
+    "sectionResponsible": "Verantwortlich für den Inhalt"
+  },
+
+  "privacy": {
+    "title": "Datenschutzerklärung",
+    "metaTitle": "Datenschutzerklärung | 4ELEMENTS e.K.",
+    "metaDescription": "Datenschutzerklärung der Website 4elements-digital.de."
+  },
+
+  "notFound": {
+    "title": "Seite nicht gefunden",
+    "text": "Diese Seite gibt es nicht (mehr).",
+    "button": "Zur Startseite"
+  }
+}

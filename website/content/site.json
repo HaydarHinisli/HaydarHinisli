@@ -1,0 +1,25 @@
+{
+  "_hinweis": "Sprachunabhängige Firmendaten. Werden in Impressum, Kontakt-Links und strukturierten Daten (schema.org) verwendet.",
+
+  "domain": "https://4elements-digital.de",
+  "email": "haydar@4elements-digital.de",
+
+  "company": "4ELEMENTS e.K.",
+  "owner": "Haydar Hinisli",
+  "street": "Thaliaweg 17D",
+  "postalCode": "12249",
+  "city": "Berlin",
+  "country": "DE",
+
+  "registerCourt": "Amtsgericht Charlottenburg",
+  "registerNumber": "HRA 61099",
+
+  "_vatId": "Umsatzsteuer-ID eintragen, z. B. \"DE123456789\". Leer lassen, dann wird der Abschnitt im Impressum nicht angezeigt.",
+  "vatId": "",
+
+  "_phone": "Telefonnummer optional, z. B. \"+49 30 1234567\". Leer lassen, dann wird sie nicht angezeigt.",
+  "phone": "",
+
+  "_portrait": "Porträtfoto als WebP in assets/img/ ablegen und Dateinamen eintragen, z. B. \"haydar-hinisli.webp\". Leer lassen = Platzhalter.",
+  "portrait": ""
+}

@@ -1,0 +1,193 @@
+{
+  "_hinweis": "PLATZHALTER: Englische Entwurfsübersetzung mit identischer Struktur. Wird durch die vom Auftraggeber gelieferten Texte ersetzt, sobald die deutschen Texte freigegeben sind.",
+  "_status": "placeholder",
+
+  "lang": "en",
+  "locale": "en_GB",
+
+  "meta": {
+    "title": "4ELEMENTS – Automation for online retailers | Make, Shopify, Amazon",
+    "description": "I automate recurring workflows for online retailers with Make – Shopify, Amazon, spreadsheets, email – and look after running automations. 4ELEMENTS e.K., Berlin."
+  },
+
+  "ui": {
+    "skipLink": "Skip to content",
+    "logoTagline": "Automation & Integrations",
+    "menuOpen": "Open menu",
+    "menuClose": "Close menu",
+    "navLabel": "Main navigation",
+    "langSwitchLabel": "Choose language",
+    "flowLabel": "Example of an automation workflow"
+  },
+
+  "nav": {
+    "services": "Services",
+    "support": "Support",
+    "process": "How I work",
+    "contact": "Contact",
+    "useCases": "Use cases"
+  },
+
+  "anchors": {
+    "services": "services",
+    "support": "support",
+    "process": "how-i-work",
+    "about": "about",
+    "contact": "contact"
+  },
+
+  "mail": {
+    "subject": "Automation inquiry",
+    "packageSubject": "Support inquiry"
+  },
+
+  "hero": {
+    "headline": "Automations that keep running.",
+    "subline": "I automate recurring workflows for online retailers and make sure they keep running reliably.",
+    "button": "Send an inquiry",
+    "flowSteps": ["Order", "Spreadsheet", "Check", "Notification"]
+  },
+
+  "problem": {
+    "label": "The problem",
+    "text": "Transferring orders, creating invoices, checking stock, sorting requests. The same manual steps every day, and each one costs time and invites mistakes. Automations solve this, but only as long as they are maintained."
+  },
+
+  "services": {
+    "headline": "Services",
+    "cards": [
+      {
+        "title": "New automations",
+        "text": "I connect your shop, marketplace, spreadsheets, email and AI services into workflows that run without manual work."
+      },
+      {
+        "title": "Repair and stabilisation",
+        "text": "Existing Make scenarios that run unreliably – I review them, repair them and protect them against errors."
+      },
+      {
+        "title": "Ongoing support",
+        "text": "I monitor your automations and fix errors before they cost you revenue."
+      }
+    ]
+  },
+
+  "support": {
+    "headline": "Support for running automations.",
+    "subline": "Cancel monthly. Costs for Make and other tools are covered by you.",
+    "labels": {
+      "scenarios": "Scenarios",
+      "fixes": "Error fixing",
+      "changes": "Changes included",
+      "report": "Monthly report"
+    },
+    "button": "Send an inquiry",
+    "plans": [
+      {
+        "name": "Basic",
+        "price": "€99",
+        "period": "/ month",
+        "scenarios": "up to 3",
+        "fixes": "within 2 business days",
+        "changes": "–",
+        "report": "yes",
+        "highlight": false
+      },
+      {
+        "name": "Standard",
+        "price": "€249",
+        "period": "/ month",
+        "scenarios": "up to 8",
+        "fixes": "within 1 business day",
+        "changes": "up to 1 hr / month",
+        "report": "yes",
+        "highlight": true
+      },
+      {
+        "name": "Premium",
+        "price": "€499",
+        "period": "/ month",
+        "scenarios": "up to 15",
+        "fixes": "on the same business day",
+        "changes": "up to 3 hrs / month",
+        "report": "yes, plus priority handling of new requests",
+        "highlight": false
+      }
+    ],
+    "note": "Larger new developments are offered separately. Access to your Make organisation is required."
+  },
+
+  "process": {
+    "headline": "How I work",
+    "steps": [
+      { "title": "Conversation", "text": "You describe your workflow, I check what can be automated." },
+      { "title": "Acceptance criteria", "text": "We agree up front how we will know that everything works." },
+      { "title": "Implementation", "text": "Tested, protected against errors and clearly documented." },
+      { "title": "Support", "text": "If you like, I make sure on an ongoing basis that everything keeps running." }
+    ]
+  },
+
+  "about": {
+    "headline": "About me",
+    "text": "I'm Haydar Hinisli and have been an online retailer myself since 2021, with my own brand on Amazon. I know the workflows I automate from my own experience. My company 4ELEMENTS e.K. is based in Berlin.",
+    "photoAlt": "Portrait of Haydar Hinisli",
+    "photoPlaceholder": "Portrait photo coming soon"
+  },
+
+  "contact": {
+    "headline": "Contact",
+    "text": "Briefly tell me which tools you use and what should be automated. You will receive a reply within one business day.",
+    "button": "Write an email"
+  },
+
+  "footer": {
+    "imprint": "Legal notice",
+    "privacy": "Privacy",
+    "copyright": "© 2026 4ELEMENTS e.K."
+  },
+
+  "useCases": {
+    "overviewTitle": "Use cases",
+    "overviewIntro": "Concrete workflows I automate for online retailers.",
+    "overviewMetaTitle": "Use cases – Automation for online retailers | 4ELEMENTS",
+    "overviewMetaDescription": "Examples of automations with Make: Shopify, Amazon, Google Sheets, email and more.",
+    "readMore": "View use case",
+    "problemHeading": "The problem",
+    "solutionHeading": "The solution",
+    "resultHeading": "The result",
+    "screenshotHeading": "The Make scenario",
+    "screenshotPlaceholder": "Screenshot of the Make scenario coming soon",
+    "ctaHeading": "Does this fit your shop?",
+    "ctaText": "Briefly tell me which tools you use and what should be automated. You will receive a reply within one business day.",
+    "ctaButton": "Send an inquiry",
+    "backToOverview": "All use cases"
+  },
+
+  "imprint": {
+    "title": "Legal notice",
+    "metaTitle": "Legal notice | 4ELEMENTS e.K.",
+    "metaDescription": "Legal notice (Impressum) of 4ELEMENTS e.K., Berlin.",
+    "sectionProvider": "Information pursuant to § 5 DDG (German Digital Services Act)",
+    "labelOwner": "Owner",
+    "sectionContact": "Contact",
+    "labelEmail": "Email",
+    "labelPhone": "Phone",
+    "sectionRegister": "Commercial register",
+    "labelCourt": "Register court",
+    "labelRegisterNo": "Registration number",
+    "sectionVat": "VAT ID",
+    "vatText": "VAT identification number pursuant to § 27 a of the German VAT Act:",
+    "sectionResponsible": "Responsible for content"
+  },
+
+  "privacy": {
+    "title": "Privacy policy",
+    "metaTitle": "Privacy policy | 4ELEMENTS e.K.",
+    "metaDescription": "Privacy policy of the website 4elements-digital.de."
+  },
+
+  "notFound": {
+    "title": "Page not found",
+    "text": "This page does not exist (anymore).",
+    "button": "Go to homepage"
+  }
+}

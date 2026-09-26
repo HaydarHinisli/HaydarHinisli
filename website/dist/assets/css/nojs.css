@@ -1,0 +1,11 @@
+/* Nur aktiv, wenn JavaScript deaktiviert ist: mobile Navigation dauerhaft sichtbar. */
+@media (max-width: 55.99em) {
+  .menu-toggle { display: none !important; }
+  .site-header { position: static; height: auto; }
+  .site-header__inner { flex-wrap: wrap; padding-block: 0.75rem; }
+  .site-nav { position: static; display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 0.75rem 1.25rem; padding: 0; box-shadow: none; border: 0; background: none; }
+  .site-nav__list { flex-direction: row; flex-wrap: wrap; gap: 0.5rem 1.25rem; }
+  .site-nav__list a { padding: 0; border: 0; font-size: 0.9375rem; }
+  .lang-switch { padding-top: 0; }
+  main { padding-top: 0; }
+}

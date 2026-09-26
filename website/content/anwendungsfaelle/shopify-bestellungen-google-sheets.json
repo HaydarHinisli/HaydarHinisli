@@ -1,0 +1,50 @@
+{
+  "_hinweis": "BEISPIELSEITE mit Platzhaltertexten. Die finalen Texte liefert der Auftraggeber. Erst wenn 'published' auf true steht, erscheint die Seite in Navigation, Übersicht und Sitemap.",
+
+  "published": false,
+  "order": 1,
+
+  "de": {
+    "slug": "shopify-bestellungen-google-sheets",
+    "metaTitle": "Shopify-Bestellungen automatisch in Google Sheets übertragen | 4ELEMENTS",
+    "metaDescription": "Neue Shopify-Bestellungen landen automatisch in Google Sheets – ohne Kopieren, ohne Tippfehler. Umgesetzt mit Make.",
+    "h1": "Shopify-Bestellungen automatisch in Google Sheets übertragen",
+    "teaser": "Jede neue Bestellung erscheint sofort als Zeile in deiner Tabelle.",
+    "problem": [
+      "Platzhalter: Viele Händler kopieren neue Bestellungen täglich von Hand aus Shopify in eine Tabelle. Das kostet Zeit, und bei jedem Kopiervorgang können Fehler passieren."
+    ],
+    "flowSteps": ["Shopify-Bestellung", "Make", "Google Sheets", "Benachrichtigung"],
+    "solution": [
+      "Platzhalter: Ein Make-Szenario reagiert auf jede neue Bestellung, überträgt die relevanten Felder in eine Google-Tabelle und meldet sich, falls etwas nicht stimmt."
+    ],
+    "result": [
+      "Platzhalter: keine manuelle Übertragung mehr",
+      "Platzhalter: vollständige, einheitliche Daten",
+      "Platzhalter: Fehler werden sofort gemeldet"
+    ],
+    "screenshot": "",
+    "screenshotAlt": "Make-Szenario: Shopify-Bestellung wird in Google Sheets eingetragen"
+  },
+
+  "en": {
+    "slug": "shopify-orders-google-sheets",
+    "metaTitle": "Automatically transfer Shopify orders to Google Sheets | 4ELEMENTS",
+    "metaDescription": "New Shopify orders land in Google Sheets automatically – no copying, no typos. Built with Make.",
+    "h1": "Automatically transfer Shopify orders to Google Sheets",
+    "teaser": "Every new order instantly appears as a row in your spreadsheet.",
+    "problem": [
+      "Placeholder: Many retailers copy new orders from Shopify into a spreadsheet by hand every day. It takes time, and every copy step can introduce mistakes."
+    ],
+    "flowSteps": ["Shopify order", "Make", "Google Sheets", "Notification"],
+    "solution": [
+      "Placeholder: A Make scenario reacts to every new order, transfers the relevant fields into a Google spreadsheet and alerts you if something is wrong."
+    ],
+    "result": [
+      "Placeholder: no more manual transfers",
+      "Placeholder: complete, consistent data",
+      "Placeholder: errors are reported immediately"
+    ],
+    "screenshot": "",
+    "screenshotAlt": "Make scenario: a Shopify order is added to Google Sheets"
+  }
+}
