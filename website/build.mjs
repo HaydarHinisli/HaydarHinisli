@@ -220,7 +220,7 @@ function homePage(lang) {
           <a class="button" href="#${a.contact}">${esc(tx.hero.button)}</a>
         </div>
         <div class="hero__visual">
-          ${flow(tx.hero.flowSteps, tx.ui.flowLabel, 'vertical')}
+          ${flow(tx.hero.flowSteps, tx.ui.flowLabel, 'vertical flow--assemble')}
         </div>
       </div>
     </section>
