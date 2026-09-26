@@ -59,14 +59,23 @@ html.is-intro .intro {
   opacity: 0;
   will-change: transform, opacity;
 }
-.intro .module__ring {
-  inset: -0.35em;
-  border: 0.16em solid var(--accent);
-  opacity: 0;
-}
 .intro .module__count { transform: scale(0); }
+
+/* Lichtkegel, der dem gerade arbeitenden Modul folgt */
+.intro__spot {
+  position: absolute;
+  left: 0;
+  top: 0;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(61, 220, 151, 0.26), rgba(61, 220, 151, 0.08) 55%, rgba(61, 220, 151, 0) 100%);
+  opacity: 0;
+  will-change: transform, opacity;
+}
+/* Bereits durchlaufene Verbindung: grün */
+.intro__dots--done { stroke: var(--accent); }
 .intro .module--router { width: auto; }
 .intro .module--router .module__body { width: 2.9em; height: 2.9em; margin: 0; }
+.intro .module--router .module__glow { display: none; }
 
 .intro__packet {
   position: absolute;

@@ -417,29 +417,72 @@ main { padding-top: var(--header-h); }
 }
 .module__body {
   position: relative;
+  isolation: isolate;
   width: 4.75em;
   height: 4.75em;
-  margin-bottom: 0.9em;
-  filter: drop-shadow(0 0.7em 0.9em rgba(28, 31, 35, 0.16));
+  margin-bottom: 1em;
 }
+/* Weicher Farbschein unter dem Modul */
+.module__glow {
+  position: absolute;
+  left: 10%;
+  top: 32%;
+  z-index: 0;
+  width: 80%;
+  height: 86%;
+  filter: blur(0.7em);
+  opacity: 0.45;
+}
+/* Heller Rand mit feinen, geschichteten Schatten */
 .module__body::before {
   content: '';
   position: absolute;
-  inset: -0.35em;
+  inset: -0.34em;
+  z-index: 1;
   border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 0 0 1px var(--border);
+  background: linear-gradient(180deg, #fff 0%, #f1f3f5 100%);
+  box-shadow:
+    0 0 0 1px rgba(28, 31, 35, 0.07),
+    0 1px 2px rgba(28, 31, 35, 0.06),
+    0 0.7em 1.3em -0.55em rgba(28, 31, 35, 0.28);
 }
-.module__icon { position: relative; display: block; width: 100%; height: 100%; }
+.module__icon { position: relative; z-index: 2; display: block; width: 100%; height: 100%; }
+/* Glanz: Licht von oben links, Tiefe unten */
+.module__shine {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  border-radius: 50%;
+  background: radial-gradient(110% 85% at 30% 16%, rgba(255, 255, 255, 0.45), rgba(255, 255, 255, 0) 52%);
+  box-shadow: inset 0 -0.32em 0.55em rgba(0, 0, 0, 0.16), inset 0 0.08em 0.1em rgba(255, 255, 255, 0.45);
+}
+/* Fortschrittsring: läuft im Uhrzeigersinn, während das Modul arbeitet */
+.module__progress {
+  position: absolute;
+  inset: -0.66em;
+  z-index: 4;
+  width: calc(100% + 1.32em);
+  height: calc(100% + 1.32em);
+  overflow: visible;
+  transform: rotate(-90deg);
+}
+.module__track, .module__arc { fill: none; stroke-width: 3.4; }
+.module__track { stroke: rgba(61, 220, 151, 0.22); opacity: 0; }
+.module__arc { stroke: var(--accent); stroke-linecap: round; stroke-dasharray: 1; stroke-dashoffset: 1; opacity: 0; }
+/* Abschluss-Welle */
 .module__ring {
   position: absolute;
-  inset: -0.35em;
+  inset: -0.34em;
+  z-index: 1;
   border-radius: 50%;
+  border: 0.14em solid var(--accent);
+  opacity: 0;
 }
 .module__trigger {
   position: absolute;
   left: -0.45em;
   bottom: -0.25em;
+  z-index: 5;
   display: grid;
   place-items: center;
   width: 1.6em;
@@ -447,13 +490,14 @@ main { padding-top: var(--header-h); }
   border-radius: 50%;
   background: #fff;
   color: var(--text);
-  box-shadow: 0 0 0 1px var(--border), 0 0.15em 0.4em rgba(28, 31, 35, 0.12);
+  box-shadow: 0 0 0 1px rgba(28, 31, 35, 0.08), 0 0.2em 0.45em rgba(28, 31, 35, 0.14);
 }
 .module__trigger svg { width: 1.05em; height: 1.05em; }
 .module__count {
   position: absolute;
   top: -0.45em;
   right: -0.55em;
+  z-index: 5;
   min-width: 1.75em;
   height: 1.75em;
   padding: 0 0.4em;
@@ -461,10 +505,10 @@ main { padding-top: var(--header-h); }
   background: var(--accent);
   color: var(--accent-ink);
   font: 600 0.8em/1.75em var(--font);
-  box-shadow: 0 0 0 0.2em #fff;
+  box-shadow: 0 0 0 0.18em #fff, 0 0.25em 0.55em rgba(11, 122, 75, 0.3);
 }
-.module__app { font-weight: 600; font-size: 0.95em; line-height: 1.25; white-space: nowrap; }
-.module__action { font-size: 0.78em; line-height: 1.35; color: var(--text-muted); margin-top: 0.2em; }
+.module__app { font-weight: 600; font-size: 0.95em; line-height: 1.25; letter-spacing: -0.01em; white-space: nowrap; }
+.module__action { font-size: 0.76em; line-height: 1.35; color: var(--text-muted); margin-top: 0.2em; white-space: nowrap; }
 
 /* Verbindungen wie im Make-Editor: gepunktete Linie von Modul zu Modul */
 .link {
@@ -517,7 +561,7 @@ main { padding-top: var(--header-h); }
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .scene { animation: scene-float 12s ease-in-out 5.2s infinite alternate; }
+  .scene { animation: scene-float 12s ease-in-out 6.6s infinite alternate; }
 
   /* Anflug aus allen Richtungen, mit Drehung im Raum */
   .chain .module { animation: module-fly 1.8s cubic-bezier(0.16, 1, 0.3, 1) both; }
@@ -528,10 +572,10 @@ main { padding-top: var(--header-h); }
   .chain .module--5 { --from: translate3d(-12em, -22em, -24em) rotateX(40deg) rotateY(280deg) rotateZ(10deg); animation-delay: 1.05s; }
 
   /* Danach schwebt jedes Modul leicht versetzt */
-  .chain .module--1 { animation: module-fly 1.8s cubic-bezier(0.16, 1, 0.3, 1) 0.4s both, module-bob 4.5s ease-in-out 5.2s infinite alternate; }
-  .chain .module--2 { animation: module-fly 1.8s cubic-bezier(0.16, 1, 0.3, 1) 0.9s both, module-bob 5s ease-in-out 5.8s infinite alternate; }
-  .chain .module--3 { animation: module-fly 1.8s cubic-bezier(0.16, 1, 0.3, 1) 0.15s both, module-bob 4.2s ease-in-out 5.5s infinite alternate; }
-  .chain .module--4 { animation: module-fly 1.8s cubic-bezier(0.16, 1, 0.3, 1) 0.65s both, module-bob 4.8s ease-in-out 6.1s infinite alternate; }
+  .chain .module--1 { animation: module-fly 1.8s cubic-bezier(0.16, 1, 0.3, 1) 0.4s both, module-bob 4.5s ease-in-out 6.6s infinite alternate; }
+  .chain .module--2 { animation: module-fly 1.8s cubic-bezier(0.16, 1, 0.3, 1) 0.9s both, module-bob 5s ease-in-out 7s infinite alternate; }
+  .chain .module--3 { animation: module-fly 1.8s cubic-bezier(0.16, 1, 0.3, 1) 0.15s both, module-bob 4.2s ease-in-out 6.8s infinite alternate; }
+  .chain .module--4 { animation: module-fly 1.8s cubic-bezier(0.16, 1, 0.3, 1) 0.65s both, module-bob 4.8s ease-in-out 7.2s infinite alternate; }
 
   .ghost { animation: ghost-in 1.6s ease-out both, ghost-drift 9s ease-in-out 1.6s infinite alternate; }
   .ghost--2 { animation-delay: 0.3s, 1.9s; animation-duration: 1.6s, 11s; }
@@ -547,20 +591,24 @@ main { padding-top: var(--header-h); }
   .chain .link--3 { animation-delay: 3s; }
   .chain .link--4 { animation-delay: 3.2s; }
 
-  /* Ein Durchlauf: Impuls wandert durch die Kette, jedes Modul meldet „1“ */
-  .chain .link__pulse { animation: pulse-run 0.4s ease-in-out both; }
-  .chain .link--1 .link__pulse { animation-delay: 3.75s; }
-  .chain .link--2 .link__pulse { animation-delay: 4.2s; }
-  .chain .link--3 .link__pulse { animation-delay: 4.65s; }
-  .chain .link--4 .link__pulse { animation-delay: 5.1s; }
+  /* Run once: ein Modul nach dem anderen – Ring läuft im Uhrzeigersinn, dann „1“, dann weiter zum nächsten */
+  .chain .link__pulse { animation: pulse-run 0.35s ease-in-out both; }
+  .chain .link--1 .link__pulse { animation-delay: 3.85s; }
+  .chain .link--2 .link__pulse { animation-delay: 4.65s; }
+  .chain .link--3 .link__pulse { animation-delay: 5.45s; }
 
-  .chain .module__ring { animation: ring 0.7s ease-out both; }
-  .chain .module__count { animation: count-pop 0.35s cubic-bezier(0.3, 1.6, 0.5, 1) both; }
-  .chain .module--1 .module__ring, .chain .module--1 .module__count { animation-delay: 3.4s; }
-  .chain .module--2 .module__ring, .chain .module--2 .module__count { animation-delay: 4.15s; }
-  .chain .module--3 .module__ring, .chain .module--3 .module__count { animation-delay: 4.6s; }
-  .chain .module--4 .module__ring, .chain .module--4 .module__count { animation-delay: 5.05s; }
-  .chain .module--5 .module__ring, .chain .module--5 .module__count { animation-delay: 5.5s; }
+  .chain .module__arc { animation: arc-run 0.55s cubic-bezier(0.4, 0, 0.2, 1) both; }
+  .chain .module__track { animation: track-run 0.55s ease both; }
+  .chain .module__ring { animation: ring 0.6s ease-out forwards; }
+  .chain .module__count { animation: count-pop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+  .chain .module--1 .module__arc, .chain .module--1 .module__track { animation-delay: 3.3s; }
+  .chain .module--2 .module__arc, .chain .module--2 .module__track { animation-delay: 4.1s; }
+  .chain .module--3 .module__arc, .chain .module--3 .module__track { animation-delay: 4.9s; }
+  .chain .module--4 .module__arc, .chain .module--4 .module__track { animation-delay: 5.7s; }
+  .chain .module--1 .module__ring, .chain .module--1 .module__count { animation-delay: 3.75s; }
+  .chain .module--2 .module__ring, .chain .module--2 .module__count { animation-delay: 4.55s; }
+  .chain .module--3 .module__ring, .chain .module--3 .module__count { animation-delay: 5.35s; }
+  .chain .module--4 .module__ring, .chain .module--4 .module__count { animation-delay: 6.15s; }
 
   @container (max-width: 470px) {
     .chain .link { animation-name: link-draw-v; }
@@ -610,8 +658,19 @@ main { padding-top: var(--header-h); }
   100% { opacity: 0; left: 100%; }
 }
 @keyframes ring {
-  0% { box-shadow: 0 0 0 0 rgba(61, 220, 151, 0.7); }
-  100% { box-shadow: 0 0 0 1em rgba(61, 220, 151, 0); }
+  from { transform: scale(1); opacity: 0.8; }
+  to { transform: scale(1.45); opacity: 0; }
+}
+@keyframes arc-run {
+  0% { stroke-dashoffset: 1; opacity: 0; }
+  4% { opacity: 1; }
+  80% { stroke-dashoffset: 0; opacity: 1; }
+  100% { stroke-dashoffset: 0; opacity: 0; }
+}
+@keyframes track-run {
+  0% { opacity: 0; }
+  12%, 80% { opacity: 1; }
+  100% { opacity: 0; }
 }
 @keyframes count-pop {
   from { transform: scale(0); opacity: 0; }
@@ -627,6 +686,8 @@ html.is-intro .chain .module, html.is-intro .scene { animation: none; }
 html.intro-played .chain .module { animation-name: none, module-bob; }
 html.is-intro .chain .link, html.is-intro .chain .link__pulse,
 html.is-intro .chain .module__ring, html.is-intro .chain .module__count,
+html.is-intro .chain .module__arc, html.is-intro .chain .module__track,
+html.intro-played .chain .module__arc, html.intro-played .chain .module__track,
 html.intro-played .chain .link, html.intro-played .chain .link__pulse,
 html.intro-played .chain .module__ring, html.intro-played .chain .module__count { animation: none; }
 html.intro-played .scene__ghosts, html.intro-played .scene__grid { transition: opacity 0.8s ease; }

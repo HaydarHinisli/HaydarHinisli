@@ -143,8 +143,11 @@ function moduleIcon(icon, color, cls = 'module__icon') {
 function moduleHTML(m, cls) {
   return `<div class="module ${cls}${m.router ? ' module--router' : ''}">
               <div class="module__body">
+                <svg class="module__glow" viewBox="0 0 10 10" focusable="false"><circle cx="5" cy="5" r="5" fill="${esc(m.color)}"/></svg>
                 <span class="module__ring"></span>
                 ${moduleIcon(m.icon, m.color)}
+                <span class="module__shine"></span>
+                <svg class="module__progress" viewBox="0 0 100 100" focusable="false"><circle class="module__track" cx="50" cy="50" r="46"/><circle class="module__arc" cx="50" cy="50" r="46" pathLength="1"/></svg>
                 ${m.trigger ? '<span class="module__trigger"><svg viewBox="0 0 24 24" focusable="false"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 8v4.5l3 1.8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></span>' : ''}
                 ${m.router ? '' : '<span class="module__count">1</span>'}
               </div>
