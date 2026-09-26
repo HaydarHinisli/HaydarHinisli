@@ -45,7 +45,13 @@
     "headline": "Automations that keep running.",
     "subline": "I automate recurring workflows for online retailers and make sure they keep running reliably.",
     "button": "Send an inquiry",
-    "flowSteps": ["Order", "Spreadsheet", "Check", "Notification"]
+    "_modules": "Modules of the animated workflow graphic in the hero. icon: bag, sheet, check, filter, mail, bell, cart, doc, spark, chat.",
+    "modules": [
+      { "app": "Shopify", "action": "New order", "icon": "bag", "color": "#5E8E3E", "trigger": true },
+      { "app": "Google Sheets", "action": "Add a row", "icon": "sheet", "color": "#188038" },
+      { "app": "Check", "action": "Validate data", "icon": "check", "color": "#6D28D9" },
+      { "app": "Email", "action": "Send notification", "icon": "mail", "color": "#1A73E8" }
+    ]
   },
 
   "problem": {

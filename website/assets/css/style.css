@@ -261,13 +261,14 @@ main { padding-top: var(--header-h); }
 
 /* ---------- Kopfbereich ---------- */
 
-.hero { padding-block: clamp(3.5rem, 9vw, 7rem) clamp(3.5rem, 8vw, 6rem); }
+.hero { padding-block: clamp(3.5rem, 9vw, 7rem) clamp(3.5rem, 8vw, 6rem); overflow: hidden; }
 .hero__inner { display: grid; gap: 3.5rem; align-items: center; }
 .hero__title { font-size: clamp(2.5rem, 7vw, 4.25rem); letter-spacing: -0.035em; line-height: 1.05; margin-bottom: 1.5rem; }
 .hero__subline { font-size: clamp(1.125rem, 2vw, 1.3125rem); color: var(--text-muted); max-width: 34rem; margin-bottom: 2rem; }
 
 @media (min-width: 56em) {
-  .hero__inner { grid-template-columns: 1.15fr 0.85fr; gap: 4rem; }
+  .hero__inner { grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: 3rem; }
+  .hero__title { font-size: clamp(2.5rem, 4.6vw, 3.5rem); }
 }
 
 /* ---------- Ablauf-Grafik ---------- */
@@ -352,54 +353,269 @@ main { padding-top: var(--header-h); }
   }
 }
 
-/* Zusammenfügen (Kopfbereich): Die Module kommen von verschiedenen Stellen,
-   finden in ihre Position, werden verbunden, dann läuft der Ablauf einmal durch.
-   Läuft einmal beim Laden (ca. 3,5 s), danach Ruhe. Bei „Bewegung reduzieren“
-   wird sofort das fertige Bild gezeigt. */
+/* ---------- Kopfbereich: 3D-Workflow-Szene ----------
+   Endzustand = Grundzustand. Die Animationen (nur ohne „Bewegung reduzieren“)
+   spielen den Weg dorthin ab: Module fliegen aus allen Richtungen heran,
+   Verbindungen entstehen, ein Impuls läuft durch, danach schwebt die Szene sanft. */
+
+.hero__visual {
+  container-type: inline-size;
+  perspective: 1100px;
+  perspective-origin: 50% 35%;
+}
+
+.scene {
+  --tilt: rotateX(14deg) rotateY(-12deg);
+  position: relative;
+  height: 25em;
+  display: grid;
+  place-items: center;
+  font-size: clamp(12px, 2.55cqi, 17px);
+  transform-style: preserve-3d;
+  transform: var(--tilt);
+}
+
+.scene__grid {
+  position: absolute;
+  inset: -8% -12%;
+  background: radial-gradient(circle, #c9ced4 0.075em, transparent 0.09em) 0 0 / 1.5em 1.5em;
+  -webkit-mask-image: radial-gradient(ellipse 50% 50% at 50% 50%, #000 35%, transparent 100%);
+  mask-image: radial-gradient(ellipse 50% 50% at 50% 50%, #000 35%, transparent 100%);
+  transform: translateZ(-2em);
+}
+
+/* Weitere Module im Hintergrund – angedeutete „Bausteine“ im Raum */
+.ghost {
+  position: absolute;
+  width: 2.75em;
+  height: 2.75em;
+  opacity: 0.22;
+  transform: translate3d(0, 0, var(--z, -8em));
+}
+.ghost svg { width: 100%; height: 100%; display: block; }
+.ghost--1 { left: 6%; top: 8%; --z: -10em; }
+.ghost--2 { right: 8%; top: 4%; --z: -14em; width: 2.25em; height: 2.25em; }
+.ghost--3 { left: 18%; bottom: 6%; --z: -6em; }
+.ghost--4 { right: 4%; bottom: 2%; --z: -12em; width: 2.25em; height: 2.25em; }
+.ghost--5 { left: 46%; top: 0; --z: -18em; width: 2em; height: 2em; }
+.ghost--6 { right: 0; top: 44%; --z: -9em; width: 2em; height: 2em; }
+
+/* Workflow-Kette */
+.chain {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  transform-style: preserve-3d;
+}
+
+.module {
+  display: grid;
+  justify-items: center;
+  width: 7em;
+  text-align: center;
+  backface-visibility: visible;
+}
+.module__body {
+  position: relative;
+  width: 4.75em;
+  height: 4.75em;
+  margin-bottom: 0.9em;
+  filter: drop-shadow(0 0.7em 0.9em rgba(28, 31, 35, 0.16));
+}
+.module__body::before {
+  content: '';
+  position: absolute;
+  inset: -0.35em;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 1px var(--border);
+}
+.module__icon { position: relative; display: block; width: 100%; height: 100%; }
+.module__ring {
+  position: absolute;
+  inset: -0.35em;
+  border-radius: 50%;
+}
+.module__trigger {
+  position: absolute;
+  left: -0.45em;
+  bottom: -0.25em;
+  display: grid;
+  place-items: center;
+  width: 1.6em;
+  height: 1.6em;
+  border-radius: 50%;
+  background: #fff;
+  color: var(--text);
+  box-shadow: 0 0 0 1px var(--border), 0 0.15em 0.4em rgba(28, 31, 35, 0.12);
+}
+.module__trigger svg { width: 1.05em; height: 1.05em; }
+.module__count {
+  position: absolute;
+  top: -0.45em;
+  right: -0.55em;
+  min-width: 1.75em;
+  height: 1.75em;
+  padding: 0 0.4em;
+  border-radius: 1em;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font: 600 0.8em/1.75em var(--font);
+  box-shadow: 0 0 0 0.2em #fff;
+}
+.module__app { font-weight: 600; font-size: 0.95em; line-height: 1.25; white-space: nowrap; }
+.module__action { font-size: 0.78em; line-height: 1.35; color: var(--text-muted); margin-top: 0.2em; }
+
+/* Verbindungen wie im Make-Editor: gepunktete Linie von Modul zu Modul */
+.link {
+  position: relative;
+  flex: none;
+  width: 4.2em;
+  height: 0.34em;
+  margin: 2.2em -1.05em 0;
+  background: radial-gradient(circle, #8f979f 0.13em, transparent 0.15em) 0 50% / 0.6em 0.34em repeat-x;
+  transform-origin: left center;
+}
+.link__pulse {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 0.75em;
+  height: 0.75em;
+  margin: -0.375em 0 0 -0.375em;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0.6em 0.1em var(--accent);
+  opacity: 0;
+}
+
+/* Schmale Spalte (Smartphone): Kette senkrecht, Beschriftung rechts */
+@container (max-width: 470px) {
+  .scene { font-size: 14px; height: auto; padding-block: 2.5em; --tilt: rotateX(10deg) rotateY(-16deg); }
+  .chain { flex-direction: column; }
+  .module {
+    width: auto;
+    grid-template-columns: 4.75em auto;
+    grid-template-rows: auto auto;
+    column-gap: 1.1em;
+    justify-items: start;
+    align-content: center;
+    text-align: left;
+  }
+  .module__body { grid-row: 1 / 3; margin: 0; }
+  .module__app { align-self: end; }
+  .module__action { align-self: start; }
+  .link {
+    width: 0.34em;
+    height: 2.4em;
+    margin: 0.2em 0 0.2em 2.2em;
+    background: radial-gradient(circle, #8f979f 0.13em, transparent 0.15em) 50% 0 / 0.34em 0.6em repeat-y;
+    transform-origin: center top;
+  }
+  .link__pulse { left: 50%; top: 0; margin: -0.375em 0 0 -0.375em; }
+  .ghost--5, .ghost--6 { display: none; }
+}
+
 @media (prefers-reduced-motion: no-preference) {
-  .flow--assemble { overflow: hidden; }
+  .scene { animation: scene-float 12s ease-in-out 5.2s infinite alternate; }
 
-  .flow--assemble .flow__step {
-    animation: flow-arrive 0.9s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  /* Anflug aus allen Richtungen, mit Drehung im Raum */
+  .module { animation: module-fly 1.8s cubic-bezier(0.16, 1, 0.3, 1) both; }
+  .module--1 { --from: translate3d(-26em, 9em, -30em) rotateX(-25deg) rotateY(300deg) rotateZ(-20deg); animation-delay: 0.4s; }
+  .module--2 { --from: translate3d(5em, -24em, 20em) rotateX(260deg) rotateY(-30deg) rotateZ(25deg); animation-delay: 0.9s; }
+  .module--3 { --from: translate3d(30em, -5em, -45em) rotateX(20deg) rotateY(-320deg) rotateZ(15deg); animation-delay: 0.15s; }
+  .module--4 { --from: translate3d(16em, 22em, 26em) rotateX(-240deg) rotateY(40deg) rotateZ(-30deg); animation-delay: 0.65s; }
+  .module--5 { --from: translate3d(-12em, -22em, -24em) rotateX(40deg) rotateY(280deg) rotateZ(10deg); animation-delay: 1.05s; }
+
+  /* Danach schwebt jedes Modul leicht versetzt */
+  .module--1 { animation: module-fly 1.8s cubic-bezier(0.16, 1, 0.3, 1) 0.4s both, module-bob 4.5s ease-in-out 5.2s infinite alternate; }
+  .module--2 { animation: module-fly 1.8s cubic-bezier(0.16, 1, 0.3, 1) 0.9s both, module-bob 5s ease-in-out 5.8s infinite alternate; }
+  .module--3 { animation: module-fly 1.8s cubic-bezier(0.16, 1, 0.3, 1) 0.15s both, module-bob 4.2s ease-in-out 5.5s infinite alternate; }
+  .module--4 { animation: module-fly 1.8s cubic-bezier(0.16, 1, 0.3, 1) 0.65s both, module-bob 4.8s ease-in-out 6.1s infinite alternate; }
+
+  .ghost { animation: ghost-in 1.6s ease-out both, ghost-drift 9s ease-in-out 1.6s infinite alternate; }
+  .ghost--2 { animation-delay: 0.3s, 1.9s; animation-duration: 1.6s, 11s; }
+  .ghost--3 { animation-delay: 0.5s, 2.1s; animation-duration: 1.6s, 8s; }
+  .ghost--4 { animation-delay: 0.2s, 1.8s; animation-duration: 1.6s, 12s; }
+  .ghost--5 { animation-delay: 0.7s, 2.3s; animation-duration: 1.6s, 10s; }
+  .ghost--6 { animation-delay: 0.4s, 2s; animation-duration: 1.6s, 9.5s; }
+
+  /* Verbindungen entstehen nacheinander */
+  .link { animation: link-draw 0.4s ease-out both; }
+  .link--1 { animation-delay: 2.6s; }
+  .link--2 { animation-delay: 2.8s; }
+  .link--3 { animation-delay: 3s; }
+  .link--4 { animation-delay: 3.2s; }
+
+  /* Ein Durchlauf: Impuls wandert durch die Kette, jedes Modul meldet „1“ */
+  .link__pulse { animation: pulse-run 0.4s ease-in-out both; }
+  .link--1 .link__pulse { animation-delay: 3.75s; }
+  .link--2 .link__pulse { animation-delay: 4.2s; }
+  .link--3 .link__pulse { animation-delay: 4.65s; }
+  .link--4 .link__pulse { animation-delay: 5.1s; }
+
+  .module__ring { animation: ring 0.7s ease-out both; }
+  .module__count { animation: count-pop 0.35s cubic-bezier(0.3, 1.6, 0.5, 1) both; }
+  .module--1 .module__ring, .module--1 .module__count { animation-delay: 3.4s; }
+  .module--2 .module__ring, .module--2 .module__count { animation-delay: 4.15s; }
+  .module--3 .module__ring, .module--3 .module__count { animation-delay: 4.6s; }
+  .module--4 .module__ring, .module--4 .module__count { animation-delay: 5.05s; }
+  .module--5 .module__ring, .module--5 .module__count { animation-delay: 5.5s; }
+
+  @container (max-width: 470px) {
+    .link { animation-name: link-draw-v; }
+    .link__pulse { animation-name: pulse-run-v; }
   }
-  /* Jedes Modul startet an einer anderen Stelle – und nicht in der Reihenfolge des Ablaufs */
-  .flow--assemble .flow__step:nth-child(1) { --from: translate(3.5rem, 2.5rem) rotate(-8deg); animation-delay: 0.35s; }
-  .flow--assemble .flow__step:nth-child(2) { --from: translate(-2.5rem, 1.5rem) rotate(6deg); animation-delay: 0.75s; }
-  .flow--assemble .flow__step:nth-child(3) { --from: translate(4.5rem, -1.5rem) rotate(10deg); animation-delay: 0.15s; }
-  .flow--assemble .flow__step:nth-child(4) { --from: translate(-1.5rem, -2.5rem) rotate(-5deg); animation-delay: 0.55s; }
-  .flow--assemble .flow__step:nth-child(5) { --from: translate(2rem, -3rem) rotate(7deg); animation-delay: 0.95s; }
-
-  /* Verbindungen zeichnen sich nacheinander */
-  .flow--assemble .flow__step:not(:last-child)::after {
-    transform-origin: top center;
-    animation: flow-connect 0.35s ease-out both;
-  }
-  .flow--assemble .flow__step:nth-child(1)::after { animation-delay: 1.8s; }
-  .flow--assemble .flow__step:nth-child(2)::after { animation-delay: 2.1s; }
-  .flow--assemble .flow__step:nth-child(3)::after { animation-delay: 2.4s; }
-  .flow--assemble .flow__step:nth-child(4)::after { animation-delay: 2.7s; }
-
-  /* Der Ablauf läuft einmal durch: Impuls von Modul zu Modul */
-  .flow--assemble .flow__node { animation: flow-pulse 0.6s ease-out both; }
-  .flow--assemble .flow__step:nth-child(1) .flow__node { animation-delay: 2.05s; }
-  .flow--assemble .flow__step:nth-child(2) .flow__node { animation-delay: 2.35s; }
-  .flow--assemble .flow__step:nth-child(3) .flow__node { animation-delay: 2.65s; }
-  .flow--assemble .flow__step:nth-child(4) .flow__node { animation-delay: 2.95s; }
-  .flow--assemble .flow__step:nth-child(5) .flow__node { animation-delay: 3.25s; }
 }
 
-@keyframes flow-arrive {
-  from { opacity: 0; transform: var(--from, translateY(1rem)); }
-  60% { opacity: 1; }
-  to { opacity: 1; transform: none; }
+@keyframes module-fly {
+  0% { opacity: 0; transform: var(--from); filter: blur(0.2em); }
+  30% { opacity: 1; }
+  100% { opacity: 1; transform: translate3d(0, 0, 0) rotateX(0) rotateY(0) rotateZ(0); filter: blur(0); }
 }
-@keyframes flow-connect {
-  from { transform: scaleY(0); }
-  to { transform: scaleY(1); }
+@keyframes module-bob {
+  from { translate: 0 0 0; }
+  to { translate: 0 -0.35em 0.8em; }
 }
-@keyframes flow-pulse {
-  0% { box-shadow: 0 0 0 0 rgba(61, 220, 151, 0.55); }
-  100% { box-shadow: 0 0 0 12px rgba(61, 220, 151, 0); }
+@keyframes scene-float {
+  from { transform: var(--tilt); }
+  to { transform: rotateX(8deg) rotateY(-4deg) translateY(-0.3em); }
+}
+@keyframes ghost-in {
+  from { opacity: 0; }
+  to { opacity: 0.22; }
+}
+@keyframes ghost-drift {
+  from { translate: 0 0; rotate: 0deg; }
+  to { translate: 0.6em -0.9em; rotate: 8deg; }
+}
+@keyframes link-draw {
+  from { transform: scale(0, 1); }
+  to { transform: none; }
+}
+@keyframes link-draw-v {
+  from { transform: scale(1, 0); }
+  to { transform: none; }
+}
+@keyframes pulse-run-v {
+  0% { opacity: 0; top: 0; }
+  20% { opacity: 1; }
+  80% { opacity: 1; }
+  100% { opacity: 0; top: 100%; }
+}
+@keyframes pulse-run {
+  0% { opacity: 0; left: 0; }
+  20% { opacity: 1; }
+  80% { opacity: 1; }
+  100% { opacity: 0; left: 100%; }
+}
+@keyframes ring {
+  0% { box-shadow: 0 0 0 0 rgba(61, 220, 151, 0.7); }
+  100% { box-shadow: 0 0 0 1em rgba(61, 220, 151, 0); }
+}
+@keyframes count-pop {
+  from { transform: scale(0); opacity: 0; }
+  to { transform: none; opacity: 1; }
 }
 
 /* ---------- Problem ---------- */

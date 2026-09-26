@@ -44,7 +44,13 @@
     "headline": "Automatisierungen, die laufen.",
     "subline": "Ich automatisiere wiederkehrende Abläufe für Online-Händler und sorge dafür, dass sie zuverlässig weiterlaufen.",
     "button": "Anfrage stellen",
-    "flowSteps": ["Bestellung", "Tabelle", "Prüfung", "Benachrichtigung"]
+    "_modules": "Module der animierten Workflow-Grafik im Kopfbereich. icon: bag, sheet, check, filter, mail, bell, cart, doc, spark, chat. trigger: true zeigt das Uhr-Symbol (Auslöser) wie in Make.",
+    "modules": [
+      { "app": "Shopify", "action": "Neue Bestellung", "icon": "bag", "color": "#5E8E3E", "trigger": true },
+      { "app": "Google Sheets", "action": "Zeile hinzufügen", "icon": "sheet", "color": "#188038" },
+      { "app": "Prüfung", "action": "Daten prüfen", "icon": "check", "color": "#6D28D9" },
+      { "app": "E-Mail", "action": "Nachricht senden", "icon": "mail", "color": "#1A73E8" }
+    ]
   },
 
   "problem": {

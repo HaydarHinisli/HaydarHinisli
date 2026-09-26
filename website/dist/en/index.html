@@ -26,7 +26,7 @@
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <link rel="preload" href="/assets/fonts/inter-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/assets/fonts/inter-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="/assets/css/style.css?v=19ef8820ae">
+  <link rel="stylesheet" href="/assets/css/style.css?v=d99fe59cf0">
   <noscript><link rel="stylesheet" href="/assets/css/nojs.css"></noscript>
   <script src="/assets/js/main.js?v=c8ad7e6716" defer></script>
   <script type="application/ld+json">{"@context":"https://schema.org","@type":"ProfessionalService","name":"4ELEMENTS e.K.","url":"https://4elements-digital.de/en/","email":"haydar@4elements-digital.de","image":"https://4elements-digital.de/assets/img/og-image.png","description":"I automate recurring workflows for online retailers with Make – Shopify, Amazon, spreadsheets, email – and look after running automations. 4ELEMENTS e.K., Berlin.","founder":{"@type":"Person","name":"Haydar Hinisli"},"address":{"@type":"PostalAddress","streetAddress":"Thaliaweg 17D","postalCode":"12249","addressLocality":"Berlin","addressCountry":"DE"},"areaServed":["DE","AT","CH"],"priceRange":"99 € – 499 €"}</script>
@@ -69,14 +69,68 @@
           <a class="button" href="#contact">Send an inquiry</a>
         </div>
         <div class="hero__visual">
-          <figure class="flow flow--vertical flow--assemble">
-  <ol class="flow__list" aria-label="Example of an automation workflow">
-    <li class="flow__step"><span class="flow__node" aria-hidden="true">01</span><span class="flow__label">Order</span></li>
-    <li class="flow__step"><span class="flow__node" aria-hidden="true">02</span><span class="flow__label">Spreadsheet</span></li>
-    <li class="flow__step"><span class="flow__node" aria-hidden="true">03</span><span class="flow__label">Check</span></li>
-    <li class="flow__step"><span class="flow__node" aria-hidden="true">04</span><span class="flow__label">Notification</span></li>
-  </ol>
-</figure>
+          <div class="scene" aria-hidden="true">
+          <div class="scene__grid"></div>
+          <div class="scene__ghosts">
+            <span class="ghost ghost--1"><svg class="module__icon" viewBox="0 0 64 64" focusable="false"><circle cx="32" cy="32" r="32" fill="#E47911"/><g transform="translate(14 14) scale(1.5)" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4.5h2.2l2.3 10.5h10l2.2-7.5H6.4"/><circle cx="9" cy="19" r="1.3"/><circle cx="16.5" cy="19" r="1.3"/></g></svg></span>
+            <span class="ghost ghost--2"><svg class="module__icon" viewBox="0 0 64 64" focusable="false"><circle cx="32" cy="32" r="32" fill="#475569"/><g transform="translate(14 14) scale(1.5)" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3.5h7l4.5 4.5v12.5H7z"/><path d="M14 3.5V8h4.5M10 13h5.5M10 16.5h5.5"/></g></svg></span>
+            <span class="ghost ghost--3"><svg class="module__icon" viewBox="0 0 64 64" focusable="false"><circle cx="32" cy="32" r="32" fill="#0F766E"/><g transform="translate(14 14) scale(1.5)" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4l1.8 5.2L19 11l-5.2 1.8L12 18l-1.8-5.2L5 11l5.2-1.8L12 4z"/><path d="M18.5 3.5v3M17 5h3"/></g></svg></span>
+            <span class="ghost ghost--4"><svg class="module__icon" viewBox="0 0 64 64" focusable="false"><circle cx="32" cy="32" r="32" fill="#7C3AED"/><g transform="translate(14 14) scale(1.5)" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 5.5h15v10h-9l-4.5 3.5v-3.5h-1.5z"/><path d="M8.5 10.5h7"/></g></svg></span>
+            <span class="ghost ghost--5"><svg class="module__icon" viewBox="0 0 64 64" focusable="false"><circle cx="32" cy="32" r="32" fill="#B45309"/><g transform="translate(14 14) scale(1.5)" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 1.5h-15L6 16.5z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></g></svg></span>
+            <span class="ghost ghost--6"><svg class="module__icon" viewBox="0 0 64 64" focusable="false"><circle cx="32" cy="32" r="32" fill="#334155"/><g transform="translate(14 14) scale(1.5)" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16l-6.2 7.2V18L10.2 20v-7.8L4 5z"/></g></svg></span>
+          </div>
+          <div class="chain">
+            <div class="module module--1">
+              <div class="module__body">
+                <span class="module__ring"></span>
+                <svg class="module__icon" viewBox="0 0 64 64" focusable="false"><circle cx="32" cy="32" r="32" fill="#5E8E3E"/><g transform="translate(14 14) scale(1.5)" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8h12l-1 12H7L6 8z"/><path d="M9 8V6.5a3 3 0 0 1 6 0V8"/></g></svg>
+                <span class="module__trigger"><svg viewBox="0 0 24 24" focusable="false"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 8v4.5l3 1.8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></span>
+                <span class="module__count">1</span>
+              </div>
+              <span class="module__app">Shopify</span>
+              <span class="module__action">New order</span>
+            </div>
+            <div class="link link--1"><span class="link__pulse"></span></div>
+            <div class="module module--2">
+              <div class="module__body">
+                <span class="module__ring"></span>
+                <svg class="module__icon" viewBox="0 0 64 64" focusable="false"><circle cx="32" cy="32" r="32" fill="#188038"/><g transform="translate(14 14) scale(1.5)" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="4.5" y="4" width="15" height="16" rx="2"/><path d="M4.5 9.5h15M4.5 14.5h15M10 4v16"/></g></svg>
+                
+                <span class="module__count">1</span>
+              </div>
+              <span class="module__app">Google Sheets</span>
+              <span class="module__action">Add a row</span>
+            </div>
+            <div class="link link--2"><span class="link__pulse"></span></div>
+            <div class="module module--3">
+              <div class="module__body">
+                <span class="module__ring"></span>
+                <svg class="module__icon" viewBox="0 0 64 64" focusable="false"><circle cx="32" cy="32" r="32" fill="#6D28D9"/><g transform="translate(14 14) scale(1.5)" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.6-3 7.8-7 10-4-2.2-7-5.4-7-10V6l7-3z"/><path d="M9 12l2.2 2.2L15.5 10"/></g></svg>
+                
+                <span class="module__count">1</span>
+              </div>
+              <span class="module__app">Check</span>
+              <span class="module__action">Validate data</span>
+            </div>
+            <div class="link link--3"><span class="link__pulse"></span></div>
+            <div class="module module--4">
+              <div class="module__body">
+                <span class="module__ring"></span>
+                <svg class="module__icon" viewBox="0 0 64 64" focusable="false"><circle cx="32" cy="32" r="32" fill="#1A73E8"/><g transform="translate(14 14) scale(1.5)" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="6" width="17" height="12.5" rx="2"/><path d="M4 7.5l8 6 8-6"/></g></svg>
+                
+                <span class="module__count">1</span>
+              </div>
+              <span class="module__app">Email</span>
+              <span class="module__action">Send notification</span>
+            </div>
+          </div>
+        </div>
+        <ol class="visually-hidden" aria-label="Example of an automation workflow">
+          <li>Shopify: New order</li>
+          <li>Google Sheets: Add a row</li>
+          <li>Check: Validate data</li>
+          <li>Email: Send notification</li>
+        </ol>
         </div>
       </div>
     </section>

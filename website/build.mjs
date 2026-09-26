@@ -103,6 +103,61 @@ ${steps
 </figure>`;
 }
 
+// Symbole für die Module (24er-Raster, weiße Linien) – eigene, schlichte Zeichnungen, keine Markenlogos.
+const ICONS = {
+  bag: '<path d="M6 8h12l-1 12H7L6 8z"/><path d="M9 8V6.5a3 3 0 0 1 6 0V8"/>',
+  sheet: '<rect x="4.5" y="4" width="15" height="16" rx="2"/><path d="M4.5 9.5h15M4.5 14.5h15M10 4v16"/>',
+  check: '<path d="M12 3l7 3v5c0 4.6-3 7.8-7 10-4-2.2-7-5.4-7-10V6l7-3z"/><path d="M9 12l2.2 2.2L15.5 10"/>',
+  filter: '<path d="M4 5h16l-6.2 7.2V18L10.2 20v-7.8L4 5z"/>',
+  mail: '<rect x="3.5" y="6" width="17" height="12.5" rx="2"/><path d="M4 7.5l8 6 8-6"/>',
+  bell: '<path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 1.5h-15L6 16.5z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
+  cart: '<path d="M3 4.5h2.2l2.3 10.5h10l2.2-7.5H6.4"/><circle cx="9" cy="19" r="1.3"/><circle cx="16.5" cy="19" r="1.3"/>',
+  doc: '<path d="M7 3.5h7l4.5 4.5v12.5H7z"/><path d="M14 3.5V8h4.5M10 13h5.5M10 16.5h5.5"/>',
+  spark: '<path d="M12 4l1.8 5.2L19 11l-5.2 1.8L12 18l-1.8-5.2L5 11l5.2-1.8L12 4z"/><path d="M18.5 3.5v3M17 5h3"/>',
+  chat: '<path d="M4.5 5.5h15v10h-9l-4.5 3.5v-3.5h-1.5z"/><path d="M8.5 10.5h7"/>',
+};
+
+function moduleIcon(icon, color) {
+  if (!ICONS[icon]) throw new Error(`Unbekanntes Modul-Symbol "${icon}". Erlaubt: ${Object.keys(ICONS).join(', ')}`);
+  return `<svg class="module__icon" viewBox="0 0 64 64" focusable="false"><circle cx="32" cy="32" r="32" fill="${esc(color)}"/><g transform="translate(14 14) scale(1.5)" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${ICONS[icon]}</g></svg>`;
+}
+
+// Kopfbereich: Module fliegen aus allen Richtungen heran und bilden eine Workflow-Kette.
+// Die sichtbare Szene ist dekorativ (aria-hidden); für Screenreader gibt es die Liste darunter.
+function heroScene(modules, label) {
+  const ghosts = [
+    ['cart', '#E47911'], ['doc', '#475569'], ['spark', '#0F766E'], ['chat', '#7C3AED'], ['bell', '#B45309'], ['filter', '#334155'],
+  ];
+  const chain = modules
+    .map((m, i) => {
+      const mod = `<div class="module module--${i + 1}">
+              <div class="module__body">
+                <span class="module__ring"></span>
+                ${moduleIcon(m.icon, m.color)}
+                ${m.trigger ? '<span class="module__trigger"><svg viewBox="0 0 24 24" focusable="false"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 8v4.5l3 1.8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></span>' : ''}
+                <span class="module__count">1</span>
+              </div>
+              <span class="module__app">${esc(m.app)}</span>
+              <span class="module__action">${esc(m.action)}</span>
+            </div>`;
+      const link = i < modules.length - 1 ? `\n            <div class="link link--${i + 1}"><span class="link__pulse"></span></div>` : '';
+      return mod + link;
+    })
+    .join('\n            ');
+  return `<div class="scene" aria-hidden="true">
+          <div class="scene__grid"></div>
+          <div class="scene__ghosts">
+            ${ghosts.map(([icon, color], i) => `<span class="ghost ghost--${i + 1}">${moduleIcon(icon, color)}</span>`).join('\n            ')}
+          </div>
+          <div class="chain">
+            ${chain}
+          </div>
+        </div>
+        <ol class="visually-hidden" aria-label="${esc(label)}">
+          ${modules.map((m) => `<li>${esc(m.app)}: ${esc(m.action)}</li>`).join('\n          ')}
+        </ol>`;
+}
+
 const paragraphs = (arr) => (Array.isArray(arr) ? arr : [arr]).map((p) => `<p>${esc(p)}</p>`).join('\n');
 
 // ---------- Layout ----------
@@ -220,7 +275,7 @@ function homePage(lang) {
           <a class="button" href="#${a.contact}">${esc(tx.hero.button)}</a>
         </div>
         <div class="hero__visual">
-          ${flow(tx.hero.flowSteps, tx.ui.flowLabel, 'vertical flow--assemble')}
+          ${heroScene(tx.hero.modules, tx.ui.flowLabel)}
         </div>
       </div>
     </section>
