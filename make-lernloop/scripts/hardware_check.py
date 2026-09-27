@@ -98,11 +98,11 @@ def main():
 
     if ram_gib is None:
         local_model = "unbekannt"
-    elif ram_gib >= 48:
+    elif ram_gib >= 46:
         local_model = "bis ~30B-Modelle (quantisiert) denkbar"
-    elif ram_gib >= 24:
+    elif ram_gib >= 23:
         local_model = "bis ~14B-Modelle (quantisiert) denkbar"
-    elif ram_gib >= 16:
+    elif ram_gib >= 15:
         local_model = "~7-8B-Modelle (quantisiert) denkbar"
     else:
         local_model = "lokales Modell nicht empfohlen – API nutzen"
