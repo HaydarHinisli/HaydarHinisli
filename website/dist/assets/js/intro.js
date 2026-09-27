@@ -564,11 +564,13 @@
     setTimeout(end, 6000); // Sicherheitsnetz
   }
   // =====================================================================================================
-  // Variante „kamera“ mit Ego-Perspektive (max. 4 s): Der Workflow liegt flach auf einem Boden im Raum.
-  // Die Kamera fährt knapp über dem Boden hinter dem Datenpaket her und blickt entlang der Kette nach vorn:
-  // Die nächsten Module stehen in der Tiefe, kommen näher, an jedem Modul hält die Fahrt kurz (Ring, „1“).
-  // Am Ende steigt die Kamera auf, schwenkt in die Übersicht und die Module gleiten in den Kopfbereich.
-  // Module stehen aufrecht und drehen sich immer zur Kamera (Gegenrotation, exakt synchron zur Kamera).
+  // Variante „kamera“ – Ego-Perspektive, eine durchgehende Fahrt (max. 4 s).
+  // Der Workflow liegt flach auf einem Boden im Raum. Die Kamera IST das Datenpaket: knapp über dem Boden,
+  // Blick nach vorn entlang der Kette, konstante Geschwindigkeit – kein Anhalten. Jedes Modul arbeitet, während
+  // man darauf zufliegt (Ring im Uhrzeigersinn), die „1“ erscheint beim Überfliegen, die Daten schießen voraus
+  // zum nächsten Modul. Nach dem letzten Modul steigt die Kamera ohne Unterbrechung auf, schwenkt in die
+  // Übersicht, und die Module gleiten in den Kopfbereich.
+  // Module stehen aufrecht und drehen sich zur Kamera (Gegenrotation auf denselben Schlüsselbildern).
   // =====================================================================================================
   function runEgo() {
     var Z = portrait ? 1.8 : 2.1;
@@ -577,35 +579,32 @@
     var circle = (portrait ? 0.44 : 0.36) * u;
     stage.style.fontSize = (circle * Z) / 4.75 + 'px';
     intro.classList.add('intro--ego');
-    intro.style.perspective = (portrait ? 760 : 950) + 'px';
-    intro.style.perspectiveOrigin = '50% 28%';
+    intro.style.perspective = (portrait ? 430 : 560) + 'px';
+    intro.style.perspectiveOrigin = '50% 34%';
     camera.style.transformOrigin = '0 0';
     var SW = Math.max(W, H) * Z * 1.6, O = [SW / 2, SW / 2];
     var cx = W / 2, cy = H / 2;
-    // Weltkoordinaten: immer das Querformat-Layout (die Fahrt geht „nach vorn“, egal wie das Gerät gehalten wird)
     var pts = data.land.map(function (p) { return [O[0] + p[0] * U, O[1] + p[1] * U]; });
     var offs = mods.map(function (m) {
       var r = m.getBoundingClientRect(), b = q(m, '.module__body').getBoundingClientRect();
-      return { x: b.left - r.left + b.width / 2, y: b.top - r.top + b.height / 2, w: b.width, h: b.height };
+      return { x: b.left - r.left + b.width / 2, y: b.top - r.top + b.height / 2, w: b.width, bottom: b.bottom - r.top };
     });
-    // Modul steht mit der Mitte seines Kreises auf dem Wegpunkt
+    // Module stehen mit der Unterkante ihres Kreises auf dem Boden (Drehpunkt = Standpunkt)
     mods.forEach(function (m, i) {
       m.style.left = pts[i][0] - offs[i].x + 'px';
-      m.style.top = pts[i][1] - offs[i].y + 'px';
-      m.style.transformOrigin = offs[i].x + 'px ' + offs[i].y + 'px';
+      m.style.top = pts[i][1] - offs[i].bottom + 'px';
+      m.style.transformOrigin = offs[i].x + 'px ' + offs[i].bottom + 'px';
     });
 
-    // Boden mit Punktraster (liegt in der Welt, läuft also perspektivisch mit)
     var floor = document.createElement('div');
     floor.className = 'intro__floor';
-    floor.style.left = O[0] - 4 * U + 'px';
-    floor.style.top = O[1] - 2.4 * U + 'px';
-    floor.style.width = 8 * U + 'px';
-    floor.style.height = 4.8 * U + 'px';
-    floor.style.backgroundSize = U / 9 + 'px ' + U / 9 + 'px';
+    floor.style.left = O[0] - 4.5 * U + 'px';
+    floor.style.top = O[1] - 2.6 * U + 'px';
+    floor.style.width = 9 * U + 'px';
+    floor.style.height = 5.2 * U + 'px';
+    floor.style.backgroundSize = U / 8 + 'px ' + U / 8 + 'px';
     camera.insertBefore(floor, camera.firstChild);
 
-    // Hauptroute
     var heroIdx = mods.map(function (m, i) { return m.getAttribute('data-hero') !== null ? i : -1; }).filter(function (i) { return i > -1; });
     var parent = {};
     data.links.forEach(function (l, k) { parent[l[1]] = { from: l[0], k: k }; });
@@ -613,7 +612,7 @@
     while (parent[route[0]]) route.unshift(parent[route[0]].from);
     var onRoute = function (i) { return route.indexOf(i) > -1; };
 
-    // Verbindungen auf dem Boden
+    // Verbindungen auf dem Boden (Zeichenfläche nur so groß wie der Workflow)
     var NS = 'http://www.w3.org/2000/svg';
     var bx = O[0] - 2.6 * U, by = O[1] - 1.3 * U, bw = 5.2 * U, bh = 2.6 * U;
     svg.setAttribute('viewBox', bx + ' ' + by + ' ' + bw + ' ' + bh);
@@ -644,115 +643,108 @@
     });
     function linkTo(i) { for (var k = 0; k < links.length; k++) if (links[k].to === i) return k; return -1; }
 
-    // ---------- Kamera: Schlüsselbilder ----------
-    // Welt = verschieben zum Bildpunkt · neigen (rotateX) · drehen (rotateZ) · skalieren · Wegpunkt in die Mitte
-    // Modul-Gegenrotation = rotateZ(-φ) · rotateX(-Neigung) → Module stehen aufrecht zur Kamera
+    // ---------- Fahrt: konstante Geschwindigkeit entlang der Hauptroute ----------
+    var TILT = 81;                                  // fast waagrecht: Blick knapp über dem Boden nach vorn
+    var ANCHOR = H * (portrait ? 0.86 : 0.84);      // Bildhöhe des Punkts direkt vor der Kamera
+    var xStart = pts[route[0]][0] - 1.35 * U;
+    var xEnd = pts[route[route.length - 1]][0] + 0.25 * U;
+    var y0 = pts[route[0]][1];
+    var RIDE = 2450;                                // Dauer der Fahrt (ms)
+    var speed = (xEnd - xStart) / RIDE;             // px pro ms
+    function when(x) { return (x - xStart) / speed; }   // Zeitpunkt, an dem die Kamera bei x ist
     var phiO = portrait ? 90 : 0;
-    var keys = [];
-    function key(at, c) { keys.push({ at: at, c: c }); }
-    function egoAt(p, back, tilt) {
-      return { x: p[0] - back * U, y: p[1], ax: cx, ay: H * (portrait ? 0.7 : 0.68), tilt: tilt, phi: -90, s: 1 };
+    function cam(x, tilt, phi, s, ax, ay) {
+      return { w: 'translate(' + ax + 'px,' + ay + 'px) rotateX(' + tilt + 'deg) rotateZ(' + phi + 'deg) scale(' + s + ') translate(' + -x[0] + 'px,' + -x[1] + 'px)', c: 'rotateZ(' + -phi + 'deg) rotateX(' + -tilt + 'deg)' };
     }
-    var overview = { x: O[0], y: O[1], ax: cx, ay: cy, tilt: 0, phi: phiO, s: 1 / Z };
-    function worldT(c) {
-      return 'translate(' + c.ax + 'px,' + c.ay + 'px) rotateX(' + c.tilt + 'deg) rotateZ(' + c.phi + 'deg) scale(' + c.s + ') translate(' + -c.x + 'px,' + -c.y + 'px)';
-    }
-    function counterT(c) { return 'rotateZ(' + -c.phi + 'deg) rotateX(' + -c.tilt + 'deg)'; }
+    var A = cam([xStart, y0], TILT, -90, 1, cx, ANCHOR);
+    var B = cam([xEnd, y0], TILT, -90, 1, cx, ANCHOR);
+    var C = cam(O, 0, phiO, 1 / Z, cx, cy);
+    var RISE = portrait ? 700 : 620;
+    var total = RIDE + RISE;
+    // Übergang Fahrt → Aufstieg ohne Geschwindigkeitseinbruch: Aufstieg beginnt mit Schwung und läuft weich aus
+    var RISE_EASE = 'cubic-bezier(0.25, 0.45, 0.2, 1)';
+    play(camera, [
+      { transform: A.w, offset: 0 },
+      { transform: B.w, offset: RIDE / total, easing: RISE_EASE },
+      { transform: C.w, offset: 1 },
+    ], { duration: total, fill: 'both' });
+    mods.forEach(function (m) {
+      play(m, [
+        { transform: A.c, offset: 0, composite: 'add' },
+        { transform: B.c, offset: RIDE / total, easing: RISE_EASE, composite: 'add' },
+        { transform: C.c, offset: 1, composite: 'add' },
+      ], { duration: total, fill: 'both', composite: 'add' });
+    });
+    // Einblenden: Szene erscheint bereits in Bewegung
+    play(floor, [{ opacity: 0 }, { opacity: 1 }], { duration: 350, fill: 'both' });
+    mods.forEach(function (m, i) {
+      play(m, [{ opacity: 0 }, { opacity: 1 }], { duration: 300, delay: Math.max(0, when(pts[i][0] - 3.2 * U)), fill: 'both' });
+    });
+    links.forEach(function (L) {
+      play(L.grey, [{ strokeDashoffset: 1 }, { strokeDashoffset: 0 }], { duration: 1, fill: 'both' });
+    });
+    play(svg, [{ opacity: 0 }, { opacity: 1 }], { duration: 350, fill: 'both' });
 
-    // Bausteine
-    function appear(i, t) {
-      play(mods[i], [
-        { transform: 'scale(0.4)', opacity: 0 },
-        { transform: 'scale(1)', opacity: 1 },
-      ], { duration: 420, delay: t, easing: 'cubic-bezier(0.34, 1.4, 0.64, 1)', fill: 'both' });
-      var k = linkTo(i);
-      if (k > -1) play(links[k].grey, [{ strokeDashoffset: 1 }, { strokeDashoffset: 0 }], { duration: 320, delay: t - 80, easing: EASE.inOut, fill: 'both' });
-    }
+    // ---------- Arbeiten im Vorbeiflug ----------
     function done(i, t) {
       var m = mods[i];
-      play(q(m, '.module__ring'), [{ transform: 'scale(1)', opacity: 0.8 }, { transform: 'scale(1.5)', opacity: 0 }], { duration: 550, delay: t, easing: 'ease-out', fill: 'forwards' });
+      play(q(m, '.module__ring'), [{ transform: 'scale(1)', opacity: 0.8 }, { transform: 'scale(1.5)', opacity: 0 }], { duration: 500, delay: t, easing: 'ease-out', fill: 'forwards' });
       var c = q(m, '.module__count');
-      if (c) play(c, [{ transform: 'scale(0)' }, { transform: 'scale(1)' }], { duration: 380, delay: t, easing: EASE.pop, fill: 'both' });
+      if (c) play(c, [{ transform: 'scale(0)' }, { transform: 'scale(1)' }], { duration: 360, delay: t, easing: EASE.pop, fill: 'both' });
     }
-    function ring(i, t, r) {
+    function ringRun(i, t0, t1) {
       var m = mods[i];
       if (isRouter[i]) {
-        play(q(m, '.module__body'), [{ transform: 'scale(1)' }, { transform: 'scale(1.15)', offset: 0.4 }, { transform: 'scale(1)' }], { duration: r + 100, delay: t - 30, easing: 'ease-out' });
-        return t + r;
+        play(q(m, '.module__body'), [{ transform: 'scale(1)' }, { transform: 'scale(1.18)', offset: 0.45 }, { transform: 'scale(1)' }], { duration: 260, delay: t1 - 130, easing: 'ease-out' });
+        return;
       }
-      var total = r / 0.85;
-      play(q(m, '.module__track'), [{ opacity: 0 }, { opacity: 1, offset: 0.1 }, { opacity: 1, offset: 0.85 }, { opacity: 0 }], { duration: total, delay: t, fill: 'forwards' });
+      var r = t1 - t0, total2 = r / 0.88;
+      play(q(m, '.module__track'), [{ opacity: 0 }, { opacity: 1, offset: 0.08 }, { opacity: 1, offset: 0.88 }, { opacity: 0 }], { duration: total2, delay: t0, fill: 'forwards' });
       play(q(m, '.module__arc'), [
         { strokeDashoffset: 1, opacity: 0 },
-        { strokeDashoffset: 1, opacity: 1, offset: 0.03, easing: EASE.soft },
-        { strokeDashoffset: 0, opacity: 1, offset: 0.85 },
+        { strokeDashoffset: 1, opacity: 1, offset: 0.03 },
+        { strokeDashoffset: 0, opacity: 1, offset: 0.88 },
         { strokeDashoffset: 0, opacity: 0 },
-      ], { duration: total, delay: t, fill: 'forwards' });
-      done(i, t + r);
-      return t + r;
+      ], { duration: total2, delay: t0, easing: 'linear', fill: 'forwards' });
+      done(i, t1);
     }
-    function packet(L, t, dur) {
-      play(L.green, [{ strokeDashoffset: 1 }, { strokeDashoffset: 0 }], { duration: dur, delay: t, easing: EASE.soft, fill: 'both' });
+    function shoot(L, t, dur) {
+      play(L.green, [{ strokeDashoffset: 1 }, { strokeDashoffset: 0 }], { duration: dur, delay: t, easing: 'cubic-bezier(0.3, 0, 0.3, 1)', fill: 'both' });
       if (!(window.CSS && CSS.supports && CSS.supports('offset-path', 'path("M0 0L1 1")'))) return;
       var dot = document.createElement('span');
       dot.className = 'intro__packet intro__packet--zoom';
       dot.style.offsetPath = 'path("' + L.path + '")';
       camera.appendChild(dot);
-      play(dot, [{ offsetDistance: '0%', opacity: 0 }, { opacity: 1, offset: 0.1 }, { opacity: 1, offset: 0.9 }, { offsetDistance: '100%', opacity: 0 }], { duration: dur, delay: t, easing: EASE.soft, fill: 'both' });
+      play(dot, [{ offsetDistance: '0%', opacity: 0 }, { opacity: 1, offset: 0.1 }, { opacity: 1, offset: 0.9 }, { offsetDistance: '100%', opacity: 0 }], { duration: dur, delay: t, easing: 'cubic-bezier(0.3, 0, 0.3, 1)', fill: 'both' });
     }
-
-    // ---------- Zeitplan (ms) ----------
-    var BACK = 0.7;                       // Kamera steht etwas hinter dem aktiven Modul
-    key(0, egoAt(pts[route[0]], BACK + 1.1, 78));
-    // Alle Module der Route und die Zweige stehen schon in der Tiefe bereit
-    route.forEach(function (i, n) { appear(i, 60 + n * 70); });
-    key(380, egoAt(pts[route[0]], BACK, 71));
-    var t = ring(route[0], 330, 270);
-    key(t, egoAt(pts[route[0]], BACK, 71));
-    var RING = [230, 80, 210, 210];
-    var PAN = [290, 220, 240, 220];
-    var hidden = [];
-    for (var s = 1; s < route.length; s++) {
-      var i = route[s], pan = PAN[s - 1] || 260;
-      if (isRouter[i]) data.links.forEach(function (l) { if (l[0] === i && !onRoute(l[1])) appear(l[1], t - 200); });
-      packet(links[linkTo(i)], t, pan);
-      key(t + pan, egoAt(pts[i], BACK, 71));
-      // Module, die mehr als eine Station hinter der Kamera liegen, ausblenden (sie kämen sonst riesig ins Bild)
-      if (s >= 2) { play(mods[route[s - 2]], [{ opacity: 1 }, { opacity: 0 }], { duration: 160, delay: t, fill: 'forwards' }); hidden.push(route[s - 2]); }
-      t = ring(i, t + pan, RING[s - 1] || 220);
-      key(t, egoAt(pts[i], BACK, 71));
-    }
-    // Übrige Module: erscheinen, ihre Routen sind beim Aufsteigen bereits fertig
-    var others = mods.map(function (m, n) { return n; }).filter(function (n) { return !onRoute(n); });
-    others.forEach(function (n, j) {
-      if (parent[n] && !onRoute(parent[n].from)) appear(n, t - 450 + j * 40);
-      var L = links[linkTo(n)];
-      play(L.green, [{ strokeDashoffset: 1 }, { strokeDashoffset: 0 }], { duration: 240, delay: t - 200 + j * 60, easing: EASE.soft, fill: 'both' });
-      done(n, t - 100 + j * 60);
+    // Ring läuft, während das Modul von 1,05 U auf 0,2 U vor der Kamera heranrückt; danach „1“ und Daten voraus
+    var prevDone = null;
+    route.forEach(function (i, n) {
+      var x = pts[i][0];
+      var t0 = Math.max(60, when(x - 1.05 * U)), t1 = when(x - 0.2 * U);
+      if (n === 0) t0 = 80;
+      if (prevDone !== null) shoot(links[linkTo(i)], prevDone, Math.max(110, t0 - prevDone + 40));
+      ringRun(i, t0, t1);
+      prevDone = t1;
+      // hinter der Kamera ausblenden, sonst kämen die Module riesig ins Bild
+      play(mods[i], [{ opacity: 1 }, { opacity: 0 }], { duration: 140, delay: when(x + 0.3 * U), fill: 'forwards' });
+      play(mods[i], [{ opacity: 0 }, { opacity: 1 }], { duration: 260, delay: RIDE + 180, fill: 'forwards' });
     });
-    // Aufsteigen und in die Übersicht schwenken
-    var RISE = portrait ? 640 : 560;
-    key(t + 60 + RISE, overview);
-    hidden.forEach(function (n) { play(mods[n], [{ opacity: 0 }, { opacity: 1 }], { duration: 300, delay: t + 150, fill: 'forwards' }); });
-    var HAND = t + 60 + RISE - 30;
-
-    // Kamera und Gegenrotation als je eine Animation mit identischen Schlüsselbildern
-    var total = keys[keys.length - 1].at;
-    var camFrames = [], ctrFrames = [];
-    keys.forEach(function (k, n) {
-      var f1 = { transform: worldT(k.c), offset: k.at / total };
-      var f2 = { transform: counterT(k.c), offset: k.at / total, composite: 'add' };
-      if (n < keys.length - 1) { f1.easing = EASE.inOut; f2.easing = EASE.inOut; }
-      camFrames.push(f1); ctrFrames.push(f2);
+    // Seitenzweige: werden im Vorbeiflug sichtbar und sind nacheinander fertig, während die Kamera aufsteigt
+    var sideDelay = RIDE - 150;
+    data.links.forEach(function (l, k) {
+      if (onRoute(l[1])) return;
+      shoot(links[k], sideDelay, 140);
+      ringRun(l[1], sideDelay + 60, sideDelay + 200);
+      sideDelay += 150;
     });
-    play(camera, camFrames, { duration: total, fill: 'both' });
-    mods.forEach(function (m) { play(m, ctrFrames, { duration: total, fill: 'both', composite: 'add' }); });
+    var HAND = RIDE + RISE - 40;
 
     // ---------- Übergabe an die Seite ----------
     var heroBodies = Array.prototype.slice.call(document.querySelectorAll('.chain .module .module__body'));
     var heroMods = Array.prototype.slice.call(document.querySelectorAll('.chain .module'));
     var heroLinks = Array.prototype.slice.call(document.querySelectorAll('.chain .link'));
-    var GLIDE = 620, lastAnim;
+    var GLIDE = 560, lastAnim;
     var so = 1 / Z, rad = (phiO * Math.PI) / 180, cos = Math.cos(rad), sin = Math.sin(rad);
     function toScreen(p) {
       var x = (p[0] - O[0]) * so, y = (p[1] - O[1]) * so;
@@ -762,10 +754,11 @@
       var h = m.getAttribute('data-hero');
       if (h !== null && heroBodies[+h]) {
         var r = heroBodies[+h].getBoundingClientRect();
-        var sp = toScreen(pts[i]);
+        var foot = toScreen(pts[i]);                       // Standpunkt (Unterkante des Kreises) in der Übersicht
+        var bodyH = (offs[i].w) * so;                      // Kreis ist rund: Höhe = Breite
         var k2 = r.width / (offs[i].w * so);
-        // Verschiebung im (zur Kamera gedrehten, also bildschirmparallelen) Modulraum
-        var dx = (r.left + r.width / 2 - sp[0]) / so, dy = (r.top + r.height / 2 - sp[1]) / so;
+        // Zielpunkt der Unterkante = Unterkante des Moduls im Kopfbereich
+        var dx = (r.left + r.width / 2 - foot[0]) / so, dy = (r.top + r.height - foot[1]) / so;
         var delay = HAND + +h * 30;
         lastAnim = play(m, [
           { transform: 'translate(0px,0px) scale(1)', composite: 'add' },
@@ -779,26 +772,27 @@
         }
         play(m, [{ opacity: 1 }, { opacity: 0 }], { duration: swap, delay: at, fill: 'forwards' });
         if (heroMods[+h]) play(heroMods[+h], [{ opacity: 0 }, { opacity: 1 }], { duration: swap, delay: at, fill: 'forwards' }, pageAnims);
+        void bodyH;
       } else {
-        play(m, [{ opacity: 1 }, { opacity: 0 }], { duration: 300, delay: HAND - 60 + i * 15, fill: 'forwards' });
+        play(m, [{ opacity: 1 }, { opacity: 0 }], { duration: 280, delay: HAND - 60 + i * 12, fill: 'forwards' });
       }
     });
-    play(svg, [{ opacity: 1 }, { opacity: 0 }], { duration: 300, delay: HAND - 80, fill: 'forwards' });
-    play(floor, [{ opacity: 1 }, { opacity: 0 }], { duration: 400, delay: HAND - 150, fill: 'forwards' });
-    play(q(intro, '.intro__bg'), [{ opacity: 1 }, { opacity: 0 }], { duration: 520, delay: HAND + 80, easing: 'ease-in-out', fill: 'forwards' });
+    play(svg, [{ opacity: 1 }, { opacity: 0 }], { duration: 280, delay: HAND - 80, fill: 'forwards' });
+    play(floor, [{ opacity: 1 }, { opacity: 0 }], { duration: 380, delay: HAND - 200, fill: 'forwards' });
+    play(q(intro, '.intro__bg'), [{ opacity: 1 }, { opacity: 0 }], { duration: 480, delay: HAND + 60, easing: 'ease-in-out', fill: 'forwards' });
     if (skipBtn) play(skipBtn, [{ opacity: 1 }, { opacity: 0 }], { duration: 250, delay: HAND, fill: 'forwards' });
     var header = document.querySelector('.site-header');
-    if (header) play(header, [{ transform: 'translateY(-100%)' }, { transform: 'none' }], { duration: 600, delay: HAND + 120, easing: EASE.out, fill: 'backwards' }, pageAnims);
+    if (header) play(header, [{ transform: 'translateY(-100%)' }, { transform: 'none' }], { duration: 560, delay: HAND + 100, easing: EASE.out, fill: 'backwards' }, pageAnims);
     document.querySelectorAll('.hero__text > *').forEach(function (el, n) {
-      play(el, [{ transform: 'translateY(24px)' }, { transform: 'none' }], { duration: 650, delay: HAND + 150 + n * 60, easing: EASE.out, fill: 'backwards' }, pageAnims);
+      play(el, [{ transform: 'translateY(24px)' }, { transform: 'none' }], { duration: 600, delay: HAND + 130 + n * 50, easing: EASE.out, fill: 'backwards' }, pageAnims);
     });
     heroLinks.forEach(function (el, n) {
-      play(el, [{ opacity: 0 }, { opacity: 1 }], { duration: 250, delay: HAND + GLIDE + n * 40, fill: 'forwards' }, pageAnims);
+      play(el, [{ opacity: 0 }, { opacity: 1 }], { duration: 240, delay: HAND + GLIDE + n * 40, fill: 'forwards' }, pageAnims);
     });
     document.querySelectorAll('.scene__ghosts, .scene__grid').forEach(function (el) {
       play(el, [{ opacity: 0 }, { opacity: 1 }], { duration: 600, delay: HAND + 300, fill: 'forwards' }, pageAnims);
     });
-    if (lastAnim) lastAnim.finished.then(function () { setTimeout(end, 60); }, function () {});
+    if (lastAnim) lastAnim.finished.then(function () { setTimeout(end, 40); }, function () {});
     setTimeout(end, 6000); // Sicherheitsnetz
   }
 })();
