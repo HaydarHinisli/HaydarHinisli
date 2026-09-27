@@ -23,7 +23,7 @@
     pageAnims.forEach(function (a) { a.cancel(); });
     if (intro) intro.remove();
     if (skipBtn) skipBtn.remove();
-    d.classList.remove('is-intro', 'intro-clean', 'intro-verspielt');
+    d.classList.remove('is-intro', 'intro-kamera', 'intro-clean', 'intro-verspielt');
     d.classList.add('intro-played');
     EVENTS.forEach(function (e) { window.removeEventListener(e, skip, true); });
   }
@@ -66,6 +66,16 @@
     soft: 'cubic-bezier(0.45, 0, 0.25, 1)',
     pop: 'cubic-bezier(0.34, 1.56, 0.64, 1)',
   };
+
+  // Maskenbereich nur so groß wie die Verbindung selbst – spart Rechenzeit pro Bild
+  function maskBox(mask, a, b, pad) {
+    mask.setAttribute('x', Math.min(a[0], b[0]) - pad);
+    mask.setAttribute('y', Math.min(a[1], b[1]) - pad);
+    mask.setAttribute('width', Math.abs(a[0] - b[0]) + 2 * pad);
+    mask.setAttribute('height', Math.abs(a[1] - b[1]) + 2 * pad);
+  }
+
+  if (d.classList.contains('intro-kamera')) { runKamera(); return; }
 
   // ---------- Positionen ----------
   var u = portrait ? Math.min(W / 3, H / 5.9) : Math.min(W / 5.8, H / 3.5, 200);
@@ -135,12 +145,11 @@
   var defs = document.createElementNS(NS, 'defs');
   svg.appendChild(defs);
 
-  function maskedPath(p, cls, id) {
+  function maskedPath(p, cls, id, a, b) {
     var mask = document.createElementNS(NS, 'mask');
     mask.setAttribute('id', id);
     mask.setAttribute('maskUnits', 'userSpaceOnUse');
-    mask.setAttribute('x', '0'); mask.setAttribute('y', '0');
-    mask.setAttribute('width', W); mask.setAttribute('height', H);
+    maskBox(mask, a, b, 20);
     var reveal = document.createElementNS(NS, 'path');
     reveal.setAttribute('d', p);
     reveal.setAttribute('pathLength', '1');
@@ -164,11 +173,11 @@
       var mx = (a[0] + b[0]) / 2;
       p = 'M' + a[0] + ' ' + a[1] + 'C' + mx + ' ' + a[1] + ' ' + mx + ' ' + b[1] + ' ' + b[0] + ' ' + b[1];
     }
-    var grey = maskedPath(p, 'intro__dots', 'intro-m' + k);
+    var grey = maskedPath(p, 'intro__dots', 'intro-m' + k, a, b);
     play(grey, [{ strokeDashoffset: 1 }, { strokeDashoffset: 0 }], {
       duration: 420, delay: Math.max(land[l[0]], land[l[1]]) + 40 + k * 20, easing: EASE.inOut, fill: 'both',
     });
-    return { from: l[0], to: l[1], path: p, green: maskedPath(p, 'intro__dots intro__dots--done', 'intro-g' + k) };
+    return { from: l[0], to: l[1], path: p, green: maskedPath(p, 'intro__dots intro__dots--done', 'intro-g' + k, a, b) };
   });
 
   // ---------- Run once ----------
@@ -354,4 +363,204 @@
 
   if (lastAnim) lastAnim.finished.then(function () { setTimeout(end, 250); }, function () {});
   setTimeout(end, HAND + 3000); // Sicherheitsnetz
+  // =====================================================================================================
+  // Variante „kamera“ (max. 4 s): Die Kamera folgt dem Datenpaket von Modul zu Modul entlang der Hauptroute.
+  // Jedes Modul ist kurz im Mittelpunkt, arbeitet (Ring im Uhrzeigersinn, „1“), dann fährt die Kamera mit den
+  // Daten zum nächsten. Am Ende zoomt sie heraus (alle Routen fertig) und die Module gleiten in den Kopfbereich.
+  // Die Szene wird in Nahaufnahme-Größe aufgebaut und für die Übersicht verkleinert – dadurch bleibt alles scharf.
+  // =====================================================================================================
+  function runKamera() {
+    var Z = portrait ? 1.8 : 2.1;
+    var u = portrait ? Math.min(W / 3, H / 5.9) : Math.min(W / 5.8, H / 3.5, 200);
+    var U = u * Z;
+    var circle = (portrait ? 0.44 : 0.36) * u;
+    stage.style.fontSize = (circle * Z) / 4.75 + 'px';
+    camera.style.transformOrigin = '0 0';
+    var LW = W * Z, LH = H * Z, O = [LW / 2, LH / 2];
+    var cx = W / 2, cy = H / 2;
+    var pts = data.land.map(function (p) {
+      return portrait ? [O[0] + p[1] * U * 1.05, O[1] + p[0] * U] : [O[0] + p[0] * U, O[1] + p[1] * U];
+    });
+    var offs = mods.map(function (m) {
+      var r = m.getBoundingClientRect(), b = q(m, '.module__body').getBoundingClientRect();
+      return { x: b.left - r.left + b.width / 2, y: b.top - r.top + b.height / 2, w: b.width };
+    });
+    mods.forEach(function (m, i) {
+      m.style.left = pts[i][0] - offs[i].x + 'px';
+      m.style.top = pts[i][1] - offs[i].y + 'px';
+      m.style.transformOrigin = offs[i].x + 'px ' + offs[i].y + 'px';
+    });
+
+    // Kamera-Einstellungen
+    function focus(p, s) { s = s || 1; return 'translate(' + (cx - p[0] * s) + 'px,' + (cy - p[1] * s) + 'px) scale(' + s + ')'; }
+    var overview = 'translate(' + (cx - O[0] / Z) + 'px,' + (cy - O[1] / Z) + 'px) scale(' + 1 / Z + ')';
+    var camAt = focus(pts[0], 1.08);
+    function camTo(to, t, dur, mid) {
+      var frames = [{ transform: camAt }];
+      if (mid) frames.push({ transform: mid, offset: 0.5 });
+      frames.push({ transform: to });
+      play(camera, frames, { duration: dur, delay: t, easing: EASE.inOut, fill: t === 0 ? 'both' : 'forwards' });
+      camAt = to;
+    }
+    play(camera, [{ transform: focus(pts[0], 1.3) }, { transform: focus(pts[0], 1.08) }], { duration: 700, easing: EASE.out, fill: 'both' });
+
+    // Hauptroute: vom Auslöser über den Router zum letzten Modul des Kopfbereichs
+    var heroIdx = mods.map(function (m, i) { return m.getAttribute('data-hero') !== null ? i : -1; }).filter(function (i) { return i > -1; });
+    var target = heroIdx[heroIdx.length - 1];
+    var parent = {};
+    data.links.forEach(function (l, k) { parent[l[1]] = { from: l[0], k: k }; });
+    var route = [target];
+    while (parent[route[0]]) route.unshift(parent[route[0]].from);
+    var onRoute = function (i) { return route.indexOf(i) > -1; };
+
+    // Verbindungen (Weltkoordinaten der Nahaufnahme)
+    var NS = 'http://www.w3.org/2000/svg';
+    svg.setAttribute('viewBox', '0 0 ' + LW + ' ' + LH);
+    svg.setAttribute('width', LW);
+    svg.setAttribute('height', LH);
+    var defs = document.createElementNS(NS, 'defs');
+    svg.appendChild(defs);
+    function masked(p, cls, id, a, b) {
+      var mask = document.createElementNS(NS, 'mask');
+      mask.setAttribute('id', id);
+      mask.setAttribute('maskUnits', 'userSpaceOnUse');
+      maskBox(mask, a, b, 30);
+      var rv = document.createElementNS(NS, 'path');
+      rv.setAttribute('d', p); rv.setAttribute('pathLength', '1'); rv.setAttribute('class', 'intro__reveal');
+      mask.appendChild(rv); defs.appendChild(mask);
+      var dots = document.createElementNS(NS, 'path');
+      dots.setAttribute('d', p); dots.setAttribute('class', cls); dots.setAttribute('mask', 'url(#' + id + ')');
+      svg.appendChild(dots);
+      return rv;
+    }
+    svg.classList.add('intro__links--zoom');
+    var links = data.links.map(function (l, k) {
+      var a = pts[l[0]], b = pts[l[1]], p;
+      if (portrait) { var my = (a[1] + b[1]) / 2; p = 'M' + a[0] + ' ' + a[1] + 'C' + a[0] + ' ' + my + ' ' + b[0] + ' ' + my + ' ' + b[0] + ' ' + b[1]; }
+      else { var mx = (a[0] + b[0]) / 2; p = 'M' + a[0] + ' ' + a[1] + 'C' + mx + ' ' + a[1] + ' ' + mx + ' ' + b[1] + ' ' + b[0] + ' ' + b[1]; }
+      return { from: l[0], to: l[1], path: p, grey: masked(p, 'intro__dots', 'intro-m' + k, a, b), green: masked(p, 'intro__dots intro__dots--done', 'intro-g' + k, a, b) };
+    });
+    function linkTo(i) { for (var k = 0; k < links.length; k++) if (links[k].to === i) return k; return -1; }
+
+    // Module erscheinen kurz bevor die Kamera sie erreicht (aus der Tiefe, mit leichtem Nachfedern)
+    function appear(i, t) {
+      play(mods[i], [
+        { transform: 'translate3d(0,0,-260px) scale(0.55)', opacity: 0 },
+        { transform: 'translate3d(0,0,0) scale(1)', opacity: 1 },
+      ], { duration: 460, delay: t, easing: 'cubic-bezier(0.34, 1.35, 0.64, 1)', fill: 'both' });
+      var k = linkTo(i);
+      if (k > -1) play(links[k].grey, [{ strokeDashoffset: 1 }, { strokeDashoffset: 0 }], { duration: 320, delay: t - 60, easing: EASE.inOut, fill: 'both' });
+    }
+    function ring(i, t, r) {
+      var m = mods[i];
+      if (isRouter[i]) {
+        play(q(m, '.module__body'), [{ transform: 'scale(1)' }, { transform: 'scale(1.15)', offset: 0.4 }, { transform: 'scale(1)' }], { duration: r + 100, delay: t - 30, easing: 'ease-out' });
+        return t + r;
+      }
+      var total = r / 0.85;
+      play(q(m, '.module__body'), [{ transform: 'scale(1)' }, { transform: 'scale(1.06)', offset: 0.25 }, { transform: 'scale(1.06)', offset: 0.8 }, { transform: 'scale(1)' }], { duration: r + 160, delay: t - 60, easing: 'ease-in-out' });
+      play(q(m, '.module__track'), [{ opacity: 0 }, { opacity: 1, offset: 0.1 }, { opacity: 1, offset: 0.85 }, { opacity: 0 }], { duration: total, delay: t, fill: 'forwards' });
+      play(q(m, '.module__arc'), [
+        { strokeDashoffset: 1, opacity: 0 },
+        { strokeDashoffset: 1, opacity: 1, offset: 0.03, easing: EASE.soft },
+        { strokeDashoffset: 0, opacity: 1, offset: 0.85 },
+        { strokeDashoffset: 0, opacity: 0 },
+      ], { duration: total, delay: t, fill: 'forwards' });
+      done(i, t + r);
+      return t + r;
+    }
+    function done(i, t) {
+      var m = mods[i];
+      play(q(m, '.module__ring'), [{ transform: 'scale(1)', opacity: 0.8 }, { transform: 'scale(1.5)', opacity: 0 }], { duration: 550, delay: t, easing: 'ease-out', fill: 'forwards' });
+      var c = q(m, '.module__count');
+      if (c) play(c, [{ transform: 'scale(0)' }, { transform: 'scale(1)' }], { duration: 380, delay: t, easing: EASE.pop, fill: 'both' });
+    }
+    function packet(L, t, dur) {
+      play(L.green, [{ strokeDashoffset: 1 }, { strokeDashoffset: 0 }], { duration: dur, delay: t, easing: EASE.soft, fill: 'both' });
+      if (!(window.CSS && CSS.supports && CSS.supports('offset-path', 'path("M0 0L1 1")'))) return;
+      var dot = document.createElement('span');
+      dot.className = 'intro__packet intro__packet--zoom';
+      dot.style.offsetPath = 'path("' + L.path + '")';
+      camera.appendChild(dot);
+      play(dot, [{ offsetDistance: '0%', opacity: 0 }, { opacity: 1, offset: 0.1 }, { opacity: 1, offset: 0.9 }, { offsetDistance: '100%', opacity: 0 }], { duration: dur, delay: t, easing: EASE.soft, fill: 'both' });
+    }
+
+    // ---------- Zeitplan (ms) ----------
+    appear(route[0], 0);
+    var t = ring(route[0], 380, 300);
+    var RING = [260, 90, 240, 240];      // Arbeitszeit der folgenden Module auf der Route (Router kurz)
+    var PAN = [320, 240, 260, 240];      // Kamerafahrt zum jeweils nächsten Modul
+    for (var s = 1; s < route.length; s++) {
+      var i = route[s], k = linkTo(i), pan = PAN[s - 1] || 240;
+      appear(i, t - 280);
+      if (isRouter[i]) {
+        // Beim Router tauchen alle Zweige auf
+        data.links.forEach(function (l) { if (l[0] === i && !onRoute(l[1])) appear(l[1], t - 120); });
+      }
+      camTo(focus(pts[i], isRouter[i] ? 0.95 : 1.08), t, pan, focus([(pts[route[s - 1]][0] + pts[i][0]) / 2, (pts[route[s - 1]][1] + pts[i][1]) / 2], 0.92));
+      packet(links[k], t, pan);
+      t = ring(i, t + pan, RING[s - 1] || 220);
+    }
+    // Übrige Module: erscheinen außerhalb des Bildes und sind beim Herauszoomen bereits fertig (Routen liefen nacheinander)
+    var others = mods.map(function (m, i) { return i; }).filter(function (i) { return !onRoute(i) && !isRouter[i]; });
+    others.forEach(function (i, n) {
+      if (!parent[i] || onRoute(parent[i].from)) return; // Zweig-Anfänge sind schon da
+      appear(i, t - 500 + n * 40);
+    });
+    others.forEach(function (i, n) {
+      var L = links[linkTo(i)];
+      play(L.green, [{ strokeDashoffset: 1 }, { strokeDashoffset: 0 }], { duration: 260, delay: t - 150 + n * 70, easing: EASE.soft, fill: 'both' });
+      done(i, t - 60 + n * 70);
+    });
+    var ZOOM = 520;
+    camTo(overview, t + 60, ZOOM);
+    var HAND = t + 60 + ZOOM - 40;
+
+    // ---------- Übergabe an die Seite ----------
+    var heroBodies = Array.prototype.slice.call(document.querySelectorAll('.chain .module .module__body'));
+    var heroMods = Array.prototype.slice.call(document.querySelectorAll('.chain .module'));
+    var heroLinks = Array.prototype.slice.call(document.querySelectorAll('.chain .link'));
+    var GLIDE = 620, lastAnim;
+    var sc = 1 / Z, T0 = [cx - O[0] / Z, cy - O[1] / Z];
+    mods.forEach(function (m, i) {
+      var h = m.getAttribute('data-hero');
+      if (h !== null && heroBodies[+h]) {
+        var r = heroBodies[+h].getBoundingClientRect();
+        var sx = T0[0] + sc * pts[i][0], sy = T0[1] + sc * pts[i][1];
+        var dx = (r.left + r.width / 2 - sx) * Z, dy = (r.top + r.height / 2 - sy) * Z;
+        var k2 = r.width / (offs[i].w * sc);
+        var delay = HAND + +h * 30;
+        lastAnim = play(m, [
+          { transform: 'translate3d(0px,0px,0px) scale(1)' },
+          { transform: 'translate3d(' + dx + 'px,' + dy + 'px,0px) scale(' + k2 + ')' },
+        ], { duration: GLIDE, delay: delay, easing: EASE.inOut, fill: 'forwards' });
+        var swap = portrait ? 200 : 1, at = delay + GLIDE - (portrait ? 100 : 0);
+        if (portrait) {
+          m.querySelectorAll('.module__app, .module__action').forEach(function (lbl) {
+            play(lbl, [{ opacity: 1 }, { opacity: 0 }], { duration: 200, delay: delay, fill: 'forwards' });
+          });
+        }
+        play(m, [{ opacity: 1 }, { opacity: 0 }], { duration: swap, delay: at, fill: 'forwards' });
+        if (heroMods[+h]) play(heroMods[+h], [{ opacity: 0 }, { opacity: 1 }], { duration: swap, delay: at, fill: 'forwards' }, pageAnims);
+      } else {
+        play(m, [{ transform: 'translate3d(0,0,0) scale(1)', opacity: 1 }, { transform: 'translate3d(0,20px,0) scale(0.9)', opacity: 0 }], { duration: 360, delay: HAND - 80 + i * 15, easing: 'cubic-bezier(0.4, 0, 1, 1)', fill: 'forwards' });
+      }
+    });
+    play(svg, [{ opacity: 1 }, { opacity: 0 }], { duration: 300, delay: HAND - 80, fill: 'forwards' });
+    play(q(intro, '.intro__bg'), [{ opacity: 1 }, { opacity: 0 }], { duration: 520, delay: HAND + 80, easing: 'ease-in-out', fill: 'forwards' });
+    if (skipBtn) play(skipBtn, [{ opacity: 1 }, { opacity: 0 }], { duration: 250, delay: HAND, fill: 'forwards' });
+    var header = document.querySelector('.site-header');
+    if (header) play(header, [{ transform: 'translateY(-100%)' }, { transform: 'none' }], { duration: 600, delay: HAND + 120, easing: EASE.out, fill: 'backwards' }, pageAnims);
+    document.querySelectorAll('.hero__text > *').forEach(function (el, n) {
+      play(el, [{ transform: 'translateY(24px)' }, { transform: 'none' }], { duration: 650, delay: HAND + 150 + n * 60, easing: EASE.out, fill: 'backwards' }, pageAnims);
+    });
+    heroLinks.forEach(function (el, n) {
+      play(el, [{ opacity: 0 }, { opacity: 1 }], { duration: 250, delay: HAND + GLIDE + n * 40, fill: 'forwards' }, pageAnims);
+    });
+    document.querySelectorAll('.scene__ghosts, .scene__grid').forEach(function (el) {
+      play(el, [{ opacity: 0 }, { opacity: 1 }], { duration: 600, delay: HAND + 300, fill: 'forwards' }, pageAnims);
+    });
+    if (lastAnim) lastAnim.finished.then(function () { setTimeout(end, 60); }, function () {});
+    setTimeout(end, 6000); // Sicherheitsnetz
+  }
 })();

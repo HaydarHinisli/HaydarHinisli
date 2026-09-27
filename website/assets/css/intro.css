@@ -132,3 +132,11 @@ html.intro-verspielt .intro__blob {
 }
 html.intro-verspielt .intro__blob--1 { left: -15vmax; top: -20vmax; background: #b8f3d9; }
 html.intro-verspielt .intro__blob--2 { right: -20vmax; bottom: -25vmax; background: #d9ccff; }
+
+/* Kamera-Variante: Szene in Nahaufnahme-Größe (wird für die Übersicht verkleinert) */
+.intro__links--zoom .intro__dots { stroke-width: 6; stroke-dasharray: 0 15; }
+.intro__links--zoom .intro__reveal { stroke-width: 20; }
+.intro__packet--zoom { width: 18px; height: 18px; box-shadow: 0 0 14px 4px rgba(61, 220, 151, 0.55); }
+/* Verbindungslinien laufen hinter den Beschriftungen durch (wichtig im Hochformat) */
+.intro .module__app, .intro .module__action { position: relative; background: var(--bg); padding: 0 0.35em; border-radius: 0.3em; }
+.intro .module__action { margin-top: 0; padding-top: 0.15em; }

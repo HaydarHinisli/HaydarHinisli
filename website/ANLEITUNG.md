@@ -16,8 +16,9 @@ Nur den Text **zwischen den Anführungszeichen** ändern. Anführungszeichen im 
 ### Intro und Workflow-Grafik
 
 - **Module** (Intro und Kopfbereich): `de.json`/`en.json` unter `intro.modules` – Name (`app`), Aktion (`action`), Symbol (`icon`), Farbe (`color`). Genau 9 Module, Reihenfolge = Rolle im Ablauf. Die 4 Module mit `"hero": true` bilden danach die Kette im Kopfbereich.
-- **Variante**: `content/site.json` → `"introVariant"`: `"clean"`, `"verspielt"` oder `"aus"`.
-- **Vorschau** (läuft bei jedem Aufruf): `/?intro=clean` bzw. `/?intro=verspielt`. Sonst läuft das Intro nur beim ersten Besuch pro Sitzung.
+- **Variante**: `content/site.json` → `"introVariant"`: `"kamera"` (Standard, ca. 4 s), `"clean"`, `"verspielt"` oder `"aus"`.
+- **Wann es läuft**: nur beim ersten Besuch – nicht beim Neuladen, nicht über „Zurück“, nicht wenn man von einer Unterseite kommt und nicht erneut innerhalb von 30 Tagen auf demselben Gerät.
+- **Vorschau** (läuft bei jedem Aufruf): `/?intro=kamera`, `/?intro=clean`, `/?intro=verspielt`.
 
 ## 2. Anwendungsfall-Seite anlegen
 
