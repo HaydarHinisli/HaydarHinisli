@@ -67,6 +67,7 @@ const jsUrl = `/assets/js/main.js?v=${assetHash('assets/js/main.js')}`;
 const introGateUrl = `/assets/js/intro-gate.js?v=${assetHash('assets/js/intro-gate.js')}`;
 const introJsUrl = `/assets/js/intro.js?v=${assetHash('assets/js/intro.js')}`;
 const introCssUrl = `/assets/css/intro.css?v=${assetHash('assets/css/intro.css')}`;
+const intro3dUrl = `/assets/js/intro3d.js?v=${assetHash('assets/js/intro3d.js')}`;
 
 // Liest Breite/Höhe aus einer WebP-Datei (für width/height-Attribute gegen Layout-Verschiebungen).
 function webpSize(file) {
@@ -208,7 +209,7 @@ function introBlock(lang) {
     </div>
   </div>
   <button class="intro__skip" type="button">${esc(tx.skip)} →</button>
-  <script type="application/json" id="intro-data">${JSON.stringify(INTRO_LAYOUT)}</script>`;
+  <script type="application/json" id="intro-data">${JSON.stringify({ ...INTRO_LAYOUT, three: intro3dUrl, icons: ICONS, modules: tx.modules }).replace(/</g, '\\u003c')}</script>`;
 }
 
 const paragraphs = (arr) => (Array.isArray(arr) ? arr : [arr]).map((p) => `<p>${esc(p)}</p>`).join('\n');

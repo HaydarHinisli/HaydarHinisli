@@ -23,7 +23,8 @@
     pageAnims.forEach(function (a) { a.cancel(); });
     if (intro) intro.remove();
     if (skipBtn) skipBtn.remove();
-    d.classList.remove('is-intro', 'intro-kamera', 'intro-clean', 'intro-verspielt');
+    d.classList.remove('is-intro', 'intro-3d', 'intro-kamera', 'intro-clean', 'intro-verspielt');
+    document.querySelectorAll('.site-header, .hero__text > *').forEach(function (el) { el.style.transform = ''; });
     d.classList.add('intro-played');
     EVENTS.forEach(function (e) { window.removeEventListener(e, skip, true); });
   }
@@ -37,6 +38,31 @@
 
   if (!intro || !dataEl || !intro.animate || !window.KeyframeEffect) return end();
   EVENTS.forEach(function (e) { window.addEventListener(e, skip, { capture: true, passive: true }); });
+
+  // 3D-Intro (Three.js): wird nur geladen, wenn es tatsächlich läuft
+  if (d.classList.contains('intro-3d')) {
+    var d3 = JSON.parse(dataEl.textContent);
+    var started = false;
+    setTimeout(function () { if (!started) end(); }, 2500); // zu langsame Verbindung: lieber gleich zur Seite
+    import(d3.three).then(function (m) {
+      if (finished) return;
+      started = true;
+      return m.run({
+        container: intro,
+        mods: d3.modules,
+        icons: d3.icons,
+        links: d3.links,
+        portrait: window.innerWidth / window.innerHeight < 0.8,
+        heroBodies: Array.prototype.slice.call(document.querySelectorAll('.chain .module .module__body')),
+        pageEls: Array.prototype.slice.call(document.querySelectorAll('.site-header, .hero__text > *')),
+        onLanded: function () {
+          document.querySelectorAll('.chain .module, .chain .link, .scene__ghosts, .scene__grid').forEach(function (el) { el.style.opacity = '1'; });
+        },
+        onDone: end,
+      });
+    }).catch(function () { end(); });
+    return;
+  }
 
   var playful = d.classList.contains('intro-verspielt');
   var data = JSON.parse(dataEl.textContent);

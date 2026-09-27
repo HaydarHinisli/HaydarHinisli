@@ -5,6 +5,7 @@ Statische, zweisprachige Website (DE unter `/`, EN unter `/en/`) für 4ELEMENTS 
 - `content/`: alle Texte (`de.json`, `en.json`), Firmendaten (`site.json`), Anwendungsfälle, Datenschutztext
 - `assets/`: CSS, JS, lokale Schriften (Inter 400/600, JetBrains Mono 400, SIL OFL), Bilder
 - `static/`: Dateien für das Web-Wurzelverzeichnis (`.htaccess`, Favicons)
+- `src/intro3d.js`: 3D-Intro (Three.js); gebündelt nach `assets/js/intro3d.js` mit `npm run build:intro3d` (einmalig `npm install`)
 - `build.mjs`: erzeugt `dist/` (HTML-Seiten, `sitemap.xml` mit hreflang, `robots.txt`, 404-Seite)
 - `dist/`: fertige Website zum Hochladen (wird von `npm run build` neu erzeugt, nicht von Hand ändern)
 

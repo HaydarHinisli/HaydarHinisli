@@ -18,7 +18,8 @@ Nur den Text **zwischen den Anführungszeichen** ändern. Anführungszeichen im 
 - **Module** (Intro und Kopfbereich): `de.json`/`en.json` unter `intro.modules` – Name (`app`), Aktion (`action`), Symbol (`icon`), Farbe (`color`). Genau 9 Module, Reihenfolge = Rolle im Ablauf. Die 4 Module mit `"hero": true` bilden danach die Kette im Kopfbereich.
 - **Variante**: `content/site.json` → `"introVariant"`: `"kamera"` (Standard, ca. 4 s), `"clean"`, `"verspielt"` oder `"aus"`.
 - **Wann es läuft**: nur beim ersten Besuch – nicht beim Neuladen, nicht über „Zurück“, nicht wenn man von einer Unterseite kommt und nicht erneut innerhalb von 30 Tagen auf demselben Gerät.
-- **Vorschau** (läuft bei jedem Aufruf): `/?intro=kamera`, `/?intro=clean`, `/?intro=verspielt`.
+- **Vorschau** (läuft bei jedem Aufruf): `/?intro=3d` (neue 3D-Fahrt), `/?intro=kamera`, `/?intro=clean`, `/?intro=verspielt`.
+- **3D-Intro**: Der Programmcode liegt in `src/intro3d.js`. Nur wer diesen Code ändert, muss einmalig `npm install` und danach `npm run build:intro3d` ausführen. Texte, Farben und Symbole kommen weiterhin aus `intro.modules` und brauchen diesen Schritt nicht.
 
 ## 2. Anwendungsfall-Seite anlegen
 

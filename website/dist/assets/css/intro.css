@@ -151,3 +151,7 @@ html.intro-verspielt .intro__blob--2 { right: -20vmax; bottom: -25vmax; backgrou
 }
 .intro--ego .intro__camera, .intro--ego .intro__stage { transform-style: preserve-3d; }
 .intro--ego .intro__module { transform-style: flat; }
+
+/* 3D-Intro: Leinwand über die ganze Fläche, die übrigen Intro-Ebenen werden nicht gebraucht */
+.intro__canvas { position: absolute; inset: 0; display: block; }
+html.intro-3d .intro__camera { display: none; }

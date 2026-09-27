@@ -4,10 +4,17 @@
   "private": true,
   "description": "Website 4elements-digital.de – statisch, zweisprachig, ohne externe Dienste",
   "type": "module",
-  "engines": { "node": ">=18" },
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "build": "node build.mjs",
     "start": "node build.mjs && node serve.mjs",
-    "serve": "node serve.mjs"
+    "serve": "node serve.mjs",
+    "build:intro3d": "esbuild src/intro3d.js --bundle --minify --format=esm --target=es2019 --outfile=assets/js/intro3d.js"
+  },
+  "devDependencies": {
+    "esbuild": "0.24.0",
+    "three": "0.170.0"
   }
 }
