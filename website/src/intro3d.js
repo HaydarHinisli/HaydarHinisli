@@ -111,21 +111,29 @@ export function run(o) {
   const RUN_END = t;
 
   // ---------- Kamerafahrt: eine durchgehende Kurve durch die Storyboard-Positionen ----------
-  const fovAdd = portrait ? 22 : 0;
-  const K = [
-    [0.0, [-4.3, 1.6, 1.8], [4, 1.0, -0.4], 54 + fovAdd],
-    [0.8, [1.2, 1.6, 2.6], [9, 0.9, -0.8], 54 + fovAdd],
-    [1.55, [5.6, 1.7, 3.0], [12.5, 0.9, -2.2], 56 + fovAdd],
-    [2.3, [8.6, 1.7, 2.4], [15.5, 0.9, -0.4], 56 + fovAdd],
-    [2.95, [8.8, 3.0, 7.6], [14, 0.8, 3.0], 56 + fovAdd],
-    [3.35, [9.5, 7.5, 12], [11, 0.5, 1.0], 50 + fovAdd * 0.5],
-    [3.8, portrait ? [7.5, 23, 0.001] : [7.5, 15.5, 0.001], [7.5, 0, 0], portrait ? 50 : 42],
+  // Hochformat: eigene Kameraführung, damit das jeweils aktive Modul in der schmalen Bildmitte steht
+  const K = portrait ? [
+    [0.0, [-4.6, 2.2, 2.0], [1, 1.0, -0.3], 68],
+    [0.8, [-0.6, 2.2, 2.3], [5, 1.0, -0.6], 68],
+    [1.55, [3.4, 2.6, 2.7], [12, 1.0, -3.6], 70],
+    [2.3, [6.4, 2.4, 2.8], [14, 1.0, -0.6], 70],
+    [2.95, [7.0, 3.3, 1.3], [14, 0.9, 4.6], 70],
+    [3.35, [8.5, 9, 9], [9.5, 0.5, 1.0], 62],
+    [3.8, [7.5, 23, 0.001], [7.5, 0, 0], 50],
+  ] : [
+    [0.0, [-4.3, 1.6, 1.8], [4, 1.0, -0.4], 54],
+    [0.8, [1.2, 1.6, 2.6], [9, 0.9, -0.8], 54],
+    [1.55, [5.6, 1.7, 3.0], [12.5, 0.9, -2.2], 56],
+    [2.3, [8.6, 1.7, 2.4], [15.5, 0.9, -0.4], 56],
+    [2.95, [8.8, 3.0, 7.6], [14, 0.8, 3.0], 56],
+    [3.35, [9.5, 7.5, 12], [11, 0.5, 1.0], 50],
+    [3.8, [7.5, 15.5, 0.001], [7.5, 0, 0], 42],
   ];
   const posCurve = new CatmullRomCurve3(K.map((k) => new Vector3(...k[1])), false, 'centripetal');
   const lookCurve = new CatmullRomCurve3(K.map((k) => new Vector3(...k[2])), false, 'centripetal');
   const T_END = K[K.length - 1][0];
   const upEnd = portrait ? new Vector3(-1, 0, 0) : new Vector3(0, 0, -1);
-  const cam = new PerspectiveCamera(54 + fovAdd, W / H, 0.1, 200);
+  const cam = new PerspectiveCamera(K[0][3], W / H, 0.1, 200);
   function cameraAt(s) {
     s = Math.min(s, T_END);
     let i = 0; while (i < K.length - 2 && s > K[i + 1][0]) i++;
@@ -138,6 +146,8 @@ export function run(o) {
     const b = smooth((s - 3.05) / 0.75);
     cam.up.set(0, 1, 0).lerp(upEnd, b).normalize();
     cam.lookAt(lookCurve.getPoint(u));
+    scene.fog.near = 8 + cam.position.y * 1.2;
+    scene.fog.far = 30 + cam.position.y * 2.5;
   }
 
   // ---------- Übergabe: Zielpositionen der Module im Kopfbereich ----------
