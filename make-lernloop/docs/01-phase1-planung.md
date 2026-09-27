@@ -366,57 +366,96 @@ Speicher und GPU-Hinweise. Richtwerte:
 
 ### 8.2 Modell: Empfehlung
 
-**API-Modell für Phase 2 und 3**, lokale Modelle als spätere Option.
+**Zwei Anbindungen hinter einer gemeinsamen Schnittstelle `ModelClient`.** Vorhanden sind
+ein Claude-Pro-Abo und ein Claude-API-Zugang.
 
-Begründung: Die Kernaufgaben (präzises Zitieren, Randfälle beurteilen, „offen“ korrekt
-erkennen) hängen stark an der Modellqualität. Ein schwaches lokales Modell würde die
-Hypothese eher an der Modellgrenze als an der Lernmethode scheitern lassen. Da A und B
-dasselbe Modell nutzen, bleibt der Vergleich fair; ein späterer Wechsel auf ein lokales
-Modell ist über die `ModelClient`-Schnittstelle möglich und würde neu verglichen.
+| Anbindung | Wie | Einsatz |
+|---|---|---|
+| `claude_code` (Pro-Abo) | Programm ruft lokal `claude -p` auf, mit dem Pro-Abo angemeldet | **Start: Entwicklung, Tests, Lernsitzungen (Phase 2)** – allein ausreichend |
+| `anthropic_api` (API) | Offizielles Python-SDK `anthropic`, eigener Projektschlüssel | **Optional ab Phase 3** – Entscheidung erst dann, anhand der in Phase 2 gemessenen Werte |
 
-Vorschlag Modellwahl (Anthropic-API, Preise laut Anbieterübersicht, Stand Juni 2026 –
-vor Aktivierung auf der aktuellen Preisseite prüfen):
+**Festlegung für den Start: nur das Pro-Abo.** Bis einschließlich Phase 2 fallen keine
+Kosten über das Abo hinaus an; die API-Anbindung wird gebaut, bleibt aber ausgeschaltet.
+
+Abwägung für Phase 3 (dann zu entscheiden):
+- **Lernen über Pro:** Es entstehen keine zusätzlichen Kosten. Die Nutzungslimits des Abos
+  (Kontingente je 5-Stunden-Fenster und je Woche) bremsen, aber Lernsitzungen sind ohnehin
+  manuell gestartet und wiederaufnehmbar.
+- **Vergleich über Pro ist möglich:** A und B nutzen dasselbe Modell, das reicht für die
+  Fairness. Das Programm wechselt A und B je Aufgabe ab, damit eine Unterbrechung durch ein
+  Nutzungslimit beide Varianten gleich trifft, und setzt nach der Pause fort. Nachteil: Der
+  Lauf dauert Tage, und Modelländerungen im Abo während des Laufs sind nicht ausgeschlossen.
+- **Vergleich über API wäre sauberer:** Modellversion und Einstellungen lassen sich exakt festlegen, der
+  Verbrauch wird je Aufruf genau gemeldet, und die Batch-Verarbeitung (50 % günstiger) passt
+  zu den Vergleichsläufen. Die ~720 Vergleichsaufrufe würden das Pro-Kontingent über Tage
+  belegen, und ein Abbruch mitten im Lauf durch ein Nutzungslimit würde den Vergleich stören.
+- Das Modell, mit dem gelernt wird, darf sich vom Antwortmodell im Vergleich unterscheiden:
+  Der Lernspeicher besteht aus Daten mit Belegen, nicht aus Modellgewichten. Für die
+  Hypothese entscheidend ist nur, dass **A und B dasselbe Modell** nutzen.
+
+Auflagen für `claude_code` (programmseitig gesetzt):
+- **Alle Werkzeuge von Claude Code abgeschaltet** (kein Dateizugriff, keine Befehle, kein
+  Webabruf). Claude verarbeitet nur den übergebenen Text; Abruf und Speicherung macht das
+  Programm (Brief §12).
+- Modell je Aufruf fest angegeben; Ausgabe als JSON inklusive Token-Verbrauch.
+- Aufruf in einem leeren Arbeitsverzeichnis ohne Projektdateien.
+- Meldet Claude Code ein erreichtes Nutzungslimit, endet der Schritt sauber; die Sitzung
+  pausiert mit Checkpoint und wird mit `--resume` fortgesetzt.
+- Vor dem Start zu prüfen: welche Modelle im Pro-Abo für Claude Code verfügbar sind, und
+  die aktuellen Nutzungsbedingungen für die automatisierte persönliche Nutzung. Das Abo ist
+  für die persönliche Nutzung gedacht; für ein Produkt, das andere nutzen, wäre die API nötig.
+- Datenschutz: Beim Abo gelten die Datenschutzeinstellungen des Kontos. Gesendet werden nur
+  öffentliche Doku-Auszüge und daraus abgeleitetes Wissen.
+
+Auflagen für `anthropic_api`:
+- Eigener API-Schlüssel nur für dieses Projekt, zusätzlich ein Ausgabenlimit in der
+  Anthropic Console als zweite Sicherung.
+- Programmseitige Budget-Reservierung vor jedem Aufruf (siehe §9).
+
+Modelle und Preise für die API (Preise laut Anbieterübersicht, Stand Juni 2026 – vor
+Aktivierung auf der aktuellen Preisseite prüfen):
 
 | Modell | Eingabe $/1 Mio. Tokens | Ausgabe $/1 Mio. Tokens | Rolle |
 |---|---|---|---|
-| Claude Opus 5 (`claude-opus-5`) | 5,00 | 25,00 | Empfohlen für Lernen und Vergleich (Qualität) |
+| Claude Opus 5 (`claude-opus-5`) | 5,00 | 25,00 | Empfohlen für den Vergleich (Qualität) |
 | Claude Sonnet 5 (`claude-sonnet-5`) | 2,00 | 10,00 | Günstigere Alternative |
 | Claude Haiku 4.5 (`claude-haiku-4-5`) | 1,00 | 5,00 | Nur für Hilfsaufgaben (z. B. Suchbegriffe) |
 
-Kostenhebel: Prompt-Caching (wiederverwendeter Systemprompt/Quellkontext wird deutlich
-günstiger abgerechnet) und Batch-Verarbeitung (50 % günstiger, asynchron) – letzteres
-eignet sich für die Vergleichsläufe in Phase 3.
-
-**Ohne bestätigtes Budget (Entscheidung E2) werden keine kostenpflichtigen Aufrufe aktiviert.**
-Standard der Beispielkonfiguration: `paid_calls_enabled = false`.
+**Ohne bestätigtes API-Budget (Entscheidung E2, frühestens vor Phase 3) werden keine API-Aufrufe aktiviert.**
+Standard der Beispielkonfiguration: `paid_calls_enabled = false`, Anbindung `claude_code`.
 
 ---
 
 ## 9. Kostenannahmen
 
-Grobe Schätzung, um Größenordnungen zu klären – keine Zusage. Annahmen je Modellaufruf:
-~15.000 Eingabe-Tokens (Doku-Auszüge + Kontext), ~2.000 Ausgabe-Tokens, ohne Caching.
+Grobe Schätzung, um Größenordnungen zu klären – keine Zusage. Annahme je Modellaufruf:
+~15.000 Eingabe-Tokens (Doku-Auszüge + Kontext) und ~2.000 Ausgabe-Tokens.
 
-| Posten | Menge | Opus 5 | Sonnet 5 |
+Kosten je API-Aufruf: Opus 5 = 15.000/1 Mio. × 5 $ + 2.000/1 Mio. × 25 $ ≈ **0,125 $**;
+Sonnet 5 = 15.000/1 Mio. × 2 $ + 2.000/1 Mio. × 10 $ = **0,05 $**.
+
+| Posten | Menge | Anbindung | Zusätzliche Kosten |
 |---|---|---|---|
-| Kosten je Modellaufruf | 1 | ~0,13 $ | ~0,05 $ |
-| Eine Lernsitzung | ~20 Aufrufe | ~2,50 $ | ~1,00 $ |
-| Pilot-Themenbereich (Phase 2) | ~30 Sitzungen | ~75 $ | ~30 $ |
-| Vergleich A+B (Phase 3) | 40 Aufgaben × 2 Varianten × 3 Läufe × ~3 Aufrufe = 720 Aufrufe | ~90 $ | ~36 $ |
-| **Summe Phase 2 + 3** | | **~165 $** | **~66 $** |
+| Lernen (Phase 2) | ~30 Sitzungen × ~20 Aufrufe = ~600 Aufrufe | Pro-Abo | **0 $** (verbraucht Pro-Kontingent) |
+| Vergleich A+B (Phase 3) | 40 Aufgaben × 2 Varianten × 3 Läufe × ~3 Aufrufe = 720 Aufrufe | Pro-Abo **oder** API | Pro: **0 $**; API (Batch): Opus 5 ~45 $, Sonnet 5 ~18 $ (720 × 0,125 $ bzw. × 0,05 $, halbiert) |
+| **Summe zusätzlich zum Abo bis Ende Phase 2** | | | **0 $** |
+| Optional Phase 3 über API inkl. ~15 $ Reserve | | | ~60 $ (Opus 5) bzw. ~35 $ (Sonnet 5) |
 
-- Mit Caching und Batch (Phase 3) realistisch 30–50 % weniger.
-- Eigene Unsicherheit: Faktor 2 in beide Richtungen; die ersten 3 Sitzungen dienen als
-  Messung, danach wird die Schätzung aktualisiert.
+- Zum Vergleich ohne Pro-Abo (alles über API): ~165 $ (Opus 5) bzw. ~66 $ (Sonnet 5).
+- Unsicherheit: Faktor 2 in beide Richtungen. Die ersten 3 Lernsitzungen dienen als Messung;
+  danach wird die Schätzung mit echten Werten aktualisiert und vorgelegt.
+- **Zeit statt Geld beim Pro-Abo:** ~600 Aufrufe à ~17.000 Tokens verteilen sich
+  voraussichtlich auf mehrere Tage bis Wochen, weil das Kontingent auch für die sonstige
+  Nutzung von Claude reicht. Das Programm begrenzt dafür Aufrufe und Tokens je Sitzung und
+  je Tag (siehe `config/limits.example.toml`), damit genug Kontingent für dich übrig bleibt.
 - Menschliche Prüfzeit ist der größere Kostenfaktor: ~70 Musterlösungen à ~5–10 Min.
   ≈ 6–12 Stunden Fachprüfung.
-- Lokales Modell: keine Tokenkosten, aber Strom, Laufzeit, Wartung und voraussichtlich
-  geringere Qualität.
 
-Durchsetzung: Vor jedem Aufruf wird der maximal mögliche Betrag (Eingabe-Tokens gezählt ×
-Preis + `max_tokens` × Ausgabepreis) gegen das Restbudget **reserviert**; nach der Antwort
-wird mit dem tatsächlichen Verbrauch abgeglichen. Ist die Reservierung nicht möglich,
-stoppt die Sitzung mit `limit_erreicht`.
+Durchsetzung bei der API: Vor jedem Aufruf wird der maximal mögliche Betrag (gezählte
+Eingabe-Tokens × Preis + `max_tokens` × Ausgabepreis) gegen das Restbudget **reserviert**;
+nach der Antwort wird mit dem tatsächlichen Verbrauch abgeglichen. Ist die Reservierung
+nicht möglich, stoppt die Sitzung mit `limit_erreicht`. Beim Pro-Abo werden stattdessen
+Aufrufe und gemeldete Tokens gezählt.
 
 ---
 

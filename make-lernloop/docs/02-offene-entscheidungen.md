@@ -6,8 +6,8 @@ eine Empfehlung; „Empfehlung übernehmen“ ist eine gültige Antwort.
 | Nr. | Entscheidung | Empfehlung | Antwort |
 |---|---|---|---|
 | E1 | Wer bestätigt Musterlösungen fachlich? | siehe unten | |
-| E2 | Budget für kostenpflichtige Modellaufrufe | siehe unten | |
-| E3 | Modell: API oder lokal? | siehe unten | |
+| E2 | Budget (Start: nur Pro-Abo, API erst vor Phase 3) | siehe unten | |
+| E3 | Modell: Abo, API oder lokal? | siehe unten | |
 | E4 | Erfolgskriterium für Phase 3 (vorab festgelegt) | siehe unten | |
 | E5 | Quellenrahmen und Nutzungsbedingungen | siehe unten | |
 | E6 | Erster Themenbereich | siehe unten | |
@@ -29,18 +29,22 @@ bestätigt, korrigiert oder verwirft. Ohne E1 kann Phase 3 kein Erfolgsurteil li
 
 ### E2 – Budget
 
-**Empfehlung:** Hartes Gesamtbudget **100 $** für Phase 2 + 3 mit Opus 5, Warnung bei 50 %.
-Nach den ersten drei Sitzungen wird die Kostenschätzung mit gemessenen Werten aktualisiert
-und dir zur Bestätigung vorgelegt, bevor weitergemacht wird.
-(Alternativ Sonnet 5: 50 $.) Grundlage: `01-phase1-planung.md` §9.
+Ausgangslage: Pro-Abo (pauschal) und API-Zugang (nach Verbrauch) sind vorhanden.
 
-Außerdem nötig: ein API-Schlüssel, der **nur** für dieses Projekt angelegt wird, idealerweise
-mit Ausgabenlimit in der Anbieterkonsole als zweite Sicherung.
+**Festgelegt für den Start:** Nur das **Pro-Abo** – bis einschließlich Phase 2 keine
+zusätzlichen Kosten, API-Aufrufe ausgeschaltet. Tageslimit im Programm: höchstens 60 Aufrufe
+pro Tag, damit genug Kontingent für deine sonstige Nutzung bleibt (anpassbar).
+
+**Erst vor Phase 3 zu entscheiden:** Vergleich weiter über das Abo (0 $, dauert Tage) oder über
+die API (sauberer und schneller; geschätzt ~60 $ mit Opus 5 bzw. ~35 $ mit Sonnet 5). Grundlage
+sind dann die in Phase 2 gemessenen Werte statt Schätzungen (`01-phase1-planung.md` §9). Falls
+API: eigener Projektschlüssel mit Ausgabenlimit in der Anthropic Console.
 
 ### E3 – Modell
 
-**Empfehlung:** API-Modell (Opus 5) für Phase 2 und 3; lokales Modell als späterer eigener
-Vergleich. Abschließend erst nach der Ausgabe von `scripts/hardware_check.py`.
+**Empfehlung:** Pro-Abo über Claude Code, mit dem stärksten Modell, das dein Abo in Claude Code
+anbietet (vor dem Start prüfen). Ein lokales Modell bleibt eine spätere Option; endgültig
+erst nach der Ausgabe von `scripts/hardware_check.py`.
 
 ### E4 – Erfolgskriterium (muss vor Phase 3 feststehen)
 
@@ -77,8 +81,8 @@ das System nur Zitate, Hashes und URLs statt ganzer Seiten.
 |---|---|
 | Laufzeit je Sitzung | 30 Min. |
 | Modellaufrufe je Sitzung | 25 |
-| Kosten je Sitzung | 4 $ |
+| Aufrufe pro Tag (Pro-Kontingent) | 60 |
 | Seitenabrufe je Sitzung | 40 |
 | Abrufrate | max. 1 Seite / 2 s je Host |
 | Nacharbeitsrunden ohne Fortschritt | 2 |
-| Gesamtbudget | siehe E2 |
+| API-Budget | 0 $ bis Entscheidung vor Phase 3 (E2) |

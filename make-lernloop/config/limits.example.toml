@@ -1,18 +1,28 @@
 # Beispielkonfiguration für den Make-Lernloop (Phase 1 – Vorschlag).
-# Enthält KEINE Zugangsdaten. Der API-Schlüssel wird ausschließlich aus der
+# Enthält KEINE Zugangsdaten. Start: nur Claude-Pro-Abo über Claude Code (claude -p),
+# dort angemeldet. Ein API-Schlüssel würde erst ab Phase 3 und nur aus der
 # Umgebungsvariable ANTHROPIC_API_KEY oder dem Betriebssystem-Schlüsselbund gelesen.
 # Alle Werte werden vom Programm durchgesetzt; die KI kann sie nicht ändern.
 
-[budget]
-# Ohne ausdrückliche Freigabe (Entscheidung E2) bleiben kostenpflichtige Aufrufe aus.
-paid_calls_enabled = false
-total_usd = 100.0
-warn_at_fraction = 0.5
-per_session_usd = 4.0
-
 [model]
-provider = "anthropic"        # oder "local"
+backend = "claude_code"       # "claude_code" (Pro-Abo) | "anthropic_api" | später "local"
+# Modell in Claude Code fest vorgeben; verfügbare Modelle im Pro-Abo vor dem Start prüfen.
+claude_code_model = "opus"
+# Alle Claude-Code-Werkzeuge (Dateien, Befehle, Web) sind abgeschaltet – Claude verarbeitet
+# nur den übergebenen Text.
+claude_code_tools_enabled = false
+
+[subscription_limits]
+# Schont das Pro-Kontingent für die sonstige Nutzung.
+max_calls_per_day = 60
+pause_on_usage_limit = true   # Nutzungslimit erreicht → Checkpoint, später --resume
+
+[api]
+# Ausgeschaltet bis zur Entscheidung E2 vor Phase 3.
+paid_calls_enabled = false
 model_id = "claude-opus-5"
+total_budget_usd = 0.0
+warn_at_fraction = 0.5
 max_output_tokens = 4000
 # Preise je 1 Mio. Tokens – vor Aktivierung mit der aktuellen Preisseite abgleichen.
 price_input_per_mtok = 5.00
