@@ -500,3 +500,15 @@ Backup-API (konsistent auch während Nutzung); Wiederherstellung mit Prüfsummen
 - Kontamination durch Trainingswissen des Modells ist nicht ausschließbar (betrifft A und B gleich).
 - Dokumentationsseiten können sich zwischen Lernen und Prüfung ändern → Abrufzeitpunkte
   und Hashes werden in jedem Vergleichslauf festgehalten.
+- **Betrieb nur über das Pro-Abo (Start):**
+  - Nutzungslimits (je 5-Stunden-Fenster und je Woche) werden mit deiner sonstigen Claude-Nutzung
+    geteilt; das Restkontingent ist vorab nicht abfragbar, daher pausiert das Programm erst,
+    wenn das Limit gemeldet wird.
+  - Welche Modelle im Pro-Abo in Claude Code verfügbar sind, ist vor dem Start zu prüfen.
+    Modell-Kurznamen können auf neuere Versionen umgestellt werden; jeder Aufruf protokolliert
+    daher die tatsächlich gemeldete Modellversion.
+  - Weniger Steuerung als bei der API: Claude Code bringt einen eigenen Systemprompt mit; kein
+    Batch, keine direkte Cache-Steuerung, keine erzwungenen Ausgabeschemas. Das Programm prüft
+    jede JSON-Antwort selbst und wiederholt bei ungültiger Ausgabe begrenzt.
+  - Aufrufe laufen nacheinander; jeder startet einen Claude-Code-Prozess (einige Sekunden
+    Zusatzaufwand).
