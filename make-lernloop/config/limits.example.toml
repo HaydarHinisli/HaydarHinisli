@@ -1,0 +1,48 @@
+# Beispielkonfiguration für den Make-Lernloop (Phase 1 – Vorschlag).
+# Enthält KEINE Zugangsdaten. Der API-Schlüssel wird ausschließlich aus der
+# Umgebungsvariable ANTHROPIC_API_KEY oder dem Betriebssystem-Schlüsselbund gelesen.
+# Alle Werte werden vom Programm durchgesetzt; die KI kann sie nicht ändern.
+
+[budget]
+# Ohne ausdrückliche Freigabe (Entscheidung E2) bleiben kostenpflichtige Aufrufe aus.
+paid_calls_enabled = false
+total_usd = 100.0
+warn_at_fraction = 0.5
+per_session_usd = 4.0
+
+[model]
+provider = "anthropic"        # oder "local"
+model_id = "claude-opus-5"
+max_output_tokens = 4000
+# Preise je 1 Mio. Tokens – vor Aktivierung mit der aktuellen Preisseite abgleichen.
+price_input_per_mtok = 5.00
+price_output_per_mtok = 25.00
+
+[session]
+max_duration_minutes = 30
+max_model_calls = 25
+max_page_fetches = 40
+max_rounds_without_progress = 2
+
+[fetch]
+allowed_hosts = ["help.make.com", "developers.make.com"]
+# Pfade auf www.make.com nur einzeln freigeben, z. B. "/en/pricing".
+allowed_paths_www_make_com = []
+https_only = true
+methods = ["GET"]
+max_redirects = 3
+max_page_bytes = 2_000_000
+timeout_seconds = 20
+min_seconds_between_requests_per_host = 2.0
+respect_robots_txt = true
+block_private_networks = true
+user_agent = "make-lernloop/0.1 (lokales Lernprojekt; manuell gestartet)"
+
+[paths]
+# Alle Dateizugriffe bleiben innerhalb dieses Verzeichnisses.
+project_root = "./data"
+database = "./data/lernloop.sqlite"
+raw_sources = "./data/sources/raw"
+exam_store = "./data/exam/exam.enc"
+reports = "./data/reports"
+backups = "./data/backups"
