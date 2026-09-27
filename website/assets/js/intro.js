@@ -46,7 +46,10 @@
     var gpu = false;
     try {
       var tc = document.createElement('canvas');
-      gpu = !!(tc.getContext('webgl2', { failIfMajorPerformanceCaveat: true }) || tc.getContext('webgl', { failIfMajorPerformanceCaveat: true }));
+      var gl = tc.getContext('webgl2', { failIfMajorPerformanceCaveat: true }) || tc.getContext('webgl', { failIfMajorPerformanceCaveat: true });
+      var info = gl && gl.getExtension('WEBGL_debug_renderer_info');
+      var name = gl ? String(info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER)) : '';
+      gpu = !!gl && !/swiftshader|llvmpipe|softpipe|software|basic render/i.test(name);
     } catch (e) { gpu = false; }
     if (!gpu && typeof window.__introClock !== 'function') return end();
     var d3 = JSON.parse(dataEl.textContent);
