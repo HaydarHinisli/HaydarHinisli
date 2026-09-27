@@ -41,6 +41,14 @@
 
   // 3D-Intro (Three.js): wird nur geladen, wenn es tatsächlich läuft
   if (d.classList.contains('intro-3d')) {
+    // Nur mit echter Grafikbeschleunigung: Ohne Grafikkarte (Software-Rendering) würde die 3D-Szene ruckeln
+    // und die Seite blockieren – dann direkt zur Seite. (__introClock: nur für die Bild-für-Bild-Vorschau)
+    var gpu = false;
+    try {
+      var tc = document.createElement('canvas');
+      gpu = !!(tc.getContext('webgl2', { failIfMajorPerformanceCaveat: true }) || tc.getContext('webgl', { failIfMajorPerformanceCaveat: true }));
+    } catch (e) { gpu = false; }
+    if (!gpu && typeof window.__introClock !== 'function') return end();
     var d3 = JSON.parse(dataEl.textContent);
     var started = false;
     setTimeout(function () { if (!started) end(); }, 2500); // zu langsame Verbindung: lieber gleich zur Seite
