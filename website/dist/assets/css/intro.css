@@ -140,3 +140,14 @@ html.intro-verspielt .intro__blob--2 { right: -20vmax; bottom: -25vmax; backgrou
 /* Verbindungslinien laufen hinter den Beschriftungen durch (wichtig im Hochformat) */
 .intro .module__app, .intro .module__action { position: relative; background: var(--bg); padding: 0 0.35em; border-radius: 0.3em; }
 .intro .module__action { margin-top: 0; padding-top: 0.15em; }
+
+/* Ego-Perspektive: Boden in der Welt statt Raster im Hintergrund */
+.intro--ego .intro__bg::before { display: none; }
+.intro__floor {
+  position: absolute;
+  background-image: radial-gradient(circle, #aeb6be 2.2px, transparent 2.8px);
+  -webkit-mask-image: radial-gradient(ellipse 50% 50% at 50% 50%, #000 40%, transparent 100%);
+  mask-image: radial-gradient(ellipse 50% 50% at 50% 50%, #000 40%, transparent 100%);
+}
+.intro--ego .intro__camera, .intro--ego .intro__stage { transform-style: preserve-3d; }
+.intro--ego .intro__module { transform-style: flat; }

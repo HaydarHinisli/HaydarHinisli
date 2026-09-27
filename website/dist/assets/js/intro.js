@@ -75,7 +75,7 @@
     mask.setAttribute('height', Math.abs(a[1] - b[1]) + 2 * pad);
   }
 
-  if (d.classList.contains('intro-kamera')) { runKamera(); return; }
+  if (d.classList.contains('intro-kamera')) { if (addOK) runEgo(); else runKamera(); return; }
 
   // ---------- Positionen ----------
   var u = portrait ? Math.min(W / 3, H / 5.9) : Math.min(W / 5.8, H / 3.5, 200);
@@ -547,6 +547,244 @@
       }
     });
     play(svg, [{ opacity: 1 }, { opacity: 0 }], { duration: 300, delay: HAND - 80, fill: 'forwards' });
+    play(q(intro, '.intro__bg'), [{ opacity: 1 }, { opacity: 0 }], { duration: 520, delay: HAND + 80, easing: 'ease-in-out', fill: 'forwards' });
+    if (skipBtn) play(skipBtn, [{ opacity: 1 }, { opacity: 0 }], { duration: 250, delay: HAND, fill: 'forwards' });
+    var header = document.querySelector('.site-header');
+    if (header) play(header, [{ transform: 'translateY(-100%)' }, { transform: 'none' }], { duration: 600, delay: HAND + 120, easing: EASE.out, fill: 'backwards' }, pageAnims);
+    document.querySelectorAll('.hero__text > *').forEach(function (el, n) {
+      play(el, [{ transform: 'translateY(24px)' }, { transform: 'none' }], { duration: 650, delay: HAND + 150 + n * 60, easing: EASE.out, fill: 'backwards' }, pageAnims);
+    });
+    heroLinks.forEach(function (el, n) {
+      play(el, [{ opacity: 0 }, { opacity: 1 }], { duration: 250, delay: HAND + GLIDE + n * 40, fill: 'forwards' }, pageAnims);
+    });
+    document.querySelectorAll('.scene__ghosts, .scene__grid').forEach(function (el) {
+      play(el, [{ opacity: 0 }, { opacity: 1 }], { duration: 600, delay: HAND + 300, fill: 'forwards' }, pageAnims);
+    });
+    if (lastAnim) lastAnim.finished.then(function () { setTimeout(end, 60); }, function () {});
+    setTimeout(end, 6000); // Sicherheitsnetz
+  }
+  // =====================================================================================================
+  // Variante „kamera“ mit Ego-Perspektive (max. 4 s): Der Workflow liegt flach auf einem Boden im Raum.
+  // Die Kamera fährt knapp über dem Boden hinter dem Datenpaket her und blickt entlang der Kette nach vorn:
+  // Die nächsten Module stehen in der Tiefe, kommen näher, an jedem Modul hält die Fahrt kurz (Ring, „1“).
+  // Am Ende steigt die Kamera auf, schwenkt in die Übersicht und die Module gleiten in den Kopfbereich.
+  // Module stehen aufrecht und drehen sich immer zur Kamera (Gegenrotation, exakt synchron zur Kamera).
+  // =====================================================================================================
+  function runEgo() {
+    var Z = portrait ? 1.8 : 2.1;
+    var u = portrait ? Math.min(W / 3, H / 5.9) : Math.min(W / 5.8, H / 3.5, 200);
+    var U = u * Z;
+    var circle = (portrait ? 0.44 : 0.36) * u;
+    stage.style.fontSize = (circle * Z) / 4.75 + 'px';
+    intro.classList.add('intro--ego');
+    intro.style.perspective = (portrait ? 760 : 950) + 'px';
+    intro.style.perspectiveOrigin = '50% 28%';
+    camera.style.transformOrigin = '0 0';
+    var SW = Math.max(W, H) * Z * 1.6, O = [SW / 2, SW / 2];
+    var cx = W / 2, cy = H / 2;
+    // Weltkoordinaten: immer das Querformat-Layout (die Fahrt geht „nach vorn“, egal wie das Gerät gehalten wird)
+    var pts = data.land.map(function (p) { return [O[0] + p[0] * U, O[1] + p[1] * U]; });
+    var offs = mods.map(function (m) {
+      var r = m.getBoundingClientRect(), b = q(m, '.module__body').getBoundingClientRect();
+      return { x: b.left - r.left + b.width / 2, y: b.top - r.top + b.height / 2, w: b.width, h: b.height };
+    });
+    // Modul steht mit der Mitte seines Kreises auf dem Wegpunkt
+    mods.forEach(function (m, i) {
+      m.style.left = pts[i][0] - offs[i].x + 'px';
+      m.style.top = pts[i][1] - offs[i].y + 'px';
+      m.style.transformOrigin = offs[i].x + 'px ' + offs[i].y + 'px';
+    });
+
+    // Boden mit Punktraster (liegt in der Welt, läuft also perspektivisch mit)
+    var floor = document.createElement('div');
+    floor.className = 'intro__floor';
+    floor.style.left = O[0] - 4 * U + 'px';
+    floor.style.top = O[1] - 2.4 * U + 'px';
+    floor.style.width = 8 * U + 'px';
+    floor.style.height = 4.8 * U + 'px';
+    floor.style.backgroundSize = U / 9 + 'px ' + U / 9 + 'px';
+    camera.insertBefore(floor, camera.firstChild);
+
+    // Hauptroute
+    var heroIdx = mods.map(function (m, i) { return m.getAttribute('data-hero') !== null ? i : -1; }).filter(function (i) { return i > -1; });
+    var parent = {};
+    data.links.forEach(function (l, k) { parent[l[1]] = { from: l[0], k: k }; });
+    var route = [heroIdx[heroIdx.length - 1]];
+    while (parent[route[0]]) route.unshift(parent[route[0]].from);
+    var onRoute = function (i) { return route.indexOf(i) > -1; };
+
+    // Verbindungen auf dem Boden
+    var NS = 'http://www.w3.org/2000/svg';
+    var bx = O[0] - 2.6 * U, by = O[1] - 1.3 * U, bw = 5.2 * U, bh = 2.6 * U;
+    svg.setAttribute('viewBox', bx + ' ' + by + ' ' + bw + ' ' + bh);
+    svg.setAttribute('width', bw);
+    svg.setAttribute('height', bh);
+    svg.style.left = bx + 'px';
+    svg.style.top = by + 'px';
+    svg.classList.add('intro__links--zoom');
+    var defs = document.createElementNS(NS, 'defs');
+    svg.appendChild(defs);
+    function masked(p, cls, id, a, b) {
+      var mask = document.createElementNS(NS, 'mask');
+      mask.setAttribute('id', id);
+      mask.setAttribute('maskUnits', 'userSpaceOnUse');
+      maskBox(mask, a, b, 30);
+      var rv = document.createElementNS(NS, 'path');
+      rv.setAttribute('d', p); rv.setAttribute('pathLength', '1'); rv.setAttribute('class', 'intro__reveal');
+      mask.appendChild(rv); defs.appendChild(mask);
+      var dots = document.createElementNS(NS, 'path');
+      dots.setAttribute('d', p); dots.setAttribute('class', cls); dots.setAttribute('mask', 'url(#' + id + ')');
+      svg.appendChild(dots);
+      return rv;
+    }
+    var links = data.links.map(function (l, k) {
+      var a = pts[l[0]], b = pts[l[1]], mx = (a[0] + b[0]) / 2;
+      var p = 'M' + a[0] + ' ' + a[1] + 'C' + mx + ' ' + a[1] + ' ' + mx + ' ' + b[1] + ' ' + b[0] + ' ' + b[1];
+      return { from: l[0], to: l[1], path: p, grey: masked(p, 'intro__dots', 'intro-m' + k, a, b), green: masked(p, 'intro__dots intro__dots--done', 'intro-g' + k, a, b) };
+    });
+    function linkTo(i) { for (var k = 0; k < links.length; k++) if (links[k].to === i) return k; return -1; }
+
+    // ---------- Kamera: Schlüsselbilder ----------
+    // Welt = verschieben zum Bildpunkt · neigen (rotateX) · drehen (rotateZ) · skalieren · Wegpunkt in die Mitte
+    // Modul-Gegenrotation = rotateZ(-φ) · rotateX(-Neigung) → Module stehen aufrecht zur Kamera
+    var phiO = portrait ? 90 : 0;
+    var keys = [];
+    function key(at, c) { keys.push({ at: at, c: c }); }
+    function egoAt(p, back, tilt) {
+      return { x: p[0] - back * U, y: p[1], ax: cx, ay: H * (portrait ? 0.7 : 0.68), tilt: tilt, phi: -90, s: 1 };
+    }
+    var overview = { x: O[0], y: O[1], ax: cx, ay: cy, tilt: 0, phi: phiO, s: 1 / Z };
+    function worldT(c) {
+      return 'translate(' + c.ax + 'px,' + c.ay + 'px) rotateX(' + c.tilt + 'deg) rotateZ(' + c.phi + 'deg) scale(' + c.s + ') translate(' + -c.x + 'px,' + -c.y + 'px)';
+    }
+    function counterT(c) { return 'rotateZ(' + -c.phi + 'deg) rotateX(' + -c.tilt + 'deg)'; }
+
+    // Bausteine
+    function appear(i, t) {
+      play(mods[i], [
+        { transform: 'scale(0.4)', opacity: 0 },
+        { transform: 'scale(1)', opacity: 1 },
+      ], { duration: 420, delay: t, easing: 'cubic-bezier(0.34, 1.4, 0.64, 1)', fill: 'both' });
+      var k = linkTo(i);
+      if (k > -1) play(links[k].grey, [{ strokeDashoffset: 1 }, { strokeDashoffset: 0 }], { duration: 320, delay: t - 80, easing: EASE.inOut, fill: 'both' });
+    }
+    function done(i, t) {
+      var m = mods[i];
+      play(q(m, '.module__ring'), [{ transform: 'scale(1)', opacity: 0.8 }, { transform: 'scale(1.5)', opacity: 0 }], { duration: 550, delay: t, easing: 'ease-out', fill: 'forwards' });
+      var c = q(m, '.module__count');
+      if (c) play(c, [{ transform: 'scale(0)' }, { transform: 'scale(1)' }], { duration: 380, delay: t, easing: EASE.pop, fill: 'both' });
+    }
+    function ring(i, t, r) {
+      var m = mods[i];
+      if (isRouter[i]) {
+        play(q(m, '.module__body'), [{ transform: 'scale(1)' }, { transform: 'scale(1.15)', offset: 0.4 }, { transform: 'scale(1)' }], { duration: r + 100, delay: t - 30, easing: 'ease-out' });
+        return t + r;
+      }
+      var total = r / 0.85;
+      play(q(m, '.module__track'), [{ opacity: 0 }, { opacity: 1, offset: 0.1 }, { opacity: 1, offset: 0.85 }, { opacity: 0 }], { duration: total, delay: t, fill: 'forwards' });
+      play(q(m, '.module__arc'), [
+        { strokeDashoffset: 1, opacity: 0 },
+        { strokeDashoffset: 1, opacity: 1, offset: 0.03, easing: EASE.soft },
+        { strokeDashoffset: 0, opacity: 1, offset: 0.85 },
+        { strokeDashoffset: 0, opacity: 0 },
+      ], { duration: total, delay: t, fill: 'forwards' });
+      done(i, t + r);
+      return t + r;
+    }
+    function packet(L, t, dur) {
+      play(L.green, [{ strokeDashoffset: 1 }, { strokeDashoffset: 0 }], { duration: dur, delay: t, easing: EASE.soft, fill: 'both' });
+      if (!(window.CSS && CSS.supports && CSS.supports('offset-path', 'path("M0 0L1 1")'))) return;
+      var dot = document.createElement('span');
+      dot.className = 'intro__packet intro__packet--zoom';
+      dot.style.offsetPath = 'path("' + L.path + '")';
+      camera.appendChild(dot);
+      play(dot, [{ offsetDistance: '0%', opacity: 0 }, { opacity: 1, offset: 0.1 }, { opacity: 1, offset: 0.9 }, { offsetDistance: '100%', opacity: 0 }], { duration: dur, delay: t, easing: EASE.soft, fill: 'both' });
+    }
+
+    // ---------- Zeitplan (ms) ----------
+    var BACK = 0.7;                       // Kamera steht etwas hinter dem aktiven Modul
+    key(0, egoAt(pts[route[0]], BACK + 1.1, 78));
+    // Alle Module der Route und die Zweige stehen schon in der Tiefe bereit
+    route.forEach(function (i, n) { appear(i, 60 + n * 70); });
+    key(380, egoAt(pts[route[0]], BACK, 71));
+    var t = ring(route[0], 330, 270);
+    key(t, egoAt(pts[route[0]], BACK, 71));
+    var RING = [230, 80, 210, 210];
+    var PAN = [290, 220, 240, 220];
+    var hidden = [];
+    for (var s = 1; s < route.length; s++) {
+      var i = route[s], pan = PAN[s - 1] || 260;
+      if (isRouter[i]) data.links.forEach(function (l) { if (l[0] === i && !onRoute(l[1])) appear(l[1], t - 200); });
+      packet(links[linkTo(i)], t, pan);
+      key(t + pan, egoAt(pts[i], BACK, 71));
+      // Module, die mehr als eine Station hinter der Kamera liegen, ausblenden (sie kämen sonst riesig ins Bild)
+      if (s >= 2) { play(mods[route[s - 2]], [{ opacity: 1 }, { opacity: 0 }], { duration: 160, delay: t, fill: 'forwards' }); hidden.push(route[s - 2]); }
+      t = ring(i, t + pan, RING[s - 1] || 220);
+      key(t, egoAt(pts[i], BACK, 71));
+    }
+    // Übrige Module: erscheinen, ihre Routen sind beim Aufsteigen bereits fertig
+    var others = mods.map(function (m, n) { return n; }).filter(function (n) { return !onRoute(n); });
+    others.forEach(function (n, j) {
+      if (parent[n] && !onRoute(parent[n].from)) appear(n, t - 450 + j * 40);
+      var L = links[linkTo(n)];
+      play(L.green, [{ strokeDashoffset: 1 }, { strokeDashoffset: 0 }], { duration: 240, delay: t - 200 + j * 60, easing: EASE.soft, fill: 'both' });
+      done(n, t - 100 + j * 60);
+    });
+    // Aufsteigen und in die Übersicht schwenken
+    var RISE = portrait ? 640 : 560;
+    key(t + 60 + RISE, overview);
+    hidden.forEach(function (n) { play(mods[n], [{ opacity: 0 }, { opacity: 1 }], { duration: 300, delay: t + 150, fill: 'forwards' }); });
+    var HAND = t + 60 + RISE - 30;
+
+    // Kamera und Gegenrotation als je eine Animation mit identischen Schlüsselbildern
+    var total = keys[keys.length - 1].at;
+    var camFrames = [], ctrFrames = [];
+    keys.forEach(function (k, n) {
+      var f1 = { transform: worldT(k.c), offset: k.at / total };
+      var f2 = { transform: counterT(k.c), offset: k.at / total, composite: 'add' };
+      if (n < keys.length - 1) { f1.easing = EASE.inOut; f2.easing = EASE.inOut; }
+      camFrames.push(f1); ctrFrames.push(f2);
+    });
+    play(camera, camFrames, { duration: total, fill: 'both' });
+    mods.forEach(function (m) { play(m, ctrFrames, { duration: total, fill: 'both', composite: 'add' }); });
+
+    // ---------- Übergabe an die Seite ----------
+    var heroBodies = Array.prototype.slice.call(document.querySelectorAll('.chain .module .module__body'));
+    var heroMods = Array.prototype.slice.call(document.querySelectorAll('.chain .module'));
+    var heroLinks = Array.prototype.slice.call(document.querySelectorAll('.chain .link'));
+    var GLIDE = 620, lastAnim;
+    var so = 1 / Z, rad = (phiO * Math.PI) / 180, cos = Math.cos(rad), sin = Math.sin(rad);
+    function toScreen(p) {
+      var x = (p[0] - O[0]) * so, y = (p[1] - O[1]) * so;
+      return [cx + x * cos - y * sin, cy + x * sin + y * cos];
+    }
+    mods.forEach(function (m, i) {
+      var h = m.getAttribute('data-hero');
+      if (h !== null && heroBodies[+h]) {
+        var r = heroBodies[+h].getBoundingClientRect();
+        var sp = toScreen(pts[i]);
+        var k2 = r.width / (offs[i].w * so);
+        // Verschiebung im (zur Kamera gedrehten, also bildschirmparallelen) Modulraum
+        var dx = (r.left + r.width / 2 - sp[0]) / so, dy = (r.top + r.height / 2 - sp[1]) / so;
+        var delay = HAND + +h * 30;
+        lastAnim = play(m, [
+          { transform: 'translate(0px,0px) scale(1)', composite: 'add' },
+          { transform: 'translate(' + dx + 'px,' + dy + 'px) scale(' + k2 + ')', composite: 'add' },
+        ], { duration: GLIDE, delay: delay, easing: EASE.inOut, fill: 'forwards', composite: 'add' });
+        var swap = portrait ? 200 : 1, at = delay + GLIDE - (portrait ? 100 : 0);
+        if (portrait) {
+          m.querySelectorAll('.module__app, .module__action').forEach(function (lbl) {
+            play(lbl, [{ opacity: 1 }, { opacity: 0 }], { duration: 200, delay: delay, fill: 'forwards' });
+          });
+        }
+        play(m, [{ opacity: 1 }, { opacity: 0 }], { duration: swap, delay: at, fill: 'forwards' });
+        if (heroMods[+h]) play(heroMods[+h], [{ opacity: 0 }, { opacity: 1 }], { duration: swap, delay: at, fill: 'forwards' }, pageAnims);
+      } else {
+        play(m, [{ opacity: 1 }, { opacity: 0 }], { duration: 300, delay: HAND - 60 + i * 15, fill: 'forwards' });
+      }
+    });
+    play(svg, [{ opacity: 1 }, { opacity: 0 }], { duration: 300, delay: HAND - 80, fill: 'forwards' });
+    play(floor, [{ opacity: 1 }, { opacity: 0 }], { duration: 400, delay: HAND - 150, fill: 'forwards' });
     play(q(intro, '.intro__bg'), [{ opacity: 1 }, { opacity: 0 }], { duration: 520, delay: HAND + 80, easing: 'ease-in-out', fill: 'forwards' });
     if (skipBtn) play(skipBtn, [{ opacity: 1 }, { opacity: 0 }], { duration: 250, delay: HAND, fill: 'forwards' });
     var header = document.querySelector('.site-header');
