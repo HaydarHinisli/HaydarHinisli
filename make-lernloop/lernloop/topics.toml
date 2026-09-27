@@ -1,0 +1,18 @@
+# Themenkatalog – erster Themenbereich (Pilot, Entscheidung E6).
+# Die Lernziele sind Fragen, keine Fakten. Weitere Themen werden später ergänzt.
+
+[[topic]]
+id = "T01"
+title = "Datenfluss zwischen Modulen – Bundles, Iteration und Aggregation"
+description = "Wie Daten als Bundles durch ein Szenario fließen, wie Iterator und Aggregatoren arbeiten und wie Arrays gemappt werden."
+prerequisites = []
+goals = [
+  "Was ist ein Bundle in Make, und wie verarbeiten nachfolgende Module mehrere Bundles, die ein Modul ausgibt?",
+  "Wie funktioniert das Iterator-Modul: Eingabe, Ausgabe und typische Voraussetzungen?",
+  "Wie funktioniert der Array Aggregator, insbesondere die Einstellungen Source Module und Group by?",
+  "Welche weiteren Aggregatoren gibt es (z. B. Text, Numeric, Table) und wie unterscheiden sie sich?",
+  "Was passiert bei Iteration und Aggregation mit leeren Arrays, fehlenden Feldern oder genau einem Element?",
+  "Wie werden Arrays und Collections gemappt (Indexierung, Array-Funktionen wie get, map, length)?",
+  "Wie wirken sich Iteration und Aggregation auf den Verbrauch (Operationen bzw. Credits) aus?",
+  "Welche Anleitungen zu Iteration und Aggregation sind veraltet oder widersprüchlich?",
+]

@@ -1,58 +1,56 @@
-# Beispielkonfiguration für den Make-Lernloop (Phase 1 – Vorschlag).
-# Enthält KEINE Zugangsdaten. Start: nur Claude-Pro-Abo über Claude Code (claude -p),
+# Beispielkonfiguration für den Make-Lernloop.
+# Kopieren nach ./lernloop.toml (wird von `lernloop init` automatisch angelegt).
+#
+# Enthält KEINE Zugangsdaten. Start: nur Claude-Pro-Abo über Claude Code (`claude -p`),
 # dort angemeldet. Ein API-Schlüssel würde erst ab Phase 3 und nur aus der
-# Umgebungsvariable ANTHROPIC_API_KEY oder dem Betriebssystem-Schlüsselbund gelesen.
+# Umgebungsvariable ANTHROPIC_API_KEY gelesen.
 # Alle Werte werden vom Programm durchgesetzt; die KI kann sie nicht ändern.
 
 [model]
-backend = "claude_code"       # "claude_code" (Pro-Abo) | "anthropic_api" | später "local"
-# Modell in Claude Code fest vorgeben; verfügbare Modelle im Pro-Abo vor dem Start prüfen.
+backend = "claude_code"       # "claude_code" (Pro-Abo) | "anthropic_api" (ab Phase 3)
+# Modell in Claude Code fest vorgeben; verfügbare Modelle im Pro-Abo mit `lernloop doctor` prüfen.
 claude_code_model = "opus"
-# Alle Claude-Code-Werkzeuge (Dateien, Befehle, Web) sind abgeschaltet – Claude verarbeitet
-# nur den übergebenen Text.
-claude_code_tools_enabled = false
+claude_code_command = "claude"
+call_timeout_seconds = 600
+# Strukturierte Ausgabe über --json-schema. Meldet `lernloop doctor --test-call` ein Problem,
+# auf false setzen; dann liest das Programm das JSON aus dem Antworttext und prüft es selbst.
+claude_code_json_schema = true
 
 [subscription_limits]
 # Schont das Pro-Kontingent für die sonstige Nutzung.
 max_calls_per_day = 60
-pause_on_usage_limit = true   # Nutzungslimit erreicht → Checkpoint, später --resume
 
 [api]
 # Ausgeschaltet bis zur Entscheidung E2 vor Phase 3.
 paid_calls_enabled = false
 model_id = "claude-opus-5"
 total_budget_usd = 0.0
-warn_at_fraction = 0.5
-max_output_tokens = 4000
-# Preise je 1 Mio. Tokens – vor Aktivierung mit der aktuellen Preisseite abgleichen.
-price_input_per_mtok = 5.00
-price_output_per_mtok = 25.00
 
 [session]
 max_duration_minutes = 30
 max_model_calls = 25
 max_page_fetches = 40
+max_rounds = 4                     # Recherche-/Nacharbeitsrunden je Sitzung
 max_rounds_without_progress = 2
+max_pages_per_round = 3
+max_chars_per_page = 14000         # so viel Seitentext geht je Seite an das Modell
 
 [fetch]
+# Pflicht vor dem ersten Abruf (Entscheidung E5): robots.txt und Nutzungsbedingungen von
+# Make gelesen und die Speicherung ganzer Seiten für zulässig befunden? Erst dann auf true.
+terms_reviewed = false
+# Falls die Bedingungen das lokale Speichern ganzer Seiten nicht erlauben: false.
+# Dann werden nur Abschnittstexte für Zitate, Hashes und URLs gespeichert.
+store_raw_html = false
 allowed_hosts = ["help.make.com", "developers.make.com"]
-# Pfade auf www.make.com nur einzeln freigeben, z. B. "/en/pricing".
-allowed_paths_www_make_com = []
-https_only = true
-methods = ["GET"]
+# Einzeln freigegebene Pfadpräfixe auf weiteren Hosts, z. B. { "www.make.com" = ["/en/pricing"] }
+allowed_path_prefixes = {}
 max_redirects = 3
 max_page_bytes = 2_000_000
 timeout_seconds = 20
 min_seconds_between_requests_per_host = 2.0
-respect_robots_txt = true
-block_private_networks = true
 user_agent = "make-lernloop/0.1 (lokales Lernprojekt; manuell gestartet)"
 
 [paths]
-# Alle Dateizugriffe bleiben innerhalb dieses Verzeichnisses.
-project_root = "./data"
-database = "./data/lernloop.sqlite"
-raw_sources = "./data/sources/raw"
-exam_store = "./data/exam/exam.enc"
-reports = "./data/reports"
-backups = "./data/backups"
+# Relativ zum Verzeichnis dieser Datei. Alle Dateizugriffe bleiben innerhalb von data_dir.
+data_dir = "./data"

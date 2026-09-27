@@ -327,6 +327,10 @@ Gemessen: Treffer unter den ersten k Ergebnissen (Recall@5) und Rang. Fehlschlä
 - Bewertung durch Rubrik; Regeln automatisch, alles Weitere durch den festgelegten Prüfer,
   **blind** (ohne Wissen, ob A oder B).
 - Kosten: B wird mit einmaligen Lernkosten + laufender Pflege + Antwortkosten ausgewiesen.
+- **Früher Zwischentest:** Nach etwa 10 Lernsitzungen treten A und B auf 10–15 zurückgehaltenen
+  Aufgaben gegeneinander an. Das Ergebnis ist ausdrücklich vorläufig und dient nur dazu, früh zu
+  sehen, ob der Speicher sich überhaupt bemerkbar macht. Ohne sichtbaren Unterschied wird zuerst
+  die Ursache untersucht (Quellen, Abruf, Anwendung), bevor weitergelernt wird.
 - Erfolgskriterium wird **vor** dem Lauf festgelegt (Entscheidung E4) und im Bericht mit
   Datum zitiert. Stichproben < 100 Aufgaben werden als „vorläufig“ gekennzeichnet.
 
@@ -487,6 +491,18 @@ Backup-API (konsistent auch während Nutzung); Wiederherstellung mit Prüfsummen
 | 7 | Verschlüsselte Prüfsammlung, Ähnlichkeitsprüfung | Test: Lernpfad kann Prüfaufgaben nicht lesen |
 | 8 | Berichte, Export, Backup/Restore | Wiederherstellung aus Backup reproduziert identische Prüfsummen |
 | 9 | Pilotdurchlauf auf dem ersten Themenbereich | Sitzungsberichte, offene Punkte, gemessene Kosten |
+
+**Umsetzungsstand (27.09.2026):** Schritte 1–6 und 8 sind in Version 0.1 umgesetzt (siehe
+`README.md`); Schritt 7 (verschlüsselte Prüfsammlung) folgt mit Phase 3. Schritt 9 (Pilotdurchlauf)
+startet auf dem Laptop des Auftraggebers.
+
+### Nutzungsschicht (nach Phase 2)
+
+Damit das erarbeitete Wissen später auch beim Arbeiten mit Claude an Make-Szenarien verfügbar ist:
+- **Export für Claude-Projekte:** aktuelle Erkenntnisse mit Status und Belegen als Markdown.
+- **MCP-Schnittstelle (nur lesend):** Claude Code bzw. Claude Desktop kann den Wissensspeicher
+  gezielt abfragen und sieht dabei den Status (belegt, widersprüchlich, offen).
+Beide geben nichts Zurückgezogenes oder Veraltetes als aktuell aus und können nichts verändern.
 
 ---
 

@@ -1,0 +1,4 @@
+data/
+lernloop.toml
+__pycache__/
+*.egg-info/

@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "make-lernloop"
+version = "0.1.0"
+description = "Lokales Lernsystem mit belegbarem Wissen über Make.com"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+lernloop = "lernloop.cli:main"
+
+[tool.setuptools]
+packages = ["lernloop"]
+
+[tool.setuptools.package-data]
+lernloop = ["topics.toml"]
