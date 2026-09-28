@@ -42,7 +42,7 @@ terms_reviewed = false
 # Falls die Bedingungen das lokale Speichern ganzer Seiten nicht erlauben: false.
 # Dann werden nur Abschnittstexte für Zitate, Hashes und URLs gespeichert.
 store_raw_html = false
-allowed_hosts = ["help.make.com", "developers.make.com"]
+allowed_hosts = ["help.make.com", "developers.make.com", "apps.make.com"]
 # Einzeln freigegebene Pfadpräfixe auf weiteren Hosts, z. B. { "www.make.com" = ["/en/pricing"] }
 allowed_path_prefixes = {}
 max_redirects = 3

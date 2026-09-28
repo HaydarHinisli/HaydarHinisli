@@ -6,8 +6,8 @@ id = "T01"
 title = "Datenfluss zwischen Modulen – Bundles, Iteration und Aggregation"
 description = "Wie Daten als Bundles durch ein Szenario fließen, wie Iterator und Aggregatoren arbeiten und wie Arrays gemappt werden."
 prerequisites = []
-# Nutzerthema: Seiten der Benutzerdoku zuerst, Entwicklerdoku (Custom Apps) nur nachrangig.
-preferred_hosts = ["help.make.com"]
+# Nutzerthema: Benutzerdoku und App-/Modulanleitungen zuerst, Entwicklerdoku (Custom Apps) nachrangig.
+preferred_hosts = ["help.make.com", "apps.make.com"]
 goals = [
   "Was ist ein Bundle in Make, und wie verarbeiten nachfolgende Module mehrere Bundles, die ein Modul ausgibt?",
   "Wie funktioniert das Iterator-Modul: Eingabe, Ausgabe und typische Voraussetzungen?",

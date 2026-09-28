@@ -32,7 +32,7 @@ DEFAULTS: dict = {
     "fetch": {
         "terms_reviewed": False,
         "store_raw_html": False,
-        "allowed_hosts": ["help.make.com", "developers.make.com"],
+        "allowed_hosts": ["help.make.com", "developers.make.com", "apps.make.com"],
         "allowed_path_prefixes": {},
         "max_redirects": 3,
         "max_page_bytes": 2_000_000,
