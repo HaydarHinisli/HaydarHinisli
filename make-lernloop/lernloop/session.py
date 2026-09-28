@@ -240,6 +240,10 @@ class LearningSession:
     def _goal(self):
         return self.conn.execute("SELECT * FROM goal WHERE id=?", (self.row["goal_id"],)).fetchone()
 
+    def _other_goals(self) -> list[str]:
+        return [r["text"] for r in self.conn.execute(
+            "SELECT text FROM goal WHERE topic_id=? AND id != ? ORDER BY ord", (self.row["topic_id"], self.row["goal_id"]))]
+
     def _preferred_hosts(self) -> list[str]:
         topic = self._topic()
         try:
@@ -286,7 +290,8 @@ class LearningSession:
         prior = self._claims(self.ctx.get("prior_claims", []))
         data = self.call("plan", prompts.plan_prompt(topic["title"], goal["text"], prior,
                                                      self.ctx.get("prior_open_questions"),
-                                                     self.ctx.get("prior_conflicts")), prompts.PLAN_SCHEMA)
+                                                     self.ctx.get("prior_conflicts"), self._other_goals()),
+                         prompts.PLAN_SCHEMA)
         rnd = self._cur_round()
         if data["bereits_beantwortet"] and prior:
             self.log("  Laut Vorwissen bereits beantwortet.")
@@ -419,7 +424,8 @@ class LearningSession:
         goal = self._goal()
         verified = self._verified_session_claims() + self._claims(self.ctx.get("prior_claims", []))
         data = self.call("beurteilung", prompts.assess_prompt(goal["text"], rnd["question"] or self.ctx.get("question"),
-                                                              verified, rnd["open_points"], rnd["rejected"]),
+                                                              verified, rnd["open_points"], rnd["rejected"],
+                                                              self._other_goals()),
                          prompts.ASSESS_SCHEMA)
         rnd["assessment"] = data
         if data["fehlerklasse"] != "keine":

@@ -158,9 +158,16 @@ def _attr(s: str) -> str:
     return s.replace('"', "'").replace("<", "(").replace(">", ")")
 
 
-def plan_prompt(topic_title, goal_text, claims, open_questions, conflicts) -> str:
+def _other_goals(other_goals) -> str:
+    return "\n".join(f"- {g}" for g in (other_goals or [])) or "(keine)"
+
+
+def plan_prompt(topic_title, goal_text, claims, open_questions, conflicts, other_goals=None) -> str:
     return f"""Thema: {topic_title}
 Lernziel: {goal_text}
+
+Andere Lernziele dieses Themas (werden in eigenen Sitzungen bearbeitet – NICHT hier verfolgen):
+{_other_goals(other_goals)}
 
 Bereits gespeichertes Wissen zu diesem Lernziel:
 {block_claims(claims)}
@@ -168,9 +175,10 @@ Bereits gespeichertes Wissen zu diesem Lernziel:
 Offene Fragen aus früheren Sitzungen: {open_questions or "keine"}
 Offene Widersprüche: {conflicts or "keine"}
 
-Aufgabe: Formuliere die EINE wichtigste noch fehlende Information als präzise Frage.
-Setze bereits_beantwortet=true nur, wenn das gespeicherte Wissen das Lernziel vollständig \
-und belegt abdeckt. Gib englische Suchbegriffe an, mit denen man passende Seiten der offiziellen \
+Aufgabe: Formuliere die EINE wichtigste noch fehlende Information ZU DIESEM LERNZIEL als \
+präzise Frage. Randfälle oder Details, die zu einem der anderen Lernziele gehören, gehören nicht \
+hierher. Setze bereits_beantwortet=true, wenn das gespeicherte Wissen den Kern dieses Lernziels \
+belegt abdeckt. Gib englische Suchbegriffe an, mit denen man passende Seiten der offiziellen \
 Make-Dokumentation findet (Modulnamen, Fachbegriffe)."""
 
 
@@ -220,9 +228,12 @@ ist inhaltlich doppelt, oder schränkt sie ein (bestehende Aussage ist zu breit)
 Verwende die IDs. Keine Befunde → leere Liste."""
 
 
-def assess_prompt(goal_text, question, claims, open_points, rejected) -> str:
+def assess_prompt(goal_text, question, claims, open_points, rejected, other_goals=None) -> str:
     return f"""Lernziel: {goal_text}
 Frage dieser Runde: {question}
+
+Andere Lernziele dieses Themas (eigene Sitzungen):
+{_other_goals(other_goals)}
 
 Belegte Aussagen (Stand jetzt):
 {block_claims(claims)}
@@ -233,7 +244,10 @@ Vom Programm verworfene Zitate (nicht wörtlich in der Quelle gefunden): {reject
 Hinweis: Während der Sitzung haben neue Aussagen immer den Status „entwurf“; das Programm stuft \
 sie erst beim Abschluss nach festen Regeln ein. Kommentiere den Status deshalb nicht.
 
-Aufgabe: Beurteile, ob das Lernziel mit den BELEGTEN Aussagen beantwortet ist.
+Aufgabe: Beurteile, ob das LERNZIEL mit den BELEGTEN Aussagen beantwortet ist – nicht, ob jede \
+Detailfrage dieser Runde beantwortet ist. "beantwortet", wenn der Kern des Lernziels belegt ist. \
+Offene Details, die zu einem der anderen Lernziele gehören, führst du NICHT als fehlende \
+Information auf und sie verhindern "beantwortet" nicht.
 fehlerklasse: "abrufproblem" (passende Seiten nicht gefunden), "quellenproblem" \
 (Quellen widersprüchlich/veraltet/unklar), "anwendungsfehler" (Zitate/Aussagen fehlerhaft \
 erfasst), "beweislage_unzureichend" (Doku sagt dazu nichts), sonst "keine".

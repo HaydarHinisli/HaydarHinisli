@@ -256,6 +256,17 @@ class SessionTests(unittest.TestCase):
         first = self.conn.execute("SELECT status FROM claim WHERE id='ERK-000001'").fetchone()[0]
         self.assertEqual(first, "widersprüchlich")
 
+    def test_other_goals_are_named_as_out_of_scope(self):
+        client = FakeClient(good_responder)
+        sess = LearningSession(self.cfg, self.conn, client, fetcher_factory(self.cfg, self.web), log=lambda *a: None)
+        sid = sess.create("T01", "T01-Z2")
+        sess.load(sid)
+        sess.run()
+        plan_prompt = next(p for step, p in client.calls if step == "plan")
+        self.assertIn("NICHT hier verfolgen", plan_prompt)
+        self.assertIn("leeren Arrays", plan_prompt)  # Z5 wird als eigenes Lernziel genannt
+        self.assertNotIn("- Wie funktioniert das Iterator-Modul", plan_prompt)  # eigenes Ziel nicht als „anderes“
+
     def test_nacharbeit_after_retrieval_problem(self):
         calls = []
 
