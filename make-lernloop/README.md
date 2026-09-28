@@ -32,7 +32,7 @@ Make-Dokumentation lief der Loop noch nicht – der erste echte Lauf ist deiner.
 
 ## Einrichtung (einmalig)
 
-1. **Python 3.11 oder neuer** – prüfen mit `python3 --version`.
+1. **Python 3.9 oder neuer** – prüfen mit `python3 --version` (das vorinstallierte Python auf dem Mac reicht).
 2. **Claude Code** installieren (offizielle Anleitung: <https://code.claude.com/docs>), z. B.
    - macOS/Linux: `curl -fsSL https://claude.ai/install.sh | bash`
    - Windows (PowerShell): `irm https://claude.ai/install.ps1 | iex`

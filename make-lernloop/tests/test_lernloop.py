@@ -319,6 +319,18 @@ class AskTests(unittest.TestCase):
         self.assertEqual(res_a["genutzte_erkenntnisse"], [])
 
 
+class TomlFallbackTests(unittest.TestCase):
+    def test_fallback_parser_matches_config_files(self):
+        from lernloop import _toml
+        root = Path(__file__).parent.parent
+        for f in ("config/limits.example.toml", "lernloop/topics.toml"):
+            parsed = _toml.loads((root / f).read_text(encoding="utf-8"))
+            self.assertIn("paths" if "limits" in f else "topic", parsed)
+        s = 'a = "x # y" # k\n[t]\nb = [1, 2_000, 3.5]\nc = { "h" = ["/p"] }\n[[arr]]\nx = 1\n[[arr]]\nx = 2\n'
+        self.assertEqual(_toml.loads(s), {"a": "x # y", "t": {"b": [1, 2000, 3.5], "c": {"h": ["/p"]}},
+                                          "arr": [{"x": 1}, {"x": 2}]})
+
+
 class LockTests(unittest.TestCase):
     def test_second_session_refused_and_stale_lock_taken_over(self):
         cfg, _, tmp = make_env()

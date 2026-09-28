@@ -6,7 +6,10 @@ import argparse
 import json
 import shutil
 import sys
-import tomllib
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python < 3.11
+    from . import _toml as tomllib
 from pathlib import Path
 
 from . import catalog, exporter, knowledge, report
@@ -70,6 +73,16 @@ def cmd_init(args, cfg):
 
 def cmd_doctor(args, cfg):
     ok = True
+    import platform
+    import sqlite3
+    print(f"Python: {platform.python_version()}  SQLite: {sqlite3.sqlite_version}")
+    try:
+        sqlite3.connect(":memory:").execute(
+            "CREATE VIRTUAL TABLE t USING fts5(a, tokenize='unicode61 remove_diacritics 2')")
+        print("Volltextsuche (FTS5): OK")
+    except sqlite3.OperationalError as exc:
+        ok = False
+        print(f"Volltextsuche (FTS5) fehlt: {exc} – bitte Python von python.org installieren")
     print(f"Konfiguration: {cfg.base_dir / CONFIG_FILENAME}"
           f"{'' if (cfg.base_dir / CONFIG_FILENAME).exists() else ' (fehlt – Standardwerte)'}")
     print(f"Datenverzeichnis: {cfg.data_dir}")
