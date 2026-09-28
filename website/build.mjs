@@ -222,31 +222,14 @@ function heroScene(modules, label) {
         </ol>`;
 }
 
-// ---------- Intro (nur Startseite, einmal pro Sitzung) ----------
-// Das Markup der Module entsteht hier; Positionen, Verbindungen und Animationen berechnet assets/js/intro.js
-// passend zur Bildschirmgröße. Aufbau: 0 → 1 → Router(2) → drei Zweige (3→4, 5→6, 7→8).
-const INTRO_LAYOUT = {
-  links: [[0, 1], [1, 2], [2, 3], [3, 4], [2, 5], [5, 6], [2, 7], [7, 8]],
-  // Kreismittelpunkte in Rastereinheiten, Querformat (Hochformat: x und y getauscht)
-  land: [[-2.25, 0], [-1.1, 0], [-0.1, 0], [1.05, -1], [2.25, -1], [1.05, 0], [2.25, 0], [1.05, 1], [2.25, 1]],
-};
-
+// ---------- Intro (nur Startseite, nur beim ersten Besuch) ----------
+// Die 3D-Szene zeichnet assets/js/intro3d.js auf eine Leinwand; hier stehen nur Bühne, „Überspringen“ und die Daten
+// (Texte, Farben, Symbole der Module mit "hero": true).
 function introBlock(lang) {
   const tx = t[lang].intro;
-  if (tx.modules.length !== 9) throw new Error(`content/${lang}.json: intro.modules braucht genau 9 Module (aktuell ${tx.modules.length})`);
-  let h = 0;
-  const mods = tx.modules.map((m) => moduleHTML(m, `intro__module${m.hero ? ` intro__module--hero" data-hero="${h++}` : ''}`)).join('\n          ');
-  return `<div class="intro" id="intro" aria-hidden="true">
-    <div class="intro__bg"><span class="intro__blob intro__blob--1"></span><span class="intro__blob intro__blob--2"></span></div>
-    <div class="intro__camera">
-      <svg class="intro__links" focusable="false"></svg>
-      <div class="intro__stage">
-          ${mods}
-      </div>
-    </div>
-  </div>
+  return `<div class="intro" id="intro" aria-hidden="true"></div>
   <button class="intro__skip" type="button">${esc(tx.skip)} →</button>
-  <script type="application/json" id="intro-data">${JSON.stringify({ ...INTRO_LAYOUT, three: intro3dUrl, icons: ICONS, glyphs: GLYPHS, modules: tx.modules }).replace(/</g, '\\u003c')}</script>`;
+  <script type="application/json" id="intro-data">${JSON.stringify({ three: intro3dUrl, glyphs: GLYPHS, modules: heroModules(lang) }).replace(/</g, '\\u003c')}</script>`;
 }
 
 const paragraphs = (arr) => (Array.isArray(arr) ? arr : [arr]).map((p) => `<p>${esc(p)}</p>`).join('\n');
@@ -268,7 +251,7 @@ function layout({ lang, page, alternates, title, description, body, noindex = fa
   ).join('\n  ');
 
   return `<!doctype html>
-<html lang="${lang}"${intro ? ` data-intro="${esc(site.introVariant || 'clean')}"` : ''}>
+<html lang="${lang}"${intro ? ` data-intro="${esc(site.introVariant || '3d')}"` : ''}>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">

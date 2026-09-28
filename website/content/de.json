@@ -58,25 +58,6 @@
         "hero": true
       },
       {
-        "app": "Router",
-        "action": "",
-        "icon": "router",
-        "color": "#8A96A3",
-        "router": true
-      },
-      {
-        "app": "HTTP",
-        "action": "Make a Request",
-        "icon": "globe",
-        "color": "#2D7FF9"
-      },
-      {
-        "app": "JSON",
-        "action": "Parse JSON",
-        "icon": "braces",
-        "color": "#7E57C2"
-      },
-      {
         "app": "OpenAI",
         "action": "Simple text prompt",
         "icon": "spark",
@@ -89,18 +70,6 @@
         "icon": "mail",
         "color": "#EA4335",
         "hero": true
-      },
-      {
-        "app": "Iterator",
-        "action": "Iterate Items",
-        "icon": "iterator",
-        "color": "#6BAF3A"
-      },
-      {
-        "app": "Slack",
-        "action": "Create a Message",
-        "icon": "hash",
-        "color": "#4A154B"
       }
     ]
   },

@@ -5,14 +5,14 @@
 //  - bei Sprunglinks (#kontakt) und bei „Bewegung reduzieren“,
 //  - wenn es auf diesem Gerät in den letzten 30 Tagen schon gezeigt wurde.
 // Gespeichert wird nur ein Datum im Browser (localStorage), keine Cookies, keine personenbezogenen Daten.
-// Vorschau unabhängig davon: /?intro=3d, /?intro=kamera, /?intro=clean oder /?intro=verspielt
+// Vorschau unabhängig davon (läuft bei jedem Aufruf): /?intro=3d
 (function () {
   'use strict';
   var d = document.documentElement;
-  var VARIANTS = ['3d', 'kamera', 'clean', 'verspielt'];
+  var VARIANTS = ['3d'];
   var KEY = '4e-intro-seen';
   var DAYS = 30;
-  var variant = d.getAttribute('data-intro') || 'kamera';
+  var variant = d.getAttribute('data-intro') || '3d';
   var forced = null;
   try {
     var q = new URLSearchParams(location.search).get('intro');

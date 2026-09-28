@@ -15,12 +15,12 @@ Nur den Text **zwischen den Anführungszeichen** ändern. Anführungszeichen im 
 
 ### Intro und Workflow-Grafik
 
-- **Module** (Intro und Kopfbereich): `de.json`/`en.json` unter `intro.modules` – Name (`app`), Aktion (`action`), Symbol (`icon`), Farbe (`color`). Genau 9 Module, Reihenfolge = Rolle im Ablauf. Die 4 Module mit `"hero": true` bilden danach die Kette im Kopfbereich.
-- **Variante**: `content/site.json` → `"introVariant"`: `"kamera"` (Standard, ca. 4 s), `"clean"`, `"verspielt"` oder `"aus"`.
-- **Wann es läuft**: nur beim ersten Besuch – nicht beim Neuladen, nicht über „Zurück“, nicht wenn man von einer Unterseite kommt und nicht erneut innerhalb von 30 Tagen auf demselben Gerät.
-- **Vorschau** (läuft bei jedem Aufruf): `/?intro=3d` (neue 3D-Fahrt geradeaus durch die 4 Module des Kopfbereichs), `/?intro=kamera`, `/?intro=clean`, `/?intro=verspielt`.
-- **3D-Intro**: Der Programmcode liegt in `src/intro3d.js`. Nur wer diesen Code ändert, muss einmalig `npm install` und danach `npm run build:intro3d` ausführen. Texte, Farben und Symbole kommen weiterhin aus `intro.modules` und brauchen diesen Schritt nicht. Die 3D-Fahrt zeigt nur die 4 Module mit `"hero": true`.
-- **Symbole**: `bag`, `sheet`, `spark` und `mail` sind flächige, plastische Symbole (Kopfbereich und 3D-Intro); alle übrigen Namen sind Liniensymbole.
+- **Module** (Intro und Kopfbereich): `de.json`/`en.json` unter `intro.modules` – Name (`app`), Aktion (`action`), Symbol (`icon`), Farbe (`color`). Genau 4 Module mit `"hero": true`, Reihenfolge = Ablauf der Kette. `"trigger": true` zeigt die Uhr am ersten Modul.
+- **Intro**: 3D-Fahrt entlang der Kette, ca. 5 s, danach gleiten die Module an ihren Platz im Kopfbereich. Abschalten: `content/site.json` → `"introVariant": "aus"` (Standard `"3d"`).
+- **Wann es läuft**: nur beim ersten Besuch – nicht beim Neuladen, nicht über „Zurück“, nicht wenn man von einer Unterseite kommt und nicht erneut innerhalb von 30 Tagen auf demselben Gerät. Ohne Grafikbeschleunigung und bei „Bewegung reduzieren“ entfällt es, die Seite erscheint sofort.
+- **Vorschau** (läuft bei jedem Aufruf): `/?intro=3d`
+- **Programmcode**: `src/intro3d.js`. Nur wer diesen Code ändert, muss einmalig `npm install` und danach `npm run build:intro3d` ausführen. Texte, Farben und Symbole brauchen diesen Schritt nicht.
+- **Symbole**: `bag`, `sheet`, `spark` und `mail` sind flächige, plastische Symbole (Kopfbereich und Intro); alle übrigen Namen sind Liniensymbole und erscheinen im Intro ohne Symbol.
 
 ## 2. Anwendungsfall-Seite anlegen
 

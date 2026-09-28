@@ -1,6 +1,5 @@
 /* 4ELEMENTS – Intro der Startseite. Aktiv nur mit der Klasse .is-intro (gesetzt von assets/js/intro-gate.js).
-   Aussehen der Module = Module im Kopfbereich (style.css); hier nur Bühne, Verbindungen und Effekte.
-   Bewegungen steuert assets/js/intro.js. */
+   Die 3D-Szene zeichnet assets/js/intro3d.js auf eine Leinwand; hier nur Bühne und „Überspringen“. */
 
 .intro, .intro__skip { display: none; }
 
@@ -10,98 +9,9 @@ html.is-intro .intro {
   inset: 0;
   z-index: 1000;
   overflow: hidden;
-  perspective: 1100px;
+  background: #fff;
 }
-
-/* Hintergrund: Weiß mit dem gepunkteten Raster aus dem Make-Editor bzw. dem Kopfbereich */
-.intro__bg {
-  position: absolute;
-  inset: 0;
-  background: var(--bg);
-}
-.intro__bg::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(circle, #cfd4d9 1.1px, transparent 1.4px) 0 0 / 22px 22px;
-  -webkit-mask-image: radial-gradient(ellipse 60% 55% at 50% 50%, #000 30%, transparent 100%);
-  mask-image: radial-gradient(ellipse 60% 55% at 50% 50%, #000 30%, transparent 100%);
-}
-.intro__blob { display: none; }
-
-.intro__camera {
-  position: absolute;
-  inset: 0;
-  transform-style: preserve-3d;
-  will-change: transform;
-}
-.intro__links { position: absolute; left: 0; top: 0; overflow: visible; }
-.intro__dots {
-  fill: none;
-  stroke: #b9c0c7;
-  stroke-width: 4;
-  stroke-linecap: round;
-  stroke-dasharray: 0 11;
-}
-.intro__reveal {
-  fill: none;
-  stroke: #fff;
-  stroke-width: 14;
-  stroke-dasharray: 1;
-  stroke-dashoffset: 1;
-}
-
-.intro__stage { position: absolute; inset: 0; transform-style: preserve-3d; }
-.intro__module {
-  position: absolute;
-  left: 0;
-  top: 0;
-  opacity: 0;
-  will-change: transform, opacity;
-}
-.intro .module__count { transform: scale(0); }
-
-/* Lichtkegel, der dem gerade arbeitenden Modul folgt */
-.intro__spot {
-  position: absolute;
-  left: 0;
-  top: 0;
-  border-radius: 50%;
-  background: radial-gradient(closest-side, rgba(61, 220, 151, 0.26), rgba(61, 220, 151, 0.08) 55%, rgba(61, 220, 151, 0) 100%);
-  opacity: 0;
-  will-change: transform, opacity;
-}
-/* Bereits durchlaufene Verbindung: grün */
-.intro__dots--done { stroke: var(--accent); }
-.intro .module--router { width: auto; }
-.intro .module--router .module__body { width: 2.9em; height: 2.9em; margin: 0; }
-.intro .module--router .module__glow { display: none; }
-
-.intro__packet {
-  position: absolute;
-  left: 0;
-  top: 0;
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 10px 3px rgba(61, 220, 151, 0.55);
-  offset-rotate: 0deg;
-  offset-anchor: center;
-  opacity: 0;
-  will-change: offset-distance, opacity;
-}
-.intro__packet--trail { width: 8px; height: 8px; box-shadow: none; }
-
-.intro__confetti {
-  position: absolute;
-  width: 11px;
-  height: 11px;
-  margin: -5.5px 0 0 -5.5px;
-  border-radius: 2px;
-  opacity: 0;
-  will-change: transform, opacity;
-}
+.intro__canvas { position: absolute; inset: 0; display: block; }
 
 html.is-intro .intro__skip {
   display: block;
@@ -118,40 +28,3 @@ html.is-intro .intro__skip {
   cursor: pointer;
 }
 html.is-intro .intro__skip:hover { color: var(--text); border-color: var(--text-muted); }
-
-/* Verspielt: weiche Farbflächen im Hintergrund */
-html.intro-verspielt .intro__blob {
-  display: block;
-  position: absolute;
-  width: 60vmax;
-  height: 60vmax;
-  border-radius: 50%;
-  filter: blur(60px);
-  opacity: 0.35;
-  will-change: transform;
-}
-html.intro-verspielt .intro__blob--1 { left: -15vmax; top: -20vmax; background: #b8f3d9; }
-html.intro-verspielt .intro__blob--2 { right: -20vmax; bottom: -25vmax; background: #d9ccff; }
-
-/* Kamera-Variante: Szene in Nahaufnahme-Größe (wird für die Übersicht verkleinert) */
-.intro__links--zoom .intro__dots { stroke-width: 6; stroke-dasharray: 0 15; }
-.intro__links--zoom .intro__reveal { stroke-width: 20; }
-.intro__packet--zoom { width: 18px; height: 18px; box-shadow: 0 0 14px 4px rgba(61, 220, 151, 0.55); }
-/* Verbindungslinien laufen hinter den Beschriftungen durch (wichtig im Hochformat) */
-.intro .module__app, .intro .module__action { position: relative; background: var(--bg); padding: 0 0.35em; border-radius: 0.3em; }
-.intro .module__action { margin-top: 0; padding-top: 0.15em; }
-
-/* Ego-Perspektive: Boden in der Welt statt Raster im Hintergrund */
-.intro--ego .intro__bg::before { display: none; }
-.intro__floor {
-  position: absolute;
-  background-image: radial-gradient(circle, #aeb6be 2.2px, transparent 2.8px);
-  -webkit-mask-image: radial-gradient(ellipse 50% 50% at 50% 50%, #000 40%, transparent 100%);
-  mask-image: radial-gradient(ellipse 50% 50% at 50% 50%, #000 40%, transparent 100%);
-}
-.intro--ego .intro__camera, .intro--ego .intro__stage { transform-style: preserve-3d; }
-.intro--ego .intro__module { transform-style: flat; }
-
-/* 3D-Intro: Leinwand über die ganze Fläche, die übrigen Intro-Ebenen werden nicht gebraucht */
-.intro__canvas { position: absolute; inset: 0; display: block; }
-html.intro-3d .intro__camera { display: none; }

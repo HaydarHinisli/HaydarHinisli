@@ -23,6 +23,6 @@
   "_portrait": "Porträtfoto als WebP in assets/img/ ablegen und Dateinamen eintragen, z. B. \"haydar-hinisli.webp\". Leer lassen = Platzhalter.",
   "portrait": "",
 
-  "_introVariant": "Intro der Startseite: \"kamera\" (Kamera folgt den Daten von Modul zu Modul, ca. 4 s), \"clean\" oder \"verspielt\" (je ca. 6 s). \"aus\" schaltet das Intro ab. Vorschau: /?intro=kamera, /?intro=clean, /?intro=verspielt",
-  "introVariant": "kamera"
+  "_introVariant": "Intro der Startseite: \"3d\" (Fahrt entlang der Workflow-Kette, ca. 5 s) oder \"aus\". Vorschau: /?intro=3d",
+  "introVariant": "3d"
 }
