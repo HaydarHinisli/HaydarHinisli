@@ -365,7 +365,7 @@ main { padding-top: var(--header-h); }
 }
 
 .scene {
-  --tilt: rotateX(14deg) rotateY(-12deg);
+  --tilt: none;   /* Kette steht gerade, ohne Kippen */
   position: relative;
   height: 25em;
   display: grid;
@@ -549,7 +549,7 @@ main { padding-top: var(--header-h); }
 
 /* Schmale Spalte (Smartphone): Kette senkrecht, Beschriftung rechts */
 @container (max-width: 470px) {
-  .scene { font-size: 14px; height: auto; padding-block: 2.5em; --tilt: rotateX(10deg) rotateY(-16deg); }
+  .scene { font-size: 14px; height: auto; padding-block: 2.5em; }
   .chain { flex-direction: column; }
   .module {
     width: auto;
@@ -639,11 +639,11 @@ main { padding-top: var(--header-h); }
 }
 @keyframes module-bob {
   from { translate: 0 0 0; }
-  to { translate: 0 -0.35em 0.8em; }
+  to { translate: 0 -0.3em; }
 }
 @keyframes scene-float {
-  from { transform: var(--tilt); }
-  to { transform: rotateX(8deg) rotateY(-4deg) translateY(-0.3em); }
+  from { transform: none; }
+  to { transform: translateY(-0.3em); }
 }
 @keyframes ghost-in {
   from { opacity: 0; }

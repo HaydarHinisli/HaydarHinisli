@@ -169,7 +169,7 @@ function moduleHTML(m, cls) {
   return `<div class="module ${cls}${m.router ? ' module--router' : ''}">
               <div class="module__body">
                 <svg class="module__glow" viewBox="0 0 10 10" focusable="false"><circle cx="5" cy="5" r="5" fill="${esc(m.color)}"/></svg>
-                ${m.router ? '' : `<svg class="module__ports" viewBox="0 0 88 64" focusable="false"><path d="M12 19a13 13 0 0 0 0 26z M76 19a13 13 0 0 1 0 26z" fill="${esc(mixHex(m.color, '#1c1f23', 0.3))}"/></svg>`}
+                ${m.router ? '' : `<svg class="module__ports" viewBox="0 0 88 64" focusable="false"><path d="M8.2 21.8a10.2 10.2 0 0 0 0 20.4z M79.8 21.8a10.2 10.2 0 0 1 0 20.4z" fill="${esc(mixHex(m.color, '#1c1f23', 0.3))}"/></svg>`}
                 <span class="module__ring"></span>
                 ${moduleIcon(m.icon, m.color)}
                 <span class="module__shine"></span>
