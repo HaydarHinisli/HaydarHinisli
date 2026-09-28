@@ -148,7 +148,8 @@ class LearningSession:
         with dbm.Tx(self.conn):
             sid = dbm.new_id(self.conn, "session")
             ctx = {"round": 1, "rounds_without_progress": 0, "fetched_urls": [], "rounds": [],
-                   "session_claims": [], "outcome": None, "error_classes": []}
+                   "session_claims": [], "outcome": None, "error_classes": [],
+                   "goal_status_before": goal["status"]}
             self.conn.execute(
                 "INSERT INTO session(id, topic_id, goal_id, state, started_at, limits_snapshot, context) "
                 "VALUES(?,?,?,?,?,?,?)",
@@ -319,9 +320,16 @@ class LearningSession:
             if catalog.count(self.conn) == 0:
                 self.log("  Seitenkatalog ist leer – wird aus den Sitemaps aufgebaut …")
                 catalog.refresh_from_sitemaps(self.conn, self.fetcher, log=lambda m: self.log(m))
-            rnd["candidates"] = catalog.search(self.conn, rnd["terms"], limit=15,
-                                               exclude=set(self.ctx["fetched_urls"]),
-                                               prefer_hosts=self._preferred_hosts())
+            cands = catalog.search(self.conn, rnd["terms"], limit=15, exclude=set(self.ctx["fetched_urls"]),
+                                   prefer_hosts=self._preferred_hosts())
+            # Seiten, die schon in früheren Sitzungen ausgewertet wurden, kennzeichnen und nach hinten
+            # stellen – sonst liest der Loop immer wieder dieselben Übersichtsseiten.
+            read = {r["final_url"] for r in self.conn.execute("SELECT DISTINCT final_url FROM source")}
+            for c in cands:
+                if c["url"] in read:
+                    c["title"] = f"[bereits ausgewertet] {c['title'] or ''}".strip()
+            cands.sort(key=lambda c: c["url"] in read)
+            rnd["candidates"] = cands
             self.checkpoint()
         if not rnd["candidates"]:
             self.log("  Keine passenden Seiten im Katalog gefunden.")
@@ -532,6 +540,9 @@ class LearningSession:
                 goal_status = "ungeklärt"
             else:
                 goal_status = "teilweise" if summary["dokumentiert"] else "offen"
+                if goal_status == "offen" and self.ctx.get("goal_status_before") in ("teilweise", "beantwortet"):
+                    # Eine Sitzung ohne neue Belege macht früher Belegtes nicht ungültig.
+                    goal_status = "teilweise"
             reason = (last or {}).get("begruendung") or self.ctx.get("limit_detail") or outcome
             self.conn.execute("UPDATE goal SET status=?, status_reason=?, updated_at=? WHERE id=?",
                               (goal_status, reason, dbm.now(), goal["id"]))

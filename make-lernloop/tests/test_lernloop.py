@@ -293,6 +293,32 @@ class SessionTests(unittest.TestCase):
         first = self.conn.execute("SELECT status FROM claim WHERE id='ERK-000001'").fetchone()[0]
         self.assertEqual(first, "widersprüchlich")
 
+    def test_repeat_session_marks_read_pages_and_keeps_partial_status(self):
+        run_session(self.cfg, self.conn, self.web, good_responder)  # liest /iterator
+        with dbm.Tx(self.conn):
+            self.conn.execute("UPDATE goal SET status='teilweise' WHERE id='T01-Z2'")
+        seen = []
+
+        def responder(step, prompt, schema):
+            if step == "plan":
+                return {"bereits_beantwortet": False, "frage": "?", "begruendung": "-",
+                        "suchbegriffe_en": ["iterator", "aggregator"]}
+            if step == "auswahl":
+                seen.append(prompt)
+                return {"urls": [], "begruendung": "nichts Neues"}
+            if step == "beurteilung":
+                return {"ergebnis": "teilweise", "begruendung": "unverändert", "fehlende_information": ["x"],
+                        "fehlerklasse": "abrufproblem", "naechste_suchbegriffe_en": ["iterator"]}
+            return good_responder(step, prompt, schema)
+
+        sid, _ = run_session(self.cfg, self.conn, self.web, responder)
+        self.assertIn("[bereits ausgewertet]", seen[0])
+        first_line = [l for l in seen[0].splitlines() if l.startswith("- https://")][0]
+        self.assertNotIn("[bereits ausgewertet]", first_line)  # Ungelesenes steht vorne
+        self.assertEqual(self.conn.execute("SELECT end_reason FROM session WHERE id=?", (sid,)).fetchone()[0],
+                         "kein_fortschritt")
+        self.assertEqual(self.conn.execute("SELECT status FROM goal WHERE id='T01-Z2'").fetchone()[0], "teilweise")
+
     def test_other_goals_are_named_as_out_of_scope(self):
         client = FakeClient(good_responder)
         sess = LearningSession(self.cfg, self.conn, client, fetcher_factory(self.cfg, self.web), log=lambda *a: None)
