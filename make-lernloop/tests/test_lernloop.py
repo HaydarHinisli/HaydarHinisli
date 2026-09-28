@@ -338,6 +338,28 @@ class OpenFindingWarningTests(unittest.TestCase):
         self.assertIn("ACHTUNG, offener Befund", prompts.block_claims([c1]))
 
 
+class ReviewShortcutTests(unittest.TestCase):
+    def test_narrow_confirm_and_close_findings_in_one_step(self):
+        from lernloop.cli import main
+        cfg, conn, _ = make_env()
+        run_session(cfg, conn, FakeWeb(), good_responder)
+        with dbm.Tx(conn):
+            knowledge.add_conflict(conn, ["ERK-000003", "ERK-000001"], "widerspricht", "Test", None)
+        self.assertEqual(conn.execute("SELECT status FROM claim WHERE id='ERK-000001'").fetchone()[0],
+                         "widersprüchlich")
+        with mock.patch("builtins.print"):
+            rc = main(["--config", str(cfg.base_dir / "lernloop.toml"), "review", "narrow", "ERK-000003",
+                       "--statement", "Engere Fassung", "--reason", "zu breit", "--bestaetigen",
+                       "--befunde-schliessen"])
+        self.assertEqual(rc, 0)
+        new = conn.execute("SELECT id, status FROM claim WHERE supersedes_id='ERK-000003'").fetchone()
+        self.assertEqual(new["status"], "dokumentiert")
+        self.assertEqual(conn.execute("SELECT status FROM claim WHERE id='ERK-000003'").fetchone()[0], "zurückgezogen")
+        self.assertEqual(conn.execute("SELECT COUNT(*) FROM conflict WHERE status='offen'").fetchone()[0], 0)
+        # Die Gegenseite war nur wegen des Widerspruchs zurückgehalten → wieder dokumentiert
+        self.assertEqual(conn.execute("SELECT status FROM claim WHERE id='ERK-000001'").fetchone()[0], "dokumentiert")
+
+
 class SectionSelectionTests(unittest.TestCase):
     def test_long_page_keeps_sections_matching_the_question(self):
         from lernloop.session import _relevant_sections

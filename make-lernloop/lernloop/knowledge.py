@@ -264,6 +264,44 @@ def drop_duplicate(conn, new_id: str, existing_id: str, explanation: str, sessio
     return True
 
 
+def regrade_after_resolution(conn, claim_ids) -> list[str]:
+    """Nach dem Schließen eines Befunds: Aussagen, die nur deswegen zurückgehalten wurden, neu einstufen.
+    Es gelten dieselben Regeln wie immer – ohne wörtlichen Beleg wird nichts „dokumentiert“."""
+    promoted = []
+    for cid in claim_ids:
+        row = conn.execute("SELECT status, status_reason FROM claim WHERE id=?", (cid,)).fetchone()
+        if not row:
+            continue
+        held = (row["status"] == "widersprüchlich" and not open_conflicts_for(conn, cid, kinds=("widerspricht",))) or \
+               (row["status"] == "entwurf" and (row["status_reason"] or "").startswith("Bleibt Entwurf: Offener Befund"))
+        if not held:
+            continue
+        try:
+            set_status(conn, cid, "dokumentiert", "Befund geklärt; wörtlich belegt (Programmprüfung)", "programm")
+            promoted.append(cid)
+        except StatusRuleViolation:
+            pass
+    return promoted
+
+
+def resolve_conflict(conn, conflict_id: str, reason: str) -> list[str]:
+    row = conn.execute("SELECT * FROM conflict WHERE id=?", (conflict_id,)).fetchone()
+    if not row:
+        raise StatusRuleViolation(f"Befund {conflict_id} existiert nicht")
+    conn.execute("UPDATE conflict SET status='geklärt', resolution=?, resolved_at=? WHERE id=?",
+                 (reason, dbm.now(), conflict_id))
+    return regrade_after_resolution(conn, json.loads(row["claim_ids"]))
+
+
+def close_findings_for(conn, claim_id: str, reason: str) -> tuple[list[str], list[str]]:
+    """Alle offenen Befunde zu einer Aussage schließen (z. B. nachdem sie präzisiert oder zurückgezogen wurde)."""
+    closed, promoted = [], []
+    for k in open_conflicts_for(conn, claim_id):
+        closed.append(k["id"])
+        promoted += resolve_conflict(conn, k["id"], reason)
+    return closed, promoted
+
+
 def open_conflicts_for(conn, claim_id: str, kinds: tuple[str, ...] = ("widerspricht", "doppelt", "schraenkt_ein")):
     rows = conn.execute("SELECT * FROM conflict WHERE status='offen' AND claim_ids LIKE ?", (f'%"{claim_id}"%',)).fetchall()
     return [r for r in rows if r["kind"] in kinds]

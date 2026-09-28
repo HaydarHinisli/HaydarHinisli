@@ -301,10 +301,20 @@ def cmd_review(args, cfg):
                 if not args.statement:
                     sys.exit("--statement fehlt")
                 new = knowledge.supersede(conn, args.id, args.statement, args.scope, args.reason, "mensch")
-                print(f"Neue Fassung: {new} (Entwurf; mit `review confirm {new}` bestätigen)")
+                if args.confirm:
+                    knowledge.set_status(conn, new, "dokumentiert", f"Präzisierte Fassung geprüft: {args.reason}",
+                                         "mensch")
+                    print(f"Neue Fassung: {new} (dokumentiert)")
+                else:
+                    print(f"Neue Fassung: {new} (Entwurf; mit `review confirm {new}` bestätigen)")
             elif args.action == "resolve":
-                conn.execute("UPDATE conflict SET status='geklärt', resolution=?, resolved_at=? WHERE id=?",
-                             (args.reason, dbm.now(), args.id))
+                promoted = knowledge.resolve_conflict(conn, args.id, args.reason)
+                if promoted:
+                    print(f"  wieder dokumentiert: {', '.join(promoted)}")
+            if args.close_findings and args.action in ("confirm", "retract", "unresolved", "narrow"):
+                closed, promoted = knowledge.close_findings_for(conn, args.id, args.reason)
+                print(f"  Befunde geschlossen: {', '.join(closed) or 'keine'}"
+                      + (f"; wieder dokumentiert: {', '.join(promoted)}" if promoted else ""))
             elif args.action == "grade":
                 if args.passed is None:
                     sys.exit("--bestanden oder --nicht-bestanden angeben")
@@ -419,6 +429,10 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--reason", default="")
     r.add_argument("--statement")
     r.add_argument("--scope")
+    r.add_argument("--bestaetigen", dest="confirm", action="store_true",
+                   help="bei narrow: neue Fassung gleich als geprüft bestätigen")
+    r.add_argument("--befunde-schliessen", dest="close_findings", action="store_true",
+                   help="alle offenen Befunde zu dieser Erkenntnis mit derselben Begründung schließen")
     g = r.add_mutually_exclusive_group()
     g.add_argument("--bestanden", dest="passed", action="store_true", default=None)
     g.add_argument("--nicht-bestanden", dest="passed", action="store_false")
