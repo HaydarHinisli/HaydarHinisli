@@ -1,4 +1,5 @@
 import json
+import re
 import os
 import sqlite3
 import subprocess
@@ -72,6 +73,22 @@ class FetchPolicyTests(unittest.TestCase):
         self.web.pages["/robots.txt"] = (200, "text/plain", "User-agent: *\nDisallow: /iterator\n")
         with self.assertRaises(FetchRefused):
             self.fetcher().fetch("https://help.make.com/iterator")
+
+    def test_preferred_hosts_come_first(self):
+        with dbm.Tx(self.conn):
+            catalog.add_page(self.conn, "https://developers.make.com/custom-apps/iterator", None, "t")
+            catalog.add_page(self.conn, "https://help.make.com/iterator", None, "t")
+        urls = [r["url"] for r in catalog.search(self.conn, ["iterator"], prefer_hosts=["help.make.com"])]
+        self.assertEqual(urls[0], "https://help.make.com/iterator")
+        self.assertEqual(len(urls), 2)
+
+    def test_migration_adds_column_to_old_database(self):
+        old = sqlite3.connect(":memory:")
+        old.row_factory = sqlite3.Row
+        old.execute("CREATE TABLE topic (id TEXT PRIMARY KEY, title TEXT)")
+        old.execute("INSERT INTO topic VALUES('T01','x')")
+        dbm.migrate(old)
+        self.assertEqual(old.execute("SELECT preferred_hosts FROM topic").fetchone()[0], "[]")
 
     def test_path_prefix_policy(self):
         p = UrlPolicy([], {"www.make.com": ["/en/pricing"]})
@@ -225,6 +242,19 @@ class SessionTests(unittest.TestCase):
         s = self.conn.execute("SELECT * FROM session WHERE id=?", (sid,)).fetchone()
         self.assertEqual(s["end_reason"], "kein_fortschritt")
         self.assertEqual(self.conn.execute("SELECT status FROM goal WHERE id='T01-Z2'").fetchone()[0], "offen")
+
+    def test_contradiction_within_one_session_is_recorded(self):
+        def responder(step, prompt, schema):
+            if step == "abgleich":
+                ids = re.findall(r'erkenntnis id="(ERK-\d+)"', prompt)
+                return {"befunde": [{"neu": ids[0], "bestehend": ids[1], "art": "widerspricht",
+                                     "erklaerung": "Test"}]}
+            return good_responder(step, prompt, schema)
+
+        sid, state = run_session(self.cfg, self.conn, self.web, responder)
+        self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM conflict WHERE session_id=?", (sid,)).fetchone()[0], 1)
+        first = self.conn.execute("SELECT status FROM claim WHERE id='ERK-000001'").fetchone()[0]
+        self.assertEqual(first, "widersprüchlich")
 
     def test_nacharbeit_after_retrieval_problem(self):
         calls = []

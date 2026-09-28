@@ -62,7 +62,7 @@ _CLAIM = {
 EXTRACT_SCHEMA = {
     "type": "object",
     "properties": {
-        "aussagen": {"type": "array", "items": _CLAIM, "maxItems": 12},
+        "aussagen": {"type": "array", "items": _CLAIM, "maxItems": 8},
         "offene_punkte": _STR_LIST,
     },
     "required": ["aussagen", "offene_punkte"],
@@ -185,13 +185,20 @@ Aufgabe: Wähle die bis zu 3 Seiten, die die Frage am wahrscheinlichsten beantwo
 Gib die URLs exakt wie angegeben zurück. Wenn keine passt, gib eine leere Liste zurück."""
 
 
-def extract_prompt(question, goal_text, source_block) -> str:
+def extract_prompt(question, goal_text, source_block, known=None) -> str:
+    known_block = "\n".join(f"- {c['statement']}" for c in (known or [])) or "(noch nichts)"
     return f"""Lernziel: {goal_text}
 Aktuelle Frage: {question}
 
+Bereits bekannt (nicht erneut erfassen):
+{known_block}
+
 {source_block}
 
-Aufgabe: Erfasse die Aussagen aus dieser Quelle, die für das Lernziel relevant sind.
+Aufgabe: Erfasse NUR Aussagen, die direkt zur aktuellen Frage bzw. zum Lernziel beitragen – \
+höchstens 8, die wichtigsten zuerst. Nebenthemen der Seite (z. B. Hinweise für App-Entwickler, \
+wenn es um die Nutzung von Make geht) lässt du weg. Keine Aussage doppelt, wenn sie schon \
+unter „Bereits bekannt“ steht.
 Für jede Aussage:
 - ein wörtliches Zitat aus GENAU EINEM Abschnitt und dessen abschnitt_id,
 - ableitung: "direkt_zitiert", wenn das Zitat die Aussage unmittelbar trägt; \
@@ -222,6 +229,9 @@ Belegte Aussagen (Stand jetzt):
 
 Offene Punkte aus den Quellen: {open_points or "keine"}
 Vom Programm verworfene Zitate (nicht wörtlich in der Quelle gefunden): {rejected or "keine"}
+
+Hinweis: Während der Sitzung haben neue Aussagen immer den Status „entwurf“; das Programm stuft \
+sie erst beim Abschluss nach festen Regeln ein. Kommentiere den Status deshalb nicht.
 
 Aufgabe: Beurteile, ob das Lernziel mit den BELEGTEN Aussagen beantwortet ist.
 fehlerklasse: "abrufproblem" (passende Seiten nicht gefunden), "quellenproblem" \

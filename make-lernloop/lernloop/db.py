@@ -249,6 +249,14 @@ def init_schema(conn: sqlite3.Connection) -> None:
     conn.execute(
         "INSERT OR IGNORE INTO meta(key, value) VALUES('schema_version', ?)", (str(SCHEMA_VERSION),)
     )
+    migrate(conn)
+
+
+def migrate(conn: sqlite3.Connection) -> None:
+    """Spalten nachrüsten, die nach der ersten Version hinzugekommen sind (bestehende Daten bleiben)."""
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(topic)")}
+    if "preferred_hosts" not in cols:
+        conn.execute("ALTER TABLE topic ADD COLUMN preferred_hosts TEXT NOT NULL DEFAULT '[]'")
 
 
 def new_id(conn: sqlite3.Connection, kind: str) -> str:

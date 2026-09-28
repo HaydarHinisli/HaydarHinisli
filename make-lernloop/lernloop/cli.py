@@ -27,7 +27,10 @@ EXAMPLE_CONFIG = PKG.parent / "config" / "limits.example.toml"
 def _open(cfg, read_only=False):
     if not cfg.db_path.exists():
         sys.exit("Noch nicht eingerichtet – zuerst `lernloop init` ausführen.")
-    return dbm.connect(cfg.db_path, read_only=read_only)
+    conn = dbm.connect(cfg.db_path, read_only=read_only)
+    if not read_only:
+        dbm.migrate(conn)
+    return conn
 
 
 def _fetcher_factory(cfg):
@@ -40,11 +43,15 @@ def seed_topics(conn, path: Path = PKG / "topics.toml") -> int:
     data = tomllib.loads(path.read_text(encoding="utf-8"))
     added = 0
     with dbm.Tx(conn):
+        dbm.migrate(conn)
         for t in data.get("topic", []):
             if conn.execute("SELECT 1 FROM topic WHERE id=?", (t["id"],)).fetchone():
+                conn.execute("UPDATE topic SET preferred_hosts=? WHERE id=?",
+                             (json.dumps(t.get("preferred_hosts", [])), t["id"]))
                 continue
-            conn.execute("INSERT INTO topic(id, title, description, prerequisites) VALUES(?,?,?,?)",
-                         (t["id"], t["title"], t.get("description"), json.dumps(t.get("prerequisites", []))))
+            conn.execute("INSERT INTO topic(id, title, description, prerequisites, preferred_hosts) VALUES(?,?,?,?,?)",
+                         (t["id"], t["title"], t.get("description"), json.dumps(t.get("prerequisites", [])),
+                          json.dumps(t.get("preferred_hosts", []))))
             for i, g in enumerate(t.get("goals", []), 1):
                 conn.execute("INSERT INTO goal(id, topic_id, ord, text, updated_at) VALUES(?,?,?,?,?)",
                              (f"{t['id']}-Z{i}", t["id"], i, g, dbm.now()))

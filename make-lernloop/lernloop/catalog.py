@@ -94,17 +94,21 @@ def add_links(conn, links: list[tuple[str, str]], policy, via: str) -> int:
     return n
 
 
-def search(conn, terms: list[str], limit: int = 15, exclude: set[str] | None = None) -> list[dict]:
+def search(conn, terms: list[str], limit: int = 15, exclude: set[str] | None = None,
+           prefer_hosts: list[str] | None = None) -> list[dict]:
+    """Treffer nach Relevanz; Seiten bevorzugter Hosts kommen zuerst (Reihenfolge innerhalb bleibt)."""
     q = dbm.fts_query(" ".join(terms))
     if not q:
         return []
     rows = conn.execute(
-        "SELECT p.url, p.title, p.lastmod FROM page_index_fts f JOIN page_index p ON p.url=f.url "
+        "SELECT p.url, p.host, p.title, p.lastmod FROM page_index_fts f JOIN page_index p ON p.url=f.url "
         "WHERE page_index_fts MATCH ? ORDER BY bm25(page_index_fts, 0.0, 3.0, 2.0) LIMIT ?",
-        (q, limit + len(exclude or ())),
+        (q, limit * 4 + len(exclude or ())),
     ).fetchall()
     out = [dict(r) for r in rows if not exclude or r["url"] not in exclude]
-    return out[:limit]
+    if prefer_hosts:
+        out.sort(key=lambda r: r["host"] not in prefer_hosts)
+    return [{k: r[k] for k in ("url", "title", "lastmod")} for r in out[:limit]]
 
 
 def count(conn) -> int:

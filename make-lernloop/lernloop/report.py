@@ -108,7 +108,10 @@ def coverage(conn) -> str:
         L.append(f"  Lernziele: {len(goals)} – " + ", ".join(f"{k}: {v}" for k, v in sorted(counts.items())))
         for g in goals:
             n = conn.execute("SELECT status, COUNT(*) n FROM claim WHERE goal_id=? GROUP BY status", (g["id"],)).fetchall()
-            detail = ", ".join(f"{r['status']} {r['n']}" for r in n) or "keine Erkenntnisse"
+            detail = ", ".join(f"{r['status']} {r['n']}" for r in n) or "keine eigenen Erkenntnisse"
+            related = [c for c in knowledge.retrieve_claims(conn, g["text"], limit=30) if c["goal_id"] != g["id"]]
+            if related:
+                detail += f"; {len(related)} passende aus anderen Lernzielen"
             L.append(f"   [{g['status']}] {g['id']} {g['text']}  ({detail})")
         k = len(knowledge.open_conflicts(conn, t["id"]))
         L.append(f"  Offene Befunde/Widersprüche: {k}")

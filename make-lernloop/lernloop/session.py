@@ -240,6 +240,13 @@ class LearningSession:
     def _goal(self):
         return self.conn.execute("SELECT * FROM goal WHERE id=?", (self.row["goal_id"],)).fetchone()
 
+    def _preferred_hosts(self) -> list[str]:
+        topic = self._topic()
+        try:
+            return json.loads(topic["preferred_hosts"] or "[]")
+        except (IndexError, KeyError, ValueError):
+            return []
+
     def _topic(self):
         return self.conn.execute("SELECT * FROM topic WHERE id=?", (self.row["topic_id"],)).fetchone()
 
@@ -307,7 +314,8 @@ class LearningSession:
                 self.log("  Seitenkatalog ist leer – wird aus den Sitemaps aufgebaut …")
                 catalog.refresh_from_sitemaps(self.conn, self.fetcher, log=lambda m: self.log(m))
             rnd["candidates"] = catalog.search(self.conn, rnd["terms"], limit=15,
-                                               exclude=set(self.ctx["fetched_urls"]))
+                                               exclude=set(self.ctx["fetched_urls"]),
+                                               prefer_hosts=self._preferred_hosts())
             self.checkpoint()
         if not rnd["candidates"]:
             self.log("  Keine passenden Seiten im Katalog gefunden.")
@@ -361,8 +369,10 @@ class LearningSession:
             src = self.conn.execute("SELECT * FROM source WHERE id=?", (source_id,)).fetchone()
             sections = knowledge.sections_of(self.conn, source_id)
             block = prompts.block_sections(src["title"] or "", src["final_url"], sections, max_chars)
+            known = self._verified_session_claims() + self._claims(self.ctx.get("prior_claims", []))
             data = self.call("extraktion", prompts.extract_prompt(rnd["question"] or self.ctx.get("question"),
-                                                                  goal["text"], block), prompts.EXTRACT_SCHEMA)
+                                                                  goal["text"], block, known[:40]),
+                             prompts.EXTRACT_SCHEMA)
             allowed = {s["id"] for s in sections}
             n_ok = 0
             with dbm.Tx(self.conn):
@@ -381,18 +391,23 @@ class LearningSession:
         self.checkpoint("AUSSAGEN_ERFASST")
 
     def _step_compare(self) -> None:
+        """Neue Aussagen gegen Bestand UND frühere Runden dieser Sitzung abgleichen."""
         rnd = self._cur_round()
         new = self._claims(rnd["claims"])
         if new:
             text = " ".join(f"{c['statement']} {c['keywords'] or ''}" for c in new)
+            new_ids = {c["id"] for c in new}
             existing = [c for c in knowledge.retrieve_claims(self.conn, text, limit=15)
                         if c["id"] not in self.ctx["session_claims"]]
-            if existing:
-                data = self.call("abgleich", prompts.compare_prompt(new, existing), prompts.COMPARE_SCHEMA)
-                new_ids, old_ids = {c["id"] for c in new}, {c["id"] for c in existing}
+            earlier = [c for c in self._verified_session_claims() if c["id"] not in new_ids]
+            candidates = existing + earlier
+            # Auch innerhalb der aktuellen Runde können sich Aussagen verschiedener Seiten widersprechen.
+            if len(new) > 1 or candidates:
+                data = self.call("abgleich", prompts.compare_prompt(new, candidates or new), prompts.COMPARE_SCHEMA)
+                old_ids = {c["id"] for c in candidates} or new_ids
                 with dbm.Tx(self.conn):
                     for b in data["befunde"]:
-                        if b["neu"] in new_ids and b["bestehend"] in old_ids:
+                        if b["neu"] in new_ids and b["bestehend"] in old_ids and b["neu"] != b["bestehend"]:
                             kid = knowledge.add_conflict(self.conn, [b["neu"], b["bestehend"]], b["art"],
                                                          b["erklaerung"], self.sid)
                             self.log(f"  Befund {kid} ({b['art']}): {b['neu']} ↔ {b['bestehend']}")
