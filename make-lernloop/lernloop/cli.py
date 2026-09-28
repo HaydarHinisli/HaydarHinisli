@@ -243,6 +243,31 @@ def cmd_ask(args, cfg):
 
 def cmd_review(args, cfg):
     conn = _open(cfg)
+    if args.action == "dedupe":
+        # Offene „doppelt“-Befunde auflösen, wenn die ältere Aussage bereits gültig belegt ist.
+        done = kept = 0
+        with SessionLock(cfg.lock_path, "review dedupe"), dbm.Tx(conn):
+            for k in conn.execute("SELECT * FROM conflict WHERE status='offen' AND kind='doppelt'").fetchall():
+                new_id, old_id = json.loads(k["claim_ids"])[:2]
+                if knowledge.drop_duplicate(conn, new_id, old_id, k["description"], k["session_id"], record=False):
+                    conn.execute("UPDATE conflict SET status='geklärt', resolution=?, resolved_at=? WHERE id=?",
+                                 (f"Automatisch: {new_id} zurückgezogen", dbm.now(), k["id"]))
+                    print(f"  {k['id']}: {new_id} zurückgezogen (Duplikat von {old_id})")
+                    done += 1
+                else:
+                    kept += 1
+            # Entwürfe, die nur wegen eines inzwischen geklärten Befunds Entwurf blieben, erneut einstufen.
+            promoted = 0
+            for c in conn.execute("SELECT id FROM claim WHERE status='entwurf' "
+                                  "AND status_reason LIKE 'Bleibt Entwurf: Offener Befund%'").fetchall():
+                try:
+                    knowledge.set_status(conn, c["id"], "dokumentiert",
+                                         "Befund geklärt; wörtlich belegt (Programmprüfung)", "programm")
+                    promoted += 1
+                except knowledge.StatusRuleViolation:
+                    pass
+        print(f"{done} Duplikate zurückgezogen, {kept} Befunde bleiben zur Prüfung, {promoted} Entwürfe jetzt dokumentiert.")
+        return 0
     if args.action == "list":
         print("Entwürfe:")
         for c in conn.execute("SELECT * FROM claim WHERE status='entwurf' ORDER BY id"):
@@ -380,7 +405,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="A = nur Dokumentationssuche, B = zusätzlich Lernspeicher")
 
     r = sub.add_parser("review", help="Entwürfe, Befunde und Übungen prüfen (Mensch)")
-    r.add_argument("action", choices=["list", "confirm", "retract", "unresolved", "narrow", "resolve", "grade"])
+    r.add_argument("action", choices=["list", "dedupe", "confirm", "retract", "unresolved", "narrow", "resolve",
+                                      "grade"])
     r.add_argument("id", nargs="?")
     r.add_argument("--reason", default="")
     r.add_argument("--statement")
@@ -421,7 +447,7 @@ def main(argv=None) -> int:
     except ConfigError as exc:
         print(f"Konfigurationsfehler: {exc}")
         return 1
-    if args.cmd == "review" and args.action != "list":
+    if args.cmd == "review" and args.action not in ("list", "dedupe"):
         if not args.id:
             print("ID fehlt")
             return 1

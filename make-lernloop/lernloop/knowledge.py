@@ -240,6 +240,30 @@ def add_conflict(conn, claim_ids: list[str], kind: str, description: str, sessio
     return kid
 
 
+def drop_duplicate(conn, new_id: str, existing_id: str, explanation: str, session_id: str | None,
+                   record: bool = True) -> bool:
+    """Neue Aussage, die eine bereits belegte doppelt, automatisch zurückziehen.
+
+    Nur wenn die bestehende Aussage schon als gültig gilt – dann geht kein Wissen verloren.
+    Sonst bleibt es ein offener Befund für die menschliche Prüfung. Der Vorgang wird als
+    geklärter Befund protokolliert und ist über claim_history nachvollziehbar.
+    """
+    old = conn.execute("SELECT status FROM claim WHERE id=?", (existing_id,)).fetchone()
+    new = conn.execute("SELECT status FROM claim WHERE id=?", (new_id,)).fetchone()
+    if not old or not new or old["status"] not in ("dokumentiert", "theoretisch_geprüft") or new["status"] != "entwurf":
+        return False
+    set_status(conn, new_id, "zurückgezogen", f"Duplikat von {existing_id}: {explanation}", "programm")
+    if not record:
+        return True
+    kid = dbm.new_id(conn, "conflict")
+    conn.execute(
+        "INSERT INTO conflict(id, claim_ids, kind, description, status, resolution, session_id, created_at, resolved_at) "
+        "VALUES(?,?,?,?,?,?,?,?,?)",
+        (kid, json.dumps([new_id, existing_id]), "doppelt", explanation, "geklärt",
+         f"Automatisch: {new_id} zurückgezogen, {existing_id} bleibt gültig", session_id, dbm.now(), dbm.now()))
+    return True
+
+
 def open_conflicts_for(conn, claim_id: str, kinds: tuple[str, ...] = ("widerspricht", "doppelt", "schraenkt_ein")):
     rows = conn.execute("SELECT * FROM conflict WHERE status='offen' AND claim_ids LIKE ?", (f'%"{claim_id}"%',)).fetchall()
     return [r for r in rows if r["kind"] in kinds]

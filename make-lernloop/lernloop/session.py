@@ -8,6 +8,7 @@ werden. Neue Erkenntnisse bleiben bis zum Festschreiben Entwürfe.
 from __future__ import annotations
 
 import json
+import re
 import time
 from datetime import datetime, timezone
 
@@ -372,11 +373,23 @@ class LearningSession:
             if source_id in rnd["extracted"]:
                 continue
             src = self.conn.execute("SELECT * FROM source WHERE id=?", (source_id,)).fetchone()
-            sections = knowledge.sections_of(self.conn, source_id)
+            sections = _relevant_sections(knowledge.sections_of(self.conn, source_id),
+                                          " ".join(rnd["terms"]) + " " + (rnd["question"] or ""), max_chars)
             block = prompts.block_sections(src["title"] or "", src["final_url"], sections, max_chars)
-            known = self._verified_session_claims() + self._claims(self.ctx.get("prior_claims", []))
+            # Was aus dieser Seite (auch in früheren Sitzungen) schon erfasst wurde, zuerst nennen –
+            # sonst wird dieselbe Seite bei jedem Lernziel erneut ausgewertet und erzeugt Duplikate.
+            from_same_page = self.conn.execute(
+                "SELECT DISTINCT c.* FROM claim c JOIN evidence e ON e.claim_id=c.id "
+                "JOIN source_section s ON s.id=e.section_id JOIN source q ON q.id=s.source_id "
+                "WHERE q.final_url=? AND c.status NOT IN ('zurückgezogen','veraltet') ORDER BY c.id",
+                (src["final_url"],)).fetchall()
+            seen, known = set(), []
+            for c in list(from_same_page) + self._verified_session_claims() + self._claims(self.ctx.get("prior_claims", [])):
+                if c["id"] not in seen:
+                    seen.add(c["id"])
+                    known.append(c)
             data = self.call("extraktion", prompts.extract_prompt(rnd["question"] or self.ctx.get("question"),
-                                                                  goal["text"], block, known[:40]),
+                                                                  goal["text"], block, known[:60]),
                              prompts.EXTRACT_SCHEMA)
             allowed = {s["id"] for s in sections}
             n_ok = 0
@@ -413,6 +426,10 @@ class LearningSession:
                 with dbm.Tx(self.conn):
                     for b in data["befunde"]:
                         if b["neu"] in new_ids and b["bestehend"] in old_ids and b["neu"] != b["bestehend"]:
+                            if b["art"] == "doppelt" and knowledge.drop_duplicate(
+                                    self.conn, b["neu"], b["bestehend"], b["erklaerung"], self.sid):
+                                self.log(f"  Duplikat verworfen: {b['neu']} (bereits als {b['bestehend']} belegt)")
+                                continue
                             kid = knowledge.add_conflict(self.conn, [b["neu"], b["bestehend"]], b["art"],
                                                          b["erklaerung"], self.sid)
                             self.log(f"  Befund {kid} ({b['art']}): {b['neu']} ↔ {b['bestehend']}")
@@ -532,6 +549,29 @@ class LearningSession:
         self.log(f"Sitzung {self.sid} abgeschlossen: {outcome}")
         self.log(f"  dokumentiert: {len(summary['dokumentiert'])}, widersprüchlich: {len(summary['widersprüchlich'])}, "
                  f"bleibt Entwurf: {len(summary['bleibt_entwurf'])}")
+
+
+def _relevant_sections(sections, query: str, max_chars: int):
+    """Lange Seiten (z. B. eine App-Seite mit vielen Modulen): die zur Frage passendsten Abschnitte
+    auswählen statt nur den Seitenanfang. Reihenfolge der Seite bleibt erhalten."""
+    if sum(len(s["text"]) for s in sections) <= max_chars:
+        return list(sections)
+    words = {w.lower() for w in re.findall(r"[A-Za-zÄÖÜäöüß]{3,}", query)}
+
+    def score(s):
+        text = f"{s['heading_path'] or ''} {s['text']}".lower()
+        heading = (s["heading_path"] or "").lower()
+        return sum(text.count(w) for w in words) + 5 * sum(w in heading for w in words)
+
+    ranked = sorted(range(len(sections)), key=lambda i: -score(sections[i]))
+    chosen, used = set(), 0
+    for i in ranked:
+        size = len(sections[i]["text"]) + 200
+        if used + size > max_chars:
+            continue
+        chosen.add(i)
+        used += size
+    return [sections[i] for i in sorted(chosen)]
 
 
 def unfinished_sessions(conn):

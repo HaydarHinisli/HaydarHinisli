@@ -243,6 +243,43 @@ class SessionTests(unittest.TestCase):
         self.assertEqual(s["end_reason"], "kein_fortschritt")
         self.assertEqual(self.conn.execute("SELECT status FROM goal WHERE id='T01-Z2'").fetchone()[0], "offen")
 
+    def test_duplicate_from_later_session_is_dropped_and_page_knowledge_shown(self):
+        run_session(self.cfg, self.conn, self.web, good_responder)  # ERK-000001 wird dokumentiert
+        prompts_seen = []
+
+        def responder(step, prompt, schema):
+            if step == "extraktion":
+                prompts_seen.append(prompt)
+            if step == "abgleich":
+                new = re.findall(r'erkenntnis id="(ERK-\d+)"', prompt.split("Bestehende Aussagen")[0])
+                return {"befunde": [{"neu": new[0], "bestehend": "ERK-000001", "art": "doppelt",
+                                     "erklaerung": "gleiche Aussage"}]}
+            return good_responder(step, prompt, schema)
+
+        sid, _ = run_session(self.cfg, self.conn, self.web, responder, goal="T01-Z3")
+        self.assertIn("Der Iterator gibt jedes Array-Element als eigenes Bundle aus.", prompts_seen[0])
+        dropped = self.conn.execute("SELECT status, status_reason FROM claim WHERE session_id=? ORDER BY id",
+                                    (sid,)).fetchone()
+        self.assertEqual(dropped["status"], "zurückgezogen")
+        self.assertIn("Duplikat von ERK-000001", dropped["status_reason"])
+        self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM conflict WHERE status='offen'").fetchone()[0], 0)
+        self.assertEqual(self.conn.execute("SELECT status FROM claim WHERE id='ERK-000001'").fetchone()[0],
+                         "dokumentiert")
+
+    def test_review_dedupe_cleans_up_existing_duplicate_findings(self):
+        from lernloop.cli import main
+        run_session(self.cfg, self.conn, self.web, good_responder)
+        sid, _ = run_session(self.cfg, self.conn, self.web, good_responder, goal="T01-Z3")
+        new_id = self.conn.execute("SELECT id FROM claim WHERE session_id=? ORDER BY id", (sid,)).fetchone()["id"]
+        with dbm.Tx(self.conn):
+            self.conn.execute("UPDATE claim SET status='entwurf' WHERE id=?", (new_id,))
+            knowledge.add_conflict(self.conn, [new_id, "ERK-000001"], "doppelt", "gleich", sid)
+        with mock.patch("builtins.print"):
+            self.assertEqual(main(["--config", str(self.cfg.base_dir / "lernloop.toml"), "review", "dedupe"]), 0)
+        self.assertEqual(self.conn.execute("SELECT status FROM claim WHERE id=?", (new_id,)).fetchone()[0],
+                         "zurückgezogen")
+        self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM conflict WHERE status='offen'").fetchone()[0], 0)
+
     def test_contradiction_within_one_session_is_recorded(self):
         def responder(step, prompt, schema):
             if step == "abgleich":
@@ -285,6 +322,16 @@ class SessionTests(unittest.TestCase):
         self.assertEqual(len(ctx["rounds"]), 2)
         self.assertIn("abrufproblem", ctx["error_classes"])
         self.assertEqual(ctx["outcome"], "ziel_erreicht")
+
+
+class SectionSelectionTests(unittest.TestCase):
+    def test_long_page_keeps_sections_matching_the_question(self):
+        from lernloop.session import _relevant_sections
+        secs = [{"heading_path": f"Tools > Modul {i}", "text": "x " * 3000} for i in range(10)]
+        secs.append({"heading_path": "Tools > Text aggregator", "text": "The Text aggregator joins text. " * 20})
+        chosen = _relevant_sections(secs, "text aggregator row separator", 8000)
+        self.assertIn("Tools > Text aggregator", [s["heading_path"] for s in chosen])
+        self.assertLessEqual(sum(len(s["text"]) for s in chosen), 8000)
 
 
 class StatusRuleTests(unittest.TestCase):
