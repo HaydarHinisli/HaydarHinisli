@@ -62,7 +62,7 @@
         container: intro,
         mods: d3.modules,
         icons: d3.icons,
-        links: d3.links,
+        glyphs: d3.glyphs,
         portrait: window.innerWidth / window.innerHeight < 0.8,
         heroBodies: Array.prototype.slice.call(document.querySelectorAll('.chain .module .module__body')),
         pageEls: Array.prototype.slice.call(document.querySelectorAll('.site-header, .hero__text > *')),

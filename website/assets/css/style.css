@@ -433,28 +433,39 @@ main { padding-top: var(--header-h); }
   filter: blur(0.7em);
   opacity: 0.45;
 }
-/* Heller Rand mit feinen, geschichteten Schatten */
+/* Weicher Schatten auf dem Boden, leicht nach rechts versetzt (Licht von oben links) */
 .module__body::before {
   content: '';
   position: absolute;
-  inset: -0.34em;
-  z-index: 1;
+  left: 4%;
+  right: -14%;
+  bottom: -0.62em;
+  z-index: 0;
+  height: 0.9em;
   border-radius: 50%;
-  background: linear-gradient(180deg, #fff 0%, #f1f3f5 100%);
-  box-shadow:
-    0 0 0 1px rgba(28, 31, 35, 0.07),
-    0 1px 2px rgba(28, 31, 35, 0.06),
-    0 0.7em 1.3em -0.55em rgba(28, 31, 35, 0.28);
+  background: radial-gradient(closest-side, rgba(20, 30, 40, 0.26), rgba(20, 30, 40, 0.1) 55%, rgba(20, 30, 40, 0));
+}
+/* Halbmond-Anschlüsse links und rechts wie im Make-Editor */
+.module__ports {
+  position: absolute;
+  left: -0.89em;
+  top: 0;
+  z-index: 1;
+  width: calc(100% + 1.78em);
+  height: 100%;
+  overflow: visible;
 }
 .module__icon { position: relative; z-index: 2; display: block; width: 100%; height: 100%; }
-/* Glanz: Licht von oben links, Tiefe unten */
+/* Wölbung wie bei einer Kugel: Licht und Glanzpunkt oben links, Eigenschatten unten rechts */
 .module__shine {
   position: absolute;
   inset: 0;
   z-index: 3;
   border-radius: 50%;
-  background: radial-gradient(110% 85% at 30% 16%, rgba(255, 255, 255, 0.45), rgba(255, 255, 255, 0) 52%);
-  box-shadow: inset 0 -0.32em 0.55em rgba(0, 0, 0, 0.16), inset 0 0.08em 0.1em rgba(255, 255, 255, 0.45);
+  background:
+    radial-gradient(circle at 30% 26%, rgba(255, 255, 255, 0.55) 0, rgba(255, 255, 255, 0.18) 16%, rgba(255, 255, 255, 0) 34%),
+    radial-gradient(circle at 34% 32%, rgba(255, 255, 255, 0.32) 0, rgba(255, 255, 255, 0) 45%, rgba(0, 0, 0, 0) 58%, rgba(0, 0, 0, 0.3) 100%);
+  pointer-events: none;
 }
 /* Fortschrittsring: läuft im Uhrzeigersinn, während das Modul arbeitet */
 .module__progress {
@@ -488,9 +499,9 @@ main { padding-top: var(--header-h); }
   width: 1.6em;
   height: 1.6em;
   border-radius: 50%;
-  background: #fff;
+  background: radial-gradient(circle at 35% 30%, #fff 0, #fff 35%, #e3e7eb 100%);
   color: var(--text);
-  box-shadow: 0 0 0 1px rgba(28, 31, 35, 0.08), 0 0.2em 0.45em rgba(28, 31, 35, 0.14);
+  box-shadow: 0 0 0 1px rgba(28, 31, 35, 0.08), 0.12em 0.25em 0.5em rgba(28, 31, 35, 0.2);
 }
 .module__trigger svg { width: 1.05em; height: 1.05em; }
 .module__count {
@@ -502,24 +513,27 @@ main { padding-top: var(--header-h); }
   height: 1.75em;
   padding: 0 0.4em;
   border-radius: 1em;
-  background: var(--accent);
+  background: radial-gradient(circle at 35% 28%, #a6f3cf 0, var(--accent) 45%, #25b87a 100%);
   color: var(--accent-ink);
   font: 600 0.8em/1.75em var(--font);
-  box-shadow: 0 0 0 0.18em #fff, 0 0.25em 0.55em rgba(11, 122, 75, 0.3);
+  box-shadow: 0 0 0 0.18em #fff, 0.1em 0.3em 0.6em rgba(11, 122, 75, 0.32);
 }
 .module__app { font-weight: 600; font-size: 0.95em; line-height: 1.25; letter-spacing: -0.01em; white-space: nowrap; }
 .module__action { font-size: 0.76em; line-height: 1.35; color: var(--text-muted); margin-top: 0.2em; white-space: nowrap; }
 
 /* Verbindungen wie im Make-Editor: gepunktete Linie von Modul zu Modul */
+.chain .module { position: relative; z-index: 1; }
 .link {
   position: relative;
+  z-index: 0;
   flex: none;
   width: 4.2em;
-  height: 0.34em;
-  margin: 2.2em -1.05em 0;
-  background: radial-gradient(circle, #8f979f 0.13em, transparent 0.15em) 0 50% / 0.6em 0.34em repeat-x;
+  height: 0.5em;
+  margin: 2.125em -1.05em 0;
   transform-origin: left center;
 }
+.link__dots { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.link__dots--v { display: none; }
 .link__pulse {
   position: absolute;
   left: 0;
@@ -550,12 +564,14 @@ main { padding-top: var(--header-h); }
   .module__app { align-self: end; }
   .module__action { align-self: start; }
   .link {
-    width: 0.34em;
+    width: 0.5em;
     height: 2.4em;
-    margin: 0.2em 0 0.2em 2.2em;
-    background: radial-gradient(circle, #8f979f 0.13em, transparent 0.15em) 50% 0 / 0.34em 0.6em repeat-y;
+    margin: 0.2em 0 0.2em 2.125em;
     transform-origin: center top;
   }
+  .link__dots--h { display: none; }
+  .link__dots--v { display: block; }
+  .module__ports { display: none; }
   .link__pulse { left: 50%; top: 0; margin: -0.375em 0 0 -0.375em; }
   .ghost--5, .ghost--6 { display: none; }
 }

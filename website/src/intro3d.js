@@ -1,20 +1,26 @@
 // 4ELEMENTS – 3D-Intro (Quelle). Wird mit `npm run build:intro3d` zu assets/js/intro3d.js gebündelt.
-// Echte 3D-Szene (Three.js): Der Workflow steht auf einem Boden, die Kamera fährt auf Augenhöhe ohne Anhalten
-// durch das Szenario. Jedes Modul arbeitet nacheinander (Ring im Uhrzeigersinn, dann „1“), die Routen des
-// Routers laufen wie in Make nacheinander. Am Ende steigt die Kamera in die Übersicht auf, die vier Module
-// des Kopfbereichs gleiten exakt an ihren Platz in der Seite, dann erscheint die Seite.
+// Ego-Fahrt geradeaus entlang der Workflow-Kette (Shopify → Google Sheets → OpenAI → Gmail), ohne Anhalten.
+// Die Kette besteht aus Kugeln, deren Farbe zum nächsten Modul übergeht. Jedes Modul leuchtet auf, sobald man
+// sich ihm nähert, der Ring läuft im Uhrzeigersinn, dann erscheint die „1“; danach fährt man hindurch.
+// Nach dem letzten Modul fährt man hindurch, dabei blendet das Intro in die Seite über. Gesamtdauer knapp 5 Sekunden.
 import {
-  WebGLRenderer, Scene, Fog, PerspectiveCamera, Sprite, SpriteMaterial, CanvasTexture, InstancedMesh,
-  CircleGeometry, MeshBasicMaterial, PlaneGeometry, Mesh, SphereGeometry, CubicBezierCurve3, CatmullRomCurve3,
-  Vector3, Object3D, Raycaster, Plane, Vector2, RepeatWrapping, SRGBColorSpace,
+  WebGLRenderer, Scene, Fog, PerspectiveCamera, Sprite, SpriteMaterial, CanvasTexture, MeshBasicMaterial,
+  PlaneGeometry, Mesh, Color, RepeatWrapping, SRGBColorSpace, LinearMipmapLinearFilter,
 } from 'three';
 
 const ACCENT = '#3ddc97';
-// Welt: x = Fahrtrichtung, z = seitlich. Rolle der 9 Module wie im Intro-Datenblock.
-const P = [[0, 0], [4, 0], [7.4, 0], [11, -4], [15, -4], [11, 0], [15, 0], [11, 4], [15, 4]];
+const GAP = 7;                 // Abstand der Module (Welteinheiten, Fahrtrichtung x)
+const EYE = 1.35;              // Augenhöhe über der Kette
+const FLOOR = -0.04;           // Boden knapp unter der Kette
+const MOD = 3.4;               // Größe der Modul-Tafel
+const RUN = 2.6;               // Strecke, auf der der Ring einmal herumläuft
+const DONE_AT = 3.5;           // Abstand, bei dem das Modul fertig ist (danach „1“, dann Durchfahrt)
+const DOTS = 6;                // Kugeln je Verbindung
 
 export function run(o) {
-  const { container, mods: MODS, icons: ICONS, links: LINKS, portrait, onDone } = o;
+  const { container, portrait, onDone } = o;
+  const MODS = o.mods.filter((m) => m.hero).map((m, i) => ({ ...m, nr: i + 1 }));
+  const GLYPHS = o.glyphs || {};
   const W = window.innerWidth, H = window.innerHeight;
   const clock = () => (typeof window.__introClock === 'function' ? window.__introClock() : (performance.now() - t0) / 1000);
 
@@ -24,156 +30,97 @@ export function run(o) {
   renderer.setSize(W, H);
   renderer.setClearColor(0xffffff);
   renderer.outputColorSpace = SRGBColorSpace;
+  const aniso = renderer.capabilities.getMaxAnisotropy();
   const canvas = renderer.domElement;
   canvas.className = 'intro__canvas';
   container.appendChild(canvas);
   const scene = new Scene();
-  scene.fog = new Fog(0xffffff, 8, 30);
+  scene.fog = new Fog(0xffffff, 5, 9.5);
 
-  // ---------- Boden ----------
+  // ---------- Boden: dezentes Punktraster, zeigt Tempo und Tiefe ----------
   const dc = document.createElement('canvas'); dc.width = dc.height = 64;
   const dg = dc.getContext('2d');
-  dg.fillStyle = '#fff'; dg.fillRect(0, 0, 64, 64); dg.fillStyle = '#b3bac1';
-  dg.beginPath(); dg.arc(32, 32, 3.2, 0, 7); dg.fill();
-  const ftex = new CanvasTexture(dc); ftex.wrapS = ftex.wrapT = RepeatWrapping; ftex.repeat.set(220, 220);
-  ftex.anisotropy = renderer.capabilities.getMaxAnisotropy();
-  const floorMat = new MeshBasicMaterial({ map: ftex, transparent: true });
-  const floor = new Mesh(new PlaneGeometry(160, 160), floorMat);
-  floor.rotation.x = -Math.PI / 2; floor.position.set(7, 0, 0); scene.add(floor);
+  dg.fillStyle = '#fff'; dg.fillRect(0, 0, 64, 64); dg.fillStyle = '#d3d8dd';
+  dg.beginPath(); dg.arc(32, 32, 3, 0, 7); dg.fill();
+  const ftex = new CanvasTexture(dc); ftex.wrapS = ftex.wrapT = RepeatWrapping; ftex.repeat.set(120, 120); ftex.anisotropy = aniso;
+  const floor = new Mesh(new PlaneGeometry(200, 200), new MeshBasicMaterial({ map: ftex }));
+  floor.rotation.x = -Math.PI / 2; floor.position.set(10, FLOOR - 0.001, 0); scene.add(floor);
 
-  // ---------- Verbindungen: gepunktet, werden beim Durchlauf grün ----------
-  const dotGeo = new CircleGeometry(1, 12);
-  const greyMat = new MeshBasicMaterial({ color: 0xaab2ba, transparent: true });
-  const greenMat = new MeshBasicMaterial({ color: ACCENT, transparent: true });
-  const tmp = new Object3D();
-  const links = LINKS.map(([a, b]) => {
-    const A = P[a], B = P[b], mx = (A[0] + B[0]) / 2;
-    const curve = new CubicBezierCurve3(new Vector3(A[0], 0.03, A[1]), new Vector3(mx, 0.03, A[1]), new Vector3(mx, 0.03, B[1]), new Vector3(B[0], 0.03, B[1]));
-    const n = Math.round(curve.getLength() / 0.28);
-    const grey = new InstancedMesh(dotGeo, greyMat, n - 1), green = new InstancedMesh(dotGeo, greenMat, n - 1);
-    for (let i = 1; i < n; i++) {
-      const p = curve.getPointAt(i / n);
-      tmp.position.copy(p); tmp.rotation.set(-Math.PI / 2, 0, 0);
-      tmp.scale.setScalar(0.06); tmp.updateMatrix(); grey.setMatrixAt(i - 1, tmp.matrix);
-      tmp.position.y = 0.035; tmp.scale.setScalar(0.078); tmp.updateMatrix(); green.setMatrixAt(i - 1, tmp.matrix);
+  // ---------- Kette: Kugeln mit Licht und Schatten ----------
+  // Jede Kugel wird mit der Entfernung so verkleinert, dass sie nie in die nächste hineinragt (sonst stapeln
+  // sie sich aus der Ego-Höhe). Noch nicht erreichte Kugeln sind blasser.
+  const shadowTex = shadowTexture();
+  const dots = [];
+  for (let k = -1; k < MODS.length - 1; k++) {
+    const a = new Color(k < 0 ? '#d5dade' : MODS[k].color), b = new Color(MODS[k + 1].color);
+    const x0 = k < 0 ? -9 : k * GAP + 0.9, x1 = (k + 1) * GAP - 0.9, n = k < 0 ? 8 : DOTS, step = (x1 - x0) / (n - 1);
+    for (let i = 0; i < n; i++) {
+      const col = a.clone().lerp(b, i / (n - 1));
+      const sp = new Sprite(new SpriteMaterial({ map: ballTexture(col, aniso), depthTest: false, transparent: true }));
+      const sh = new Mesh(new PlaneGeometry(1, 1), new MeshBasicMaterial({ map: shadowTex, transparent: true, depthTest: false, depthWrite: false }));
+      sh.rotation.x = -Math.PI / 2; sh.renderOrder = 0.5;
+      scene.add(sh, sp);
+      dots.push({ x: x0 + step * i, step, sp, sh });
     }
-    green.count = 0;
-    scene.add(grey, green);
-    return { curve, n: n - 1, grey, green };
-  });
-
-  // ---------- Datenpaket mit Schweif ----------
-  const packet = [];
-  for (let j = 0; j < 6; j++) {
-    const m = new Mesh(new SphereGeometry(0.16 - j * 0.02, 16, 12), new MeshBasicMaterial({ color: ACCENT, transparent: true, opacity: 1 - j * 0.15 }));
-    m.visible = false; scene.add(m); packet.push(m);
   }
-  const halo = new Sprite(new SpriteMaterial({ map: glowTex(), transparent: true, depthWrite: false }));
-  halo.scale.set(1.3, 1.3, 1); halo.visible = false; scene.add(halo);
+  function placeDots(cx) {
+    for (const d of dots) {
+      const D = d.x - cx;
+      const vis = D > 0.2;
+      d.sp.visible = d.sh.visible = vis;
+      if (!vis) continue;
+      // Winkelabstand zweier Kugeln ≈ h·s/(D²+h²), Winkelgröße ≈ S/√(D²+h²)
+      const size = Math.min(0.46, (0.72 * EYE * d.step) / Math.hypot(D, EYE));
+      d.sp.scale.set(size, size, 1); d.sp.position.set(d.x, FLOOR + size / 2, 0); d.sp.renderOrder = 1 + 1 / D;
+      d.sp.material.opacity = d.x < cx + 0.6 ? 1 : 0.62;
+      d.sh.scale.set(size * 1.5, size * 1.15, 1); d.sh.position.set(d.x + size * 0.3, FLOOR, size * 0.22);
+    }
+  }
 
-  // ---------- Module: stehende Tafeln, die zur Kamera schauen ----------
+  // ---------- Module: Tafel „blass“ und Tafel „leuchtet/fertig“, dazu der Fortschrittsring ----------
+  const texOf = (m, st) => { const t = new CanvasTexture(moduleCanvas(m, st, GLYPHS)); t.colorSpace = SRGBColorSpace; t.anisotropy = aniso; return t; };
   const units = MODS.map((m, i) => {
-    const k = m.router ? 1.5 : 2.2, h = k * 1.25;
-    const tex = (st) => { const t = new CanvasTexture(moduleCanvas(m, st, ICONS)); t.colorSpace = SRGBColorSpace; t.anisotropy = 8; return t; };
-    const base = tex({}), done = m.router ? base : tex({ done: true }), bare = m.router ? base : tex({ done: true, noLabel: true });
-    const mat = new SpriteMaterial({ map: base, transparent: true, fog: true });
-    const sp = new Sprite(mat); sp.scale.set(k, h, 1);
-    sp.position.set(P[i][0], h / 2, P[i][1]); scene.add(sp);
-    // Fortschrittsring als eigene Tafel über dem Kreis
+    const y = FLOOR + MOD / 2 - (55 / 640) * MOD;               // Unterkante der Beschriftung steht auf dem Boden
+    const idle = new Sprite(new SpriteMaterial({ map: texOf(m, { state: 'idle' }), depthTest: false, transparent: true }));
+    const lit = new Sprite(new SpriteMaterial({ map: texOf(m, { state: 'active' }), depthTest: false, transparent: true, opacity: 0 }));
+    const done = texOf(m, { state: 'done' });
+    for (const s of [idle, lit]) { s.scale.set(MOD, MOD, 1); s.position.set(i * GAP, y, 0); scene.add(s); }
+    idle.renderOrder = 10 - i; lit.renderOrder = 10.1 - i;
     const rc = document.createElement('canvas'); rc.width = rc.height = 256;
     const rtex = new CanvasTexture(rc); rtex.colorSpace = SRGBColorSpace;
-    const ring = new Sprite(new SpriteMaterial({ map: rtex, transparent: true, depthTest: false, fog: true }));
-    const circleY = h / 2 + (90 / 640) * h;             // Kreismitte (Canvas y=230 von 640)
-    const rs = (400 / 512) * k; ring.scale.set(rs, rs, 1); ring.position.set(P[i][0], circleY, P[i][1]); ring.visible = false; scene.add(ring);
-    return { m, sp, mat, base, done, bare, k, h, ring, rc, rtex, circleY, isDone: false, drawn: -1 };
+    const ring = new Sprite(new SpriteMaterial({ map: rtex, depthTest: false, transparent: true }));
+    const rs = (2 * 128 * (176 / 640) * MOD) / 118;             // Ring (Radius 176 px der Tafel) auf 118 von 128 px
+    ring.scale.set(rs, rs, 1); ring.position.set(i * GAP, y + (70 / 640) * MOD, 0); ring.renderOrder = 10.2 - i; ring.visible = false;
+    scene.add(ring);
+    return { m, i, idle, lit, done, ring, rc, rtex, drawn: -1, isDone: false, y };
   });
   function drawRing(u, p) {
-    if (Math.abs(u.drawn - p) < 0.012) return;
+    if (Math.abs(u.drawn - p) < 0.01) return;
     const g = u.rc.getContext('2d'); g.clearRect(0, 0, 256, 256);
-    g.lineWidth = 8; g.lineCap = 'round';
-    g.beginPath(); g.arc(128, 128, 118, 0, 7); g.strokeStyle = 'rgba(61,220,151,0.22)'; g.stroke();
+    g.lineWidth = 11; g.lineCap = 'round';
+    g.beginPath(); g.arc(128, 128, 118, 0, 7); g.strokeStyle = 'rgba(61,220,151,0.25)'; g.stroke();
     g.beginPath(); g.arc(128, 128, 118, -Math.PI / 2, -Math.PI / 2 + p * Math.PI * 2); g.strokeStyle = ACCENT; g.stroke();
     u.rtex.needsUpdate = true; u.drawn = p;
   }
 
-  // ---------- Ablauf (Sekunden): Module nacheinander, Routen nacheinander ----------
-  const seq = [];
-  let t = 0.05, wi = 0;
-  const WORK = [0.4, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25], LINK = 0.16, ROUTER = 0.05;
-  seq.push({ type: 'work', i: 0, t0: t, t1: (t += WORK[wi++]) });
-  let last = 0;
-  LINKS.forEach(([a, b], k) => {
-    if (a !== last && MODS[a].router) seq.push({ type: 'work', i: a, t0: t, t1: (t += ROUTER) });
-    seq.push({ type: 'link', k, t0: t, t1: (t += LINK) });
-    seq.push({ type: 'work', i: b, t0: t, t1: (t += MODS[b].router ? ROUTER : WORK[wi++] || 0.25) });
-    last = b;
-  });
-  const RUN_END = t;
-
-  // ---------- Kamerafahrt: eine durchgehende Kurve durch die Storyboard-Positionen ----------
-  // Hochformat: eigene Kameraführung, damit das jeweils aktive Modul in der schmalen Bildmitte steht
-  const K = portrait ? [
-    [0.0, [-4.6, 2.2, 2.0], [1, 1.0, -0.3], 68],
-    [0.8, [-0.6, 2.2, 2.3], [5, 1.0, -0.6], 68],
-    [1.55, [3.4, 2.6, 2.7], [12, 1.0, -3.6], 70],
-    [2.3, [6.4, 2.4, 2.8], [14, 1.0, -0.6], 70],
-    [2.95, [7.0, 3.3, 1.3], [14, 0.9, 4.6], 70],
-    [3.35, [8.5, 9, 9], [9.5, 0.5, 1.0], 62],
-    [3.8, [7.5, 23, 0.001], [7.5, 0, 0], 50],
-  ] : [
-    [0.0, [-4.3, 1.6, 1.8], [4, 1.0, -0.4], 54],
-    [0.8, [1.2, 1.6, 2.6], [9, 0.9, -0.8], 54],
-    [1.55, [5.6, 1.7, 3.0], [12.5, 0.9, -2.2], 56],
-    [2.3, [8.6, 1.7, 2.4], [15.5, 0.9, -0.4], 56],
-    [2.95, [8.8, 3.0, 7.6], [14, 0.8, 3.0], 56],
-    [3.35, [9.5, 7.5, 12], [11, 0.5, 1.0], 50],
-    [3.8, [7.5, 15.5, 0.001], [7.5, 0, 0], 42],
-  ];
-  const posCurve = new CatmullRomCurve3(K.map((k) => new Vector3(...k[1])), false, 'centripetal');
-  const lookCurve = new CatmullRomCurve3(K.map((k) => new Vector3(...k[2])), false, 'centripetal');
-  const T_END = K[K.length - 1][0];
-  const upEnd = portrait ? new Vector3(-1, 0, 0) : new Vector3(0, 0, -1);
-  const cam = new PerspectiveCamera(K[0][3], W / H, 0.1, 200);
+  // ---------- Fahrt: sanft anfahren, dann gleichmäßig – ohne Anhalten, am Ende durch Gmail hindurch in die Seite ----------
+  const X0 = -5.2, V = 6.0, ACC = 0.45;                          // Start, Geschwindigkeit, Anfahrzeit
+  const LAST = (MODS.length - 1) * GAP - DONE_AT;                    // hier ist das letzte Modul fertig
+  const T_LAST = (LAST - X0 + (V * ACC) / 2) / V;                // Zeitpunkt dafür
+  function camX(s) {
+    if (s < ACC) return X0 + (V * s * s) / (2 * ACC);
+    return X0 + (V * ACC) / 2 + V * (s - ACC);
+  }
+  const cam = new PerspectiveCamera(portrait ? 80 : 58, W / H, 0.05, 200);
   function cameraAt(s) {
-    s = Math.min(s, T_END);
-    let i = 0; while (i < K.length - 2 && s > K[i + 1][0]) i++;
-    let f = (s - K[i][0]) / (K[i + 1][0] - K[i][0]);
-    if (i === K.length - 2) f = 1 - Math.pow(1 - f, 3); // weich in die Übersicht auslaufen
-    const u = (i + f) / (K.length - 1);
-    cam.position.copy(posCurve.getPoint(u));
-    const fov = K[i][3] + (K[i + 1][3] - K[i][3]) * f;
-    cam.fov = fov; cam.updateProjectionMatrix();
-    const b = smooth((s - 3.05) / 0.75);
-    cam.up.set(0, 1, 0).lerp(upEnd, b).normalize();
-    cam.lookAt(lookCurve.getPoint(u));
-    scene.fog.near = 8 + cam.position.y * 1.2;
-    scene.fog.far = 30 + cam.position.y * 2.5;
+    const x = camX(s);
+    cam.position.set(x, EYE, 0);
+    cam.lookAt(x + 5.2, 1.3, 0);
+    return x;
   }
 
-  // ---------- Übergabe: Zielpositionen der Module im Kopfbereich ----------
-  const HAND = T_END + 0.3, GLIDE = 0.45, STAG = 0.04;   // Übersicht kurz stehen lassen
-  const heroIdx = MODS.map((m, i) => (m.hero ? i : -1)).filter((i) => i > -1);
-  const heroBodies = o.heroBodies;
-  let targets = null;
-  function computeTargets() {
-    cameraAt(T_END); cam.updateMatrixWorld();
-    const ray = new Raycaster(), v = new Vector2();
-    targets = heroIdx.map((i, h) => {
-      const u = units[i], r = heroBodies[h] && heroBodies[h].getBoundingClientRect();
-      if (!r) return null;
-      const plane = new Plane(new Vector3(0, 1, 0), -u.circleY);
-      v.set(((r.left + r.width / 2) / W) * 2 - 1, -((r.top + r.height / 2) / H) * 2 + 1);
-      ray.setFromCamera(v, cam);
-      const hit = new Vector3(); ray.ray.intersectPlane(plane, hit);
-      const dist = -hit.clone().applyMatrix4(cam.matrixWorldInverse).z;   // Tiefe entlang der Blickrichtung
-      const wpp = (2 * dist * Math.tan((cam.fov * Math.PI) / 360)) / H;   // Welteinheiten pro Bildpunkt
-      const k = (r.width * wpp) / (300 / 512);                             // Kreis = 300 von 512 px der Tafel
-      return { circle: hit, k };
-    });
-  }
-
-  // ---------- Seite erscheint ----------
-  const REVEAL = HAND + GLIDE + STAG * 3 + 0.02;
+  // ---------- Übergang zur Seite ----------
+  const REVEAL = T_LAST + 0.22, FADE = 0.45;
   const pageEls = o.pageEls || [];
   let revealed = false;
 
@@ -182,56 +129,32 @@ export function run(o) {
   function frame() {
     if (stopped || !canvas.isConnected) return;
     const s = clock();
-    cameraAt(s);
-    // Module, Ringe, Pakete
-    packet.forEach((m) => (m.visible = false)); halo.visible = false;
-    units.forEach((u) => (u.ring.visible = false));
-    for (const e of seq) {
-      if (e.type === 'link') {
-        const L = links[e.k], p = clamp((s - e.t0) / (e.t1 - e.t0));
-        L.green.count = Math.floor(p * L.n);
-        if (s >= e.t0 && s < e.t1) {
-          const q = easeInOut(p);
-          packet.forEach((m, j) => { const pt = L.curve.getPointAt(clamp(q - j * 0.035)); m.position.set(pt.x, 0.2, pt.z); m.visible = true; });
-          halo.position.copy(packet[0].position); halo.visible = true;
-        }
-      } else {
-        const u = units[e.i];
-        if (u.m.router) {
-          const p = clamp((s - e.t0) / 0.2); const b = 1 + 0.15 * Math.sin(Math.PI * p);
-          if (s >= e.t0 && p < 1) u.sp.scale.set(u.k * b, u.h * b, 1);
-          continue;
-        }
-        if (s >= e.t0 && s < e.t1) { u.ring.visible = true; drawRing(u, (s - e.t0) / (e.t1 - e.t0)); }
-        const done = s >= e.t1;
-        if (done !== u.isDone) { u.isDone = done; u.mat.map = done ? u.done : u.base; u.mat.needsUpdate = true; }
-        const pop = clamp((s - e.t1) / 0.3);
-        const b = done && pop < 1 ? 1 + 0.08 * Math.sin(Math.PI * pop) : 1;
-        if (s < HAND) u.sp.scale.set(u.k * b, u.h * b, 1);
-      }
-    }
-    // Übergabe
-    if (s >= HAND - 0.15) {
-      const fade = 1 - clamp((s - (HAND - 0.15)) / 0.3);
-      greyMat.opacity = greenMat.opacity = fade; floorMat.opacity = fade;
-      if (!targets) computeTargets();
-      units.forEach((u, i) => {
-        const h = heroIdx.indexOf(i);
-        if (h < 0 || !targets[h]) { u.mat.opacity = fade; return; }
-        if (portrait && u.mat.map !== u.bare && s >= HAND) { u.mat.map = u.bare; u.mat.needsUpdate = true; }
-        const p = easeInOut(clamp((s - HAND - h * STAG) / GLIDE)), T = targets[h];
-        const k = u.k + (T.k - u.k) * p, hh = k * 1.25;
-        // Kreismitte liegt auf der Tafel oberhalb der Mitte – „oben“ ist in der Draufsicht die Bildschirm-Oberkante (upEnd)
-        const c0 = new Vector3(P[i][0], u.h / 2, P[i][1]).addScaledVector(upEnd, (90 / 640) * u.h);
-        const c = c0.lerp(T.circle, p);
-        u.sp.scale.set(k, hh, 1);
-        u.sp.position.copy(c).addScaledVector(upEnd, -(90 / 640) * hh);
-      });
+    const cx = cameraAt(s);
+    placeDots(cx);
+    for (const u of units) {
+      const mx = u.i * GAP, D = mx - cx;
+      const start = u.i === 0 ? X0 : mx - DONE_AT - RUN;         // ab hier arbeitet das Modul
+      const len = u.i === 0 ? mx - DONE_AT - X0 : RUN;
+      const p = clamp((cx - start) / len);
+      const on = u.i === 0 ? smooth(s / 0.35) : smooth((cx - (start - 0.9)) / 0.9);   // aufleuchten
+      u.lit.material.opacity = on;
+      const done = p >= 1;
+      if (done !== u.isDone) { u.isDone = done; u.lit.material.map = done ? u.done : u.lit.material.map; u.lit.material.needsUpdate = true; }
+      u.ring.visible = p > 0 && !done;
+      if (u.ring.visible) drawRing(u, p);
+      // „1“ ploppt kurz auf
+      const pop = done ? clamp((cx - start - len) / 1.2) : 0;
+      const b = done && pop < 1 ? 1 + 0.06 * Math.sin(Math.PI * pop) : 1;
+      u.lit.scale.set(MOD * b, MOD * b, 1);
+      // Durchfahren: kurz vor dem Modul ausblenden
+      const pass = clamp((D - 1.5) / 1.1);
+      u.idle.material.opacity = pass; u.lit.material.opacity *= pass; u.ring.material.opacity = pass;
+      u.idle.visible = u.lit.visible = D > 0.3;
     }
     if (s >= REVEAL && !revealed) { revealed = true; o.onLanded && o.onLanded(); }
     if (revealed) {
-      const p = clamp((s - REVEAL) / 0.35);
-      container.style.opacity = String(1 - p);
+      const p = clamp((s - REVEAL) / FADE);
+      container.style.opacity = String(1 - easeInOut(p));
       pageEls.forEach((el, n) => { const q = easeOut(clamp((s - REVEAL - n * 0.05) / 0.55)); el.style.transform = q < 1 ? 'translateY(' + (1 - q) * 24 + 'px)' : ''; });
       if (p >= 1 && s >= REVEAL + 0.7) { stop(); onDone(); return; }
     }
@@ -243,14 +166,13 @@ export function run(o) {
     pageEls.forEach((el) => (el.style.transform = ''));
     renderer.dispose();
   }
-  // Erst rendern, wenn Schriften für die Beschriftungen bereit sind
-  const fonts = document.fonts ? Promise.all([document.fonts.load('600 60px Inter'), document.fonts.load('400 46px Inter')]).catch(() => {}) : Promise.resolve();
+  // Erst starten, wenn die Schrift für die Beschriftungen bereit ist
+  const fonts = document.fonts ? Promise.all([document.fonts.load('600 58px Inter'), document.fonts.load('400 42px Inter')]).catch(() => {}) : Promise.resolve();
   return fonts.then(() => {
     units.forEach((u) => {
-      if (u.m.router) return;
-      u.base.image = moduleCanvas(u.m, {}, ICONS); u.base.needsUpdate = true;
-      u.done.image = moduleCanvas(u.m, { done: true }, ICONS); u.done.needsUpdate = true;
-      u.bare.image = moduleCanvas(u.m, { done: true, noLabel: true }, ICONS); u.bare.needsUpdate = true;
+      u.idle.material.map = texOf(u.m, { state: 'idle' });
+      u.lit.material.map = texOf(u.m, { state: 'active' });
+      u.done = texOf(u.m, { state: 'done' });
     });
     t0 = performance.now();
     requestAnimationFrame(frame);
@@ -264,56 +186,123 @@ function smooth(v) { v = clamp(v); return v * v * (3 - 2 * v); }
 function easeInOut(v) { return v < 0.5 ? 4 * v * v * v : 1 - Math.pow(-2 * v + 2, 3) / 2; }
 function easeOut(v) { return 1 - Math.pow(1 - v, 3); }
 
-function glowTex() {
+function mix(a, b, t) {
+  const parse = (c) => (c[0] === '#' ? [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16)) : c.match(/\d+/g).slice(0, 3).map(Number));
+  const pa = parse(a), pb = parse(b);
+  return 'rgb(' + pa.map((v, i) => Math.round(v + (pb[i] - v) * t)).join(',') + ')';
+}
+
+function shadowTexture() {
   const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d');
-  const gr = g.createRadialGradient(64, 64, 0, 64, 64, 64); gr.addColorStop(0, 'rgba(61,220,151,0.8)'); gr.addColorStop(1, 'rgba(61,220,151,0)');
-  g.fillStyle = gr; g.fillRect(0, 0, 128, 128); return new CanvasTexture(c);
+  const s = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  s.addColorStop(0, 'rgba(20,30,40,0.34)'); s.addColorStop(0.55, 'rgba(20,30,40,0.14)'); s.addColorStop(1, 'rgba(20,30,40,0)');
+  g.fillStyle = s; g.fillRect(0, 0, 128, 128);
+  return new CanvasTexture(c);
 }
 
-function shade(hex, pct) {
-  const n = parseInt(hex.slice(1), 16);
-  const f = (v) => Math.max(0, Math.min(255, Math.round(v + (pct / 100) * (pct > 0 ? 255 - v : v))));
-  return 'rgb(' + f(n >> 16) + ',' + f((n >> 8) & 255) + ',' + f(n & 255) + ')';
+// Kugel: Licht oben links, Eigenschatten unten rechts, Aufhellung vom Boden, weicher Glanzpunkt
+function ballTexture(col, aniso) {
+  const c = document.createElement('canvas'); c.width = c.height = 256; const g = c.getContext('2d');
+  const C = 128, R = 125, hex = (x) => '#' + x.getHexString();
+  const lit = col.clone().lerp(new Color('#ffffff'), 0.45), dark = col.clone().multiplyScalar(0.62), rim = col.clone().multiplyScalar(0.8);
+  g.beginPath(); g.arc(C, C, R, 0, Math.PI * 2); g.clip();
+  const body = g.createRadialGradient(C - 40, C - 48, 10, C - 10, C - 12, R * 1.12);
+  body.addColorStop(0, hex(lit)); body.addColorStop(0.45, hex(col)); body.addColorStop(0.88, hex(dark)); body.addColorStop(1, hex(dark));
+  g.fillStyle = body; g.fillRect(0, 0, 256, 256);
+  const bounce = g.createRadialGradient(C + 20, C + 165, 30, C + 20, C + 165, 100);
+  bounce.addColorStop(0, hex(rim) + 'aa'); bounce.addColorStop(1, hex(rim) + '00'); g.fillStyle = bounce; g.fillRect(0, 0, 256, 256);
+  const spec = g.createRadialGradient(C - 42, C - 52, 0, C - 42, C - 52, 35);
+  spec.addColorStop(0, 'rgba(255,255,255,0.85)'); spec.addColorStop(0.5, 'rgba(255,255,255,0.25)'); spec.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = spec; g.fillRect(0, 0, 256, 256);
+  const t = new CanvasTexture(c); t.colorSpace = SRGBColorSpace; t.minFilter = LinearMipmapLinearFilter; t.anisotropy = aniso;
+  return t;
 }
 
-// Modul im Make-Stil als Bild: Farbschein, weißer Rand, glänzende Farbscheibe, Symbol, „1“, Beschriftung
-function moduleCanvas(m, st, ICONS) {
-  const c = document.createElement('canvas'); c.width = 512; c.height = 640;
-  const g = c.getContext('2d'); const cx = 256, cy = 230, R = m.router ? 90 : 150;
-  const glow = g.createRadialGradient(cx, cy + R * 0.6, 10, cx, cy + R * 0.6, R * 1.5);
-  glow.addColorStop(0, m.color + '88'); glow.addColorStop(1, m.color + '00');
-  g.fillStyle = glow; g.fillRect(0, 0, 512, 640);
-  g.save(); g.shadowColor = 'rgba(28,31,35,0.28)'; g.shadowBlur = 40; g.shadowOffsetY = 18;
-  g.beginPath(); g.arc(cx, cy, R + 16, 0, 7); g.fillStyle = '#fff'; g.fill(); g.restore();
-  g.beginPath(); g.arc(cx, cy, R + 16, 0, 7); g.strokeStyle = 'rgba(28,31,35,0.08)'; g.lineWidth = 3; g.stroke();
-  const disc = g.createRadialGradient(cx - R * 0.35, cy - R * 0.45, R * 0.1, cx, cy, R * 1.05);
-  disc.addColorStop(0, shade(m.color, 45)); disc.addColorStop(0.55, m.color); disc.addColorStop(1, shade(m.color, -25));
-  g.beginPath(); g.arc(cx, cy, R, 0, 7); g.fillStyle = disc; g.fill();
-  g.save(); const s = (R * 1.1) / 24; g.translate(cx - 12 * s, cy - 12 * s); g.scale(s, s);
-  g.strokeStyle = '#fff'; g.lineWidth = 1.7; g.lineCap = 'round'; g.lineJoin = 'round';
-  const svg = ICONS[m.icon] || '';
-  for (const d of [...svg.matchAll(/ d="([^"]+)"/g)].map((x) => x[1])) g.stroke(new Path2D(d));
-  for (const r of svg.matchAll(/<rect x="([\d.]+)" y="([\d.]+)" width="([\d.]+)" height="([\d.]+)" rx="([\d.]+)"/g)) { g.beginPath(); roundRect(g, +r[1], +r[2], +r[3], +r[4], +r[5]); g.stroke(); }
-  for (const r of svg.matchAll(/<circle cx="([\d.]+)" cy="([\d.]+)" r="([\d.]+)"/g)) { g.beginPath(); g.arc(+r[1], +r[2], +r[3], 0, 7); g.stroke(); }
+// Gewölbte Fläche mit derselben Lichtführung wie die Kugeln. k = Stärke (blasse Module weniger plastisch)
+function sphereFill(g, cx, cy, r, base, k = 1) {
+  const lit = mix(base, '#ffffff', 0.42 * k), dark = mix(base, '#000000', 0.34 * k);
+  g.save(); g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.clip();
+  const body = g.createRadialGradient(cx - r * 0.32, cy - r * 0.38, r * 0.08, cx - r * 0.08, cy - r * 0.1, r * 1.12);
+  body.addColorStop(0, lit); body.addColorStop(0.45, base); body.addColorStop(0.9, dark); body.addColorStop(1, dark);
+  g.fillStyle = body; g.fillRect(cx - r, cy - r, 2 * r, 2 * r);
+  const sp = g.createRadialGradient(cx - r * 0.34, cy - r * 0.42, 0, cx - r * 0.34, cy - r * 0.42, r * 0.34);
+  sp.addColorStop(0, `rgba(255,255,255,${0.7 * k})`); sp.addColorStop(0.5, `rgba(255,255,255,${0.2 * k})`); sp.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = sp; g.fillRect(cx - r, cy - r, 2 * r, 2 * r);
   g.restore();
-  if (m.trigger) {
-    g.save(); g.shadowColor = 'rgba(28,31,35,0.2)'; g.shadowBlur = 10;
-    g.beginPath(); g.arc(cx - R * 0.78, cy + R * 0.78, 34, 0, 7); g.fillStyle = '#fff'; g.fill(); g.restore();
-    g.strokeStyle = '#1c1f23'; g.lineWidth = 5; g.beginPath(); g.arc(cx - R * 0.78, cy + R * 0.78, 18, 0, 7); g.stroke();
-    g.beginPath(); g.moveTo(cx - R * 0.78, cy + R * 0.78 - 10); g.lineTo(cx - R * 0.78, cy + R * 0.78); g.lineTo(cx - R * 0.78 + 7, cy + R * 0.78 + 5); g.stroke();
+}
+function floorShadow(g, cx, cy, rx, ry, a) {
+  g.save(); g.translate(cx, cy); g.scale(1, ry / rx);
+  const s = g.createRadialGradient(0, 0, 0, 0, 0, rx);
+  s.addColorStop(0, `rgba(20,30,40,${a})`); s.addColorStop(0.55, `rgba(20,30,40,${a * 0.4})`); s.addColorStop(1, 'rgba(20,30,40,0)');
+  g.fillStyle = s; g.beginPath(); g.arc(0, 0, rx, 0, Math.PI * 2); g.fill(); g.restore();
+}
+// Symbol aus den gemeinsamen Pfaden (64er-Raster wie im Kopfbereich der Seite)
+function drawGlyph(g, layers, color, cx, cy, R) {
+  const col = { fg: '#fff', bg: color, light: mix(color, '#ffffff', 0.55) };
+  g.save(); g.translate(cx - R, cy - R); g.scale(R / 32, R / 32); g.lineCap = 'round'; g.lineJoin = 'round';
+  for (const l of layers) {
+    const p = new Path2D(l.d);
+    if (l.fill) { g.fillStyle = col[l.fill]; g.fill(p); } else { g.strokeStyle = col[l.stroke]; g.lineWidth = l.w; g.stroke(p); }
   }
-  if (st.done && !m.router) {
+  g.restore();
+}
+
+// Modul im Make-Look: Halbmond-Anschlüsse, gewölbte Farbscheibe, Symbol, Name + Nummer, Aktion
+function moduleCanvas(m, st, GLYPHS) {
+  const c = document.createElement('canvas'); c.width = 640; c.height = 640;
+  const g = c.getContext('2d'); const cx = 320, cy = 250, R = 150;
+  const idle = st.state === 'idle', k3 = idle ? 0.45 : 1;
+  const col = idle ? mix(m.color, '#e6e9ec', 0.72) : m.color;
+  if (!idle) {                     // Aufleuchten: kräftiger Farbschein
+    const gl = g.createRadialGradient(cx, cy, R * 0.6, cx, cy, R * 1.9); gl.addColorStop(0, m.color + 'aa'); gl.addColorStop(1, m.color + '00');
+    g.fillStyle = gl; g.fillRect(0, 0, 640, 640);
+  }
+  floorShadow(g, cx + 22, cy + R + 16, R * 1.05, R * 0.2, idle ? 0.1 : 0.22);
+  const conn = idle ? mix(m.color, '#e6e9ec', 0.8) : mix(m.color, '#1c1f23', 0.3);
+  for (const [x, a0, a1, ccw] of [[cx - R - 18, Math.PI / 2, -Math.PI / 2, true], [cx + R + 18, -Math.PI / 2, Math.PI / 2, false]]) {
+    const cg = g.createLinearGradient(x, cy - 48, x + 10, cy + 48);
+    cg.addColorStop(0, mix(conn, '#ffffff', 0.3 * k3)); cg.addColorStop(1, mix(conn, '#000000', 0.25 * k3));
+    g.fillStyle = cg; g.beginPath(); g.arc(x, cy, 48, a0, a1, ccw); g.closePath(); g.fill();
+  }
+  if (!idle) { g.save(); g.shadowColor = m.color + '66'; g.shadowBlur = 60; g.beginPath(); g.arc(cx, cy, R - 2, 0, 7); g.fillStyle = col; g.fill(); g.restore(); }
+  sphereFill(g, cx, cy, R, idle ? col : mix(m.color, '#ffffff', 0.08), k3);
+  if (!idle) {                     // gläserner Lichtrand
+    const rg = g.createLinearGradient(cx - R, cy - R, cx + R, cy + R); rg.addColorStop(0, 'rgba(255,255,255,0.95)'); rg.addColorStop(1, 'rgba(255,255,255,0.35)');
+    g.lineWidth = 9; g.strokeStyle = rg; g.beginPath(); g.arc(cx, cy, R - 5, 0, 7); g.stroke();
+  }
+  const layers = GLYPHS[m.icon];
+  if (layers) {
+    g.save(); g.shadowColor = idle ? 'rgba(0,0,0,0.06)' : 'rgba(0,0,0,0.22)'; g.shadowBlur = 10; g.shadowOffsetX = 4; g.shadowOffsetY = 7;
+    drawGlyph(g, layers, idle ? col : m.color, cx, cy, R); g.restore();
+  }
+  if (m.trigger) {                 // Uhr am Auslöser
+    const x = cx - R * 0.72, y = cy + R * 0.72;
+    floorShadow(g, x + 6, y + 50, 50, 10, 0.18);
+    sphereFill(g, x, y, 50, idle ? '#eef0f2' : mix(m.color, '#ffffff', 0.55), k3);
+    g.beginPath(); g.arc(x, y, 50, 0, 7); g.lineWidth = 7; g.strokeStyle = idle ? '#fff' : m.color; g.stroke();
+    g.beginPath(); g.arc(x, y, 34, 0, 7); g.fillStyle = '#fff'; g.fill();
+    g.strokeStyle = '#6b7280'; g.lineWidth = 6; g.lineCap = 'round'; g.beginPath(); g.moveTo(x, y); g.lineTo(x + 18, y + 12); g.moveTo(x, y); g.lineTo(x - 4, y - 22); g.stroke();
+  }
+  if (st.state === 'done') {       // „1“ nach getaner Arbeit
+    const x = cx + R * 0.8, y = cy - R * 0.8;
     g.save(); g.shadowColor = 'rgba(11,122,75,0.35)'; g.shadowBlur = 14;
-    g.beginPath(); g.arc(cx + R * 0.82, cy - R * 0.82, 44, 0, 7); g.fillStyle = ACCENT; g.fill(); g.restore();
-    g.lineWidth = 9; g.strokeStyle = '#fff'; g.stroke();
-    g.fillStyle = '#0b1f16'; g.font = '600 52px Inter, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.fillText('1', cx + R * 0.82, cy - R * 0.82 + 3);
+    g.beginPath(); g.arc(x, y, 42, 0, 7); g.fillStyle = ACCENT; g.fill(); g.restore();
+    sphereFill(g, x, y, 42, ACCENT);
+    g.beginPath(); g.arc(x, y, 42, 0, 7); g.lineWidth = 8; g.strokeStyle = '#fff'; g.stroke();
+    g.fillStyle = '#0b1f16'; g.font = '600 48px Inter, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('1', x, y + 2);
   }
-  if (!m.router && !st.noLabel) {
-    g.textAlign = 'center'; g.textBaseline = 'alphabetic';
-    g.fillStyle = '#1c1f23'; g.font = '600 60px Inter, sans-serif'; g.fillText(m.app, cx, 505);
-    g.fillStyle = '#525961'; g.font = '400 46px Inter, sans-serif'; g.fillText(m.action, cx, 565);
-  }
+  // Beschriftung auf heller Fläche: die Kette läuft dahinter durch
+  g.textBaseline = 'alphabetic';
+  g.font = '400 42px Inter, sans-serif'; const aw = g.measureText(m.action).width;
+  g.font = '600 58px Inter, sans-serif';
+  const nameW = g.measureText(m.app).width, bw = 54, total = nameW + 14 + bw, x0 = cx - total / 2;
+  const pw = Math.min(620, Math.max(total, aw) + 40);
+  g.save(); g.shadowColor = 'rgba(20,30,40,0.12)'; g.shadowBlur = 22; g.shadowOffsetY = 6; g.fillStyle = '#ffffff';
+  g.beginPath(); roundRect(g, cx - pw / 2, 440, pw, 140, 22); g.fill(); g.restore();
+  g.fillStyle = idle ? '#9aa1a9' : '#1c1f23'; g.textAlign = 'left'; g.fillText(m.app, x0, 500);
+  g.fillStyle = idle ? '#eef0f2' : '#e5e7ea'; g.beginPath(); roundRect(g, x0 + nameW + 14, 452, bw, 58, 10); g.fill();
+  g.fillStyle = idle ? '#b4bac1' : '#525961'; g.font = '600 38px Inter, sans-serif'; g.textAlign = 'center'; g.fillText(String(m.nr), x0 + nameW + 14 + bw / 2, 494);
+  g.font = '400 42px Inter, sans-serif'; g.fillText(m.action, cx, 562);
   return c;
 }
 function roundRect(g, x, y, w, h, r) {

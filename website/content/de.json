@@ -46,7 +46,7 @@
         "app": "Shopify",
         "action": "Watch Orders",
         "icon": "bag",
-        "color": "#5E8E3E",
+        "color": "#95BF47",
         "trigger": true,
         "hero": true
       },
@@ -54,7 +54,7 @@
         "app": "Google Sheets",
         "action": "Add a Row",
         "icon": "sheet",
-        "color": "#0F9D58",
+        "color": "#1FA463",
         "hero": true
       },
       {
@@ -78,14 +78,14 @@
       },
       {
         "app": "OpenAI",
-        "action": "Create a Completion",
+        "action": "Simple text prompt",
         "icon": "spark",
         "color": "#10A37F",
         "hero": true
       },
       {
         "app": "Gmail",
-        "action": "Send an Email",
+        "action": "Send an email",
         "icon": "mail",
         "color": "#EA4335",
         "hero": true

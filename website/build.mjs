@@ -135,9 +135,33 @@ function moduleIcon(icon, color, cls = 'module__icon') {
   if (icon === 'logo') {
     return `<svg class="${cls}" viewBox="0 0 64 64" focusable="false"><circle cx="32" cy="32" r="32" fill="${esc(color)}"/><text x="32" y="43.5" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="32" font-weight="600" fill="#3ddc97">4</text></svg>`;
   }
+  if (GLYPHS[icon]) {
+    return `<svg class="${cls}" viewBox="0 0 64 64" focusable="false"><circle cx="32" cy="32" r="32" fill="${esc(color)}"/>${glyphSVG(icon, color)}</svg>`;
+  }
   const stroke = icon === 'done' ? '#0b1f16' : '#fff';
   if (!ICONS[icon]) throw new Error(`Unbekanntes Modul-Symbol "${icon}". Erlaubt: ${Object.keys(ICONS).join(', ')}`);
   return `<svg class="${cls}" viewBox="0 0 64 64" focusable="false"><circle cx="32" cy="32" r="32" fill="${esc(color)}"/><g transform="translate(14 14) scale(1.5)" fill="none" stroke="${stroke}" stroke-width="${icon === 'done' ? 2.4 : 1.6}" stroke-linecap="round" stroke-linejoin="round">${ICONS[icon]}</g></svg>`;
+}
+
+// Flächige Symbole der Workflow-Module (64er-Raster, Kreis = Modulscheibe). Eigene Zeichnungen, keine Markenlogos.
+// Dieselben Pfade zeichnet auch das 3D-Intro (src/intro3d.js). fg = weiß, bg = Modulfarbe, light = helle Modulfarbe.
+const GLYPHS = {"bag":[{"d":"M20.1 26.05H43.9L45.09 47.87H18.91Z","fill":"fg"},{"d":"M26.05 26.05C26.05 16.52 37.95 16.52 37.95 26.05","stroke":"fg","w":2.38},{"d":"M27.44 29.62a1.39 1.39 0 1 1-2.78 0a1.39 1.39 0 1 1 2.78 0ZM39.34 29.62a1.39 1.39 0 1 1-2.78 0a1.39 1.39 0 1 1 2.78 0Z","fill":"bg"},{"d":"M26.44 36.96H37.56M26.44 41.52H34.38","stroke":"bg","w":1.79}],
+  "sheet":[{"d":"M19.7 16.13H39.94L44.3 20.49V47.87H19.7Z","fill":"fg"},{"d":"M39.94 16.13V20.49H44.3Z","fill":"light"},{"d":"M24.86 30.41H39.14V42.32H24.86ZM24.86 36.36H39.14M24.86 39.34H39.14M30.02 30.41V42.32","stroke":"bg","w":1.49}],
+  "spark":[{"d":"M30.41 21.29Q32.62 31.38 42.71 33.59Q32.62 35.8 30.41 45.89Q28.2 35.8 18.11 33.59Q28.2 31.38 30.41 21.29ZM41.92 17.32Q42.78 21.22 46.68 22.08Q42.78 22.94 41.92 26.84Q41.06 22.94 37.16 22.08Q41.06 21.22 41.92 17.32ZM42.91 39.14Q43.41 41.42 45.69 41.92Q43.41 42.42 42.91 44.7Q42.41 42.42 40.13 41.92Q42.41 41.42 42.91 39.14Z","fill":"fg"}],
+  "mail":[{"d":"M18.51 20.89H45.49Q47.48 20.89 47.48 22.87V41.13Q47.48 43.11 45.49 43.11H18.51Q16.52 43.11 16.52 41.13V22.87Q16.52 20.89 18.51 20.89Z","fill":"fg"},{"d":"M18.11 22.87L32 34.38L45.89 22.87","stroke":"bg","w":2.58}]};
+
+function mixHex(a, b, t) {
+  const pa = [1, 3, 5].map((i) => parseInt(a.slice(i, i + 2), 16)), pb = [1, 3, 5].map((i) => parseInt(b.slice(i, i + 2), 16));
+  return '#' + pa.map((v, i) => Math.round(v + (pb[i] - v) * t).toString(16).padStart(2, '0')).join('');
+}
+function glyphSVG(icon, color) {
+  const col = { fg: '#fff', bg: color, light: mixHex(color, '#ffffff', 0.55) };
+  const layer = (l, shadow) => l.fill
+    ? `<path d="${l.d}" fill="${shadow ? '#000' : col[l.fill]}"/>`
+    : `<path d="${l.d}" fill="none" stroke="${shadow ? '#000' : col[l.stroke]}" stroke-width="${l.w}" stroke-linecap="round" stroke-linejoin="round"/>`;
+  const L = GLYPHS[icon];
+  // Symbol leicht erhaben: weicher Schatten nach unten rechts (nur die weißen Flächen werfen Schatten)
+  return `<g class="module__glyph-shadow" transform="translate(1.1 1.8)" opacity="0.2">${L.filter((l) => (l.fill || l.stroke) === 'fg').map((l) => layer(l, true)).join('')}</g>${L.map((l) => layer(l)).join('')}`;
 }
 
 // Ein Modul im Make-Stil (farbiger Kreis mit Symbol, Name, Aktion). Wird im Kopfbereich und im Intro verwendet.
@@ -145,6 +169,7 @@ function moduleHTML(m, cls) {
   return `<div class="module ${cls}${m.router ? ' module--router' : ''}">
               <div class="module__body">
                 <svg class="module__glow" viewBox="0 0 10 10" focusable="false"><circle cx="5" cy="5" r="5" fill="${esc(m.color)}"/></svg>
+                ${m.router ? '' : `<svg class="module__ports" viewBox="0 0 88 64" focusable="false"><path d="M12 19a13 13 0 0 0 0 26z M76 19a13 13 0 0 1 0 26z" fill="${esc(mixHex(m.color, '#1c1f23', 0.3))}"/></svg>`}
                 <span class="module__ring"></span>
                 ${moduleIcon(m.icon, m.color)}
                 <span class="module__shine"></span>
@@ -155,6 +180,18 @@ function moduleHTML(m, cls) {
               ${m.router ? '' : `<span class="module__app">${esc(m.app)}</span>
               <span class="module__action">${esc(m.action)}</span>`}
             </div>`;
+}
+
+// Verbindung zwischen zwei Modulen: kleine Kugeln, deren Farbe vom einen zum nächsten Modul übergeht (wie im Intro).
+// Zwei Varianten: waagerecht (breite Spalte) und senkrecht (Smartphone), per CSS umgeschaltet.
+function linkDots(from, to, n) {
+  const shade = (id) => `<defs><radialGradient id="${id}" cx="36%" cy="30%" r="75%"><stop offset="0" stop-color="#fff" stop-opacity="0.6"/><stop offset="0.35" stop-color="#fff" stop-opacity="0"/><stop offset="0.75" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity="0.32"/></radialGradient></defs>`;
+  const dots = (count, pos, id) => Array.from({ length: count }, (_, k) => {
+    const [x, y] = pos(k), c = mixHex(from, to, k / (count - 1));
+    return `<circle cx="${x}" cy="${y}" r="4" fill="${c}"/><circle cx="${x}" cy="${y}" r="4" fill="url(#${id})"/>`;
+  }).join('');
+  return `<svg class="link__dots link__dots--h" viewBox="0 0 84 10" focusable="false">${shade(`ls${n}h`)}${dots(7, (k) => [6 + k * 12, 5], `ls${n}h`)}</svg>`
+    + `<svg class="link__dots link__dots--v" viewBox="0 0 10 48" focusable="false">${shade(`ls${n}v`)}${dots(4, (k) => [5, 6 + k * 12], `ls${n}v`)}</svg>`;
 }
 
 const heroModules = (lang) => {
@@ -169,7 +206,7 @@ function heroScene(modules, label) {
     ['cart', '#E47911'], ['doc', '#475569'], ['spark', '#0F766E'], ['chat', '#7C3AED'], ['bell', '#B45309'], ['filter', '#334155'],
   ];
   const chain = modules
-    .map((m, i) => moduleHTML(m, `module--${i + 1}`) + (i < modules.length - 1 ? `\n            <div class="link link--${i + 1}"><span class="link__pulse"></span></div>` : ''))
+    .map((m, i) => moduleHTML(m, `module--${i + 1}`) + (i < modules.length - 1 ? `\n            <div class="link link--${i + 1}">${linkDots(m.color, modules[i + 1].color, i + 1)}<span class="link__pulse"></span></div>` : ''))
     .join('\n            ');
   return `<div class="scene" aria-hidden="true">
           <div class="scene__grid"></div>
@@ -209,7 +246,7 @@ function introBlock(lang) {
     </div>
   </div>
   <button class="intro__skip" type="button">${esc(tx.skip)} →</button>
-  <script type="application/json" id="intro-data">${JSON.stringify({ ...INTRO_LAYOUT, three: intro3dUrl, icons: ICONS, modules: tx.modules }).replace(/</g, '\\u003c')}</script>`;
+  <script type="application/json" id="intro-data">${JSON.stringify({ ...INTRO_LAYOUT, three: intro3dUrl, icons: ICONS, glyphs: GLYPHS, modules: tx.modules }).replace(/</g, '\\u003c')}</script>`;
 }
 
 const paragraphs = (arr) => (Array.isArray(arr) ? arr : [arr]).map((p) => `<p>${esc(p)}</p>`).join('\n');
