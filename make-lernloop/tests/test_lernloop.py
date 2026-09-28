@@ -375,6 +375,10 @@ class ClaudeCodeTests(unittest.TestCase):
             parse_claude_output(1, json.dumps({"is_error": True, "result": "Claude AI usage limit reached|1760000000"}), "", 5)
         with self.assertRaises(ModelError):
             parse_claude_output(1, "", "Invalid API key · Please run /login", 5)
+        with self.assertRaises(ModelError) as ctx:
+            parse_claude_output(1, json.dumps({"is_error": True, "result": "Failed to authenticate. API Error: 401 "
+                                               "OAuth access token has expired. Re-authenticate to continue."}), "", 5)
+        self.assertIn("/login", str(ctx.exception))
 
 
 class BackupTests(unittest.TestCase):

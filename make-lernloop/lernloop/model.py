@@ -50,7 +50,13 @@ _LIMIT_PATTERNS = re.compile(
     r"usage limit|limit reached|limit will reset|rate limit|5-hour limit|weekly limit|out of extra usage",
     re.I,
 )
-_AUTH_PATTERNS = re.compile(r"not logged in|please run /login|invalid api key|authentication", re.I)
+_AUTH_PATTERNS = re.compile(
+    r"not logged in|please run /login|invalid api key|authentication|failed to authenticate|"
+    r"re-authenticate|token has expired|\b401\b", re.I)
+
+
+_AUTH_HINT = ("Claude Code ist nicht (mehr) angemeldet. Im Terminal `claude` starten, `/login` eingeben, "
+              "„Claude account with subscription“ wählen, danach `/exit`.")
 
 
 class ClaudeCodeClient:
@@ -117,7 +123,7 @@ def parse_claude_output(returncode: int, stdout: str, stderr: str, duration_ms: 
         if _LIMIT_PATTERNS.search(text_for_errors):
             raise UsageLimitReached(text_for_errors.strip()[:500])
         if _AUTH_PATTERNS.search(text_for_errors):
-            raise ModelError("Claude Code ist nicht angemeldet. Einmal `claude` starten und mit dem Abo anmelden.")
+            raise ModelError(_AUTH_HINT)
         raise ModelError(f"Unerwartete Ausgabe von Claude Code (Exit {returncode}): {text_for_errors[:500]}")
     result_text = payload.get("result") or ""
     if payload.get("is_error") or returncode != 0:
@@ -125,7 +131,7 @@ def parse_claude_output(returncode: int, stdout: str, stderr: str, duration_ms: 
         if _LIMIT_PATTERNS.search(msg):
             raise UsageLimitReached(msg.strip()[:500])
         if _AUTH_PATTERNS.search(msg):
-            raise ModelError("Claude Code ist nicht angemeldet. Einmal `claude` starten und mit dem Abo anmelden.")
+            raise ModelError(_AUTH_HINT)
         raise ModelError(f"Claude Code meldet einen Fehler: {msg[:500]}")
     data = payload.get("structured_output")
     if not isinstance(data, dict):
