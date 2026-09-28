@@ -177,7 +177,12 @@ def _require_documented(conn, claim, actor: str) -> None:
         (claim["id"],)).fetchone()[0]
     if not ok:
         raise StatusRuleViolation("Kein wörtlich verifizierter Beleg aus offizieller Dokumentation")
-    if open_conflicts_for(conn, claim["id"]):
+    for k in open_conflicts_for(conn, claim["id"]):
+        ids = json.loads(k["claim_ids"])
+        # Wer eine andere Aussage nur EINSCHRÄNKT (neue Aussage an erster Stelle), ist selbst nicht
+        # fraglich – fraglich ist die zu breite Aussage. Widerspruch und Duplikat halten beide Seiten zurück.
+        if k["kind"] == "schraenkt_ein" and ids and ids[0] == claim["id"]:
+            continue
         raise StatusRuleViolation("Offener Befund (Widerspruch, Duplikat oder Einschränkung) – menschliche Prüfung nötig")
 
 

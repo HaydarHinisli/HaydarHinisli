@@ -364,6 +364,28 @@ class OpenFindingWarningTests(unittest.TestCase):
         self.assertIn("ACHTUNG, offener Befund", prompts.block_claims([c1]))
 
 
+class NarrowingFindingTests(unittest.TestCase):
+    def test_claim_that_narrows_another_is_not_held_back(self):
+        cfg, conn, _ = make_env()
+        web = FakeWeb()
+        run_session(cfg, conn, web, good_responder)  # ERK-000001 dokumentiert
+
+        def responder(step, prompt, schema):
+            if step == "abgleich":
+                new = re.findall(r'erkenntnis id="(ERK-\d+)"', prompt.split("Bestehende Aussagen")[0])
+                return {"befunde": [{"neu": new[0], "bestehend": "ERK-000001", "art": "schraenkt_ein",
+                                     "erklaerung": "Ausnahme"}]}
+            return good_responder(step, prompt, schema)
+
+        sid, _ = run_session(cfg, conn, web, responder, goal="T01-Z3")
+        new_id = conn.execute("SELECT id FROM claim WHERE session_id=? ORDER BY id", (sid,)).fetchone()["id"]
+        self.assertEqual(conn.execute("SELECT status FROM claim WHERE id=?", (new_id,)).fetchone()[0], "dokumentiert")
+        # Die eingeschränkte Aussage bleibt gültig, trägt aber den offenen Befund als Warnung
+        old = next(c for c in knowledge.retrieve_claims(conn, "iterator bundle") if c["id"] == "ERK-000001")
+        self.assertEqual(old["status"], "dokumentiert")
+        self.assertIn("Ausnahme", old["offener_befund"])
+
+
 class ReviewShortcutTests(unittest.TestCase):
     def test_narrow_confirm_and_close_findings_in_one_step(self):
         from lernloop.cli import main
