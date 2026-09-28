@@ -90,6 +90,24 @@ Nach jeder Sitzung erscheint ein Bericht im Terminal und als HTML-Datei unter `d
   "expected": "3-mal", "expected_source": "mensch", "approved_by": "Haydar"}]
 ```
 
+## Mit dem Wissen arbeiten: Claude-Code-Chat „make-wissen“
+
+Der Lernloop bereitet das Wissen vor; genutzt wird es beim Arbeiten mit Make in einem normalen
+Claude-Code-Fenster. Einmalig eintragen:
+
+```bash
+python3 -m lernloop mcp-install
+```
+
+Danach in einem **neuen** Claude-Code-Fenster (`claude`, in jedem Ordner) mit `/mcp` prüfen, dass
+„make-wissen“ verbunden ist. Claude schlägt dann bei Make-Fragen selbst im geprüften Speicher nach,
+nennt die Erkenntnis-IDs (ERK-…) und sagt offen, wenn etwas nicht belegt ist.
+
+- Nur lesend: Der Chat kann den Speicher nicht verändern. Lernen läuft weiter über `lernloop learn`.
+- Kein zusätzlicher Verbrauch durch den Speicher selbst; es zählt nur der normale Chat.
+- Neue Lernergebnisse stehen dem Chat sofort zur Verfügung.
+- Entfernen: `claude mcp remove make-wissen --scope user`
+
 ## Statusregeln (vom Programm erzwungen)
 
 | Status | Wann |

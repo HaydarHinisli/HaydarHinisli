@@ -386,6 +386,47 @@ class NarrowingFindingTests(unittest.TestCase):
         self.assertIn("Ausnahme", old["offener_befund"])
 
 
+class McpServerTests(unittest.TestCase):
+    def test_protocol_roundtrip_and_tools(self):
+        import io
+        from lernloop.mcp import serve
+        cfg, conn, _ = make_env()
+        run_session(cfg, conn, FakeWeb(), good_responder)
+        conn.close()
+        msgs = [
+            {"jsonrpc": "2.0", "id": 1, "method": "initialize",
+             "params": {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "t"}}},
+            {"jsonrpc": "2.0", "method": "notifications/initialized"},
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+            {"jsonrpc": "2.0", "id": 3, "method": "tools/call",
+             "params": {"name": "make_wissen_suchen", "arguments": {"suchbegriffe": "iterator bundle"}}},
+            {"jsonrpc": "2.0", "id": 4, "method": "tools/call",
+             "params": {"name": "make_erkenntnis", "arguments": {"id": "ERK-000001"}}},
+            {"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "make_themenstand"}},
+            {"jsonrpc": "2.0", "id": 6, "method": "gibtsnicht"},
+        ]
+        out = io.StringIO()
+        with mock.patch("sys.stderr", io.StringIO()):
+            serve(cfg, io.StringIO("\n".join(json.dumps(m) for m in msgs) + "\n"), out)
+        resp = {r["id"]: r for r in map(json.loads, out.getvalue().splitlines())}
+        self.assertEqual(set(resp), {1, 2, 3, 4, 5, 6})  # keine Antwort auf die Benachrichtigung
+        self.assertIn("instructions", resp[1]["result"])
+        self.assertEqual({t["name"] for t in resp[2]["result"]["tools"]},
+                         {"make_wissen_suchen", "make_erkenntnis", "make_themenstand"})
+        found = resp[3]["result"]["content"][0]["text"]
+        self.assertIn("ERK-000001 [dokumentiert]", found)
+        self.assertNotIn("sortiert", found)  # Entwürfe (hier: erfundenes Zitat) werden nicht geliefert
+        self.assertIn("wörtlich gefunden", resp[4]["result"]["content"][0]["text"])
+        self.assertIn("T01", resp[5]["result"]["content"][0]["text"])
+        self.assertEqual(resp[6]["error"]["code"], -32601)
+
+    def test_server_cannot_write(self):
+        from lernloop.mcp import Server
+        cfg, _, _ = make_env()
+        with self.assertRaises(sqlite3.OperationalError):
+            Server(cfg)._conn().execute("DELETE FROM claim")
+
+
 class ReviewShortcutTests(unittest.TestCase):
     def test_narrow_confirm_and_close_findings_in_one_step(self):
         from lernloop.cli import main

@@ -382,6 +382,31 @@ def cmd_claim(args, cfg):
         print(f"  {h['changed_at']} {h['change']}: {h['old_status']} → {h['new_status']} ({h['actor']}) {h['reason']}")
 
 
+def cmd_mcp(args, cfg):
+    from .mcp import serve
+    serve(cfg)
+    return 0
+
+
+def cmd_mcp_install(args, cfg):
+    import subprocess
+    script = PKG.parent / "mcp_server.py"
+    if not cfg.db_path.exists():
+        print("Noch kein Wissensspeicher – zuerst `lernloop init` und mindestens eine Lernsitzung.")
+        return 1
+    claude = shutil.which(cfg.section("model").get("claude_code_command", "claude"))
+    if not claude:
+        print("Claude Code nicht gefunden.")
+        return 1
+    cmd = [claude, "mcp", "add", "--scope", args.scope, "make-wissen", "--", sys.executable, str(script)]
+    print("Führe aus: " + " ".join(cmd))
+    rc = subprocess.run(cmd).returncode
+    if rc == 0:
+        print("\nFertig. Neues Claude-Code-Fenster öffnen (`claude`) und mit `/mcp` prüfen, ob 'make-wissen' "
+              "verbunden ist. Danach einfach Make-Fragen stellen.")
+    return rc
+
+
 def cmd_export(args, cfg):
     conn = _open(cfg, read_only=True)
     print(f"Export: {exporter.export_jsonl(conn, cfg)}")
@@ -450,6 +475,10 @@ def build_parser() -> argparse.ArgumentParser:
     cl = sub.add_parser("claim", help="Erkenntnis mit Belegen und Verlauf anzeigen")
     cl.add_argument("id")
 
+    sub.add_parser("mcp", help="MCP-Server für Claude Code/Desktop starten (wird von Claude aufgerufen)")
+    mi = sub.add_parser("mcp-install", help="Wissensspeicher als 'make-wissen' in Claude Code eintragen")
+    mi.add_argument("--scope", choices=["user", "local", "project"], default="user",
+                    help="user = in allen Claude-Code-Fenstern verfügbar (Standard)")
     sub.add_parser("export", help="Wissensbestand als JSON Lines exportieren")
     sub.add_parser("backup", help="Sicherung der Datenbank anlegen")
     rs = sub.add_parser("restore", help="Sicherung wiederherstellen")
@@ -459,7 +488,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 COMMANDS = {"init": cmd_init, "doctor": cmd_doctor, "plan": cmd_plan, "catalog": cmd_catalog, "learn": cmd_learn,
             "ask": cmd_ask, "review": cmd_review, "task": cmd_task, "report": cmd_report, "claim": cmd_claim,
-            "export": cmd_export, "backup": cmd_backup, "restore": cmd_restore}
+            "export": cmd_export, "backup": cmd_backup, "restore": cmd_restore, "mcp": cmd_mcp,
+            "mcp-install": cmd_mcp_install}
 
 
 def main(argv=None) -> int:
