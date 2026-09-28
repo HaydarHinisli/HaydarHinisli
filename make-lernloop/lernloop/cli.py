@@ -249,6 +249,14 @@ def cmd_review(args, cfg):
         with SessionLock(cfg.lock_path, "review dedupe"), dbm.Tx(conn):
             for k in conn.execute("SELECT * FROM conflict WHERE status='offen' AND kind='doppelt'").fetchall():
                 new_id, old_id = json.loads(k["claim_ids"])[:2]
+                gone = conn.execute("SELECT status FROM claim WHERE id=?", (new_id,)).fetchone()
+                if gone and gone["status"] == "zurückgezogen":
+                    # Die neue Aussage wurde schon wegen eines anderen Duplikat-Befunds zurückgezogen.
+                    conn.execute("UPDATE conflict SET status='geklärt', resolution=?, resolved_at=? WHERE id=?",
+                                 (f"Automatisch: {new_id} bereits zurückgezogen", dbm.now(), k["id"]))
+                    print(f"  {k['id']}: erledigt ({new_id} war bereits zurückgezogen)")
+                    done += 1
+                    continue
                 if knowledge.drop_duplicate(conn, new_id, old_id, k["description"], k["session_id"], record=False):
                     conn.execute("UPDATE conflict SET status='geklärt', resolution=?, resolved_at=? WHERE id=?",
                                  (f"Automatisch: {new_id} zurückgezogen", dbm.now(), k["id"]))

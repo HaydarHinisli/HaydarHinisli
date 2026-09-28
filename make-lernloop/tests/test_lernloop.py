@@ -324,6 +324,20 @@ class SessionTests(unittest.TestCase):
         self.assertEqual(ctx["outcome"], "ziel_erreicht")
 
 
+class OpenFindingWarningTests(unittest.TestCase):
+    def test_narrowing_finding_is_shown_as_warning_when_claim_is_used(self):
+        from lernloop import prompts
+        cfg, conn, _ = make_env()
+        run_session(cfg, conn, FakeWeb(), good_responder)
+        with dbm.Tx(conn):
+            knowledge.add_conflict(conn, ["ERK-000003", "ERK-000001"], "schraenkt_ein", "zu breit", None)
+        claims = knowledge.retrieve_claims(conn, "iterator bundle")
+        c1 = next(c for c in claims if c["id"] == "ERK-000001")
+        self.assertEqual(c1["status"], "dokumentiert")  # Status bleibt, aber mit Warnung
+        self.assertIn("zu breit", c1["offener_befund"])
+        self.assertIn("ACHTUNG, offener Befund", prompts.block_claims([c1]))
+
+
 class SectionSelectionTests(unittest.TestCase):
     def test_long_page_keeps_sections_matching_the_question(self):
         from lernloop.session import _relevant_sections

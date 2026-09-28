@@ -299,7 +299,14 @@ def retrieve_claims(conn, text: str, limit: int = 12, statuses=CURRENT_STATUSES,
             (q, *statuses, limit)).fetchall()
         for r in rows:
             found.setdefault(r["id"], r)
-    return list(found.values())
+    # Offene Befunde (z. B. „schränkt ein“) mitliefern, damit Antworten davor warnen können.
+    out = []
+    for r in found.values():
+        d = dict(r)
+        flags = open_conflicts_for(conn, r["id"], kinds=("widerspricht", "schraenkt_ein"))
+        d["offener_befund"] = "; ".join(f"{k['id']}: {k['description']}" for k in flags) or None
+        out.append(d)
+    return out
 
 
 def retrieve_sections(conn, text: str, limit: int = 8):

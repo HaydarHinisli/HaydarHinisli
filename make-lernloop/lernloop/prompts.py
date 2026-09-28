@@ -133,9 +133,12 @@ def block_claims(claims) -> str:
         return "(keine gespeicherten Erkenntnisse)"
     parts = []
     for c in claims:
+        warn = ""
+        if "offener_befund" in c.keys() and c["offener_befund"]:
+            warn = f"ACHTUNG, offener Befund (Aussage evtl. zu breit/ungenau): {c['offener_befund']}\n"
         parts.append(
             f'<erkenntnis id="{c["id"]}" status="{c["status"]}">\n{c["statement"]}\n'
-            f'Geltungsbereich: {c["scope"] or "-"}\n</erkenntnis>'
+            f'Geltungsbereich: {c["scope"] or "-"}\n{warn}</erkenntnis>'
         )
     return "\n".join(parts)
 
