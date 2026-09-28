@@ -155,7 +155,7 @@ a:hover { color: var(--accent-text); }
   border-bottom: 1px solid var(--border);
 }
 @supports (backdrop-filter: blur(8px)) {
-  .site-header { background: rgba(255, 255, 255, 0.82); backdrop-filter: blur(10px); }
+  .site-header { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(12px); }
 }
 
 .site-header__inner {
@@ -384,21 +384,6 @@ main { padding-top: var(--header-h); }
   transform: translateZ(-2em);
 }
 
-/* Weitere Module im Hintergrund – angedeutete „Bausteine“ im Raum */
-.ghost {
-  position: absolute;
-  width: 2.75em;
-  height: 2.75em;
-  opacity: 0.22;
-  transform: translate3d(0, 0, var(--z, -8em));
-}
-.ghost svg { width: 100%; height: 100%; display: block; }
-.ghost--1 { left: 6%; top: 8%; --z: -10em; }
-.ghost--2 { right: 8%; top: 4%; --z: -14em; width: 2.25em; height: 2.25em; }
-.ghost--3 { left: 18%; bottom: 6%; --z: -6em; }
-.ghost--4 { right: 4%; bottom: 2%; --z: -12em; width: 2.25em; height: 2.25em; }
-.ghost--5 { left: 46%; top: 0; --z: -18em; width: 2em; height: 2em; }
-.ghost--6 { right: 0; top: 44%; --z: -9em; width: 2em; height: 2em; }
 
 /* Workflow-Kette */
 .chain {
@@ -573,7 +558,6 @@ main { padding-top: var(--header-h); }
   .link__dots--v { display: block; }
   .module__ports { display: none; }
   .link__pulse { left: 50%; top: 0; margin: -0.375em 0 0 -0.375em; }
-  .ghost--5, .ghost--6 { display: none; }
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -593,12 +577,6 @@ main { padding-top: var(--header-h); }
   .chain .module--3 { animation: module-fly 1.8s cubic-bezier(0.16, 1, 0.3, 1) 0.15s both, module-bob 4.2s ease-in-out 6.8s infinite alternate; }
   .chain .module--4 { animation: module-fly 1.8s cubic-bezier(0.16, 1, 0.3, 1) 0.65s both, module-bob 4.8s ease-in-out 7.2s infinite alternate; }
 
-  .ghost { animation: ghost-in 1.6s ease-out both, ghost-drift 9s ease-in-out 1.6s infinite alternate; }
-  .ghost--2 { animation-delay: 0.3s, 1.9s; animation-duration: 1.6s, 11s; }
-  .ghost--3 { animation-delay: 0.5s, 2.1s; animation-duration: 1.6s, 8s; }
-  .ghost--4 { animation-delay: 0.2s, 1.8s; animation-duration: 1.6s, 12s; }
-  .ghost--5 { animation-delay: 0.7s, 2.3s; animation-duration: 1.6s, 10s; }
-  .ghost--6 { animation-delay: 0.4s, 2s; animation-duration: 1.6s, 9.5s; }
 
   /* Verbindungen entstehen nacheinander */
   .chain .link { animation: link-draw 0.4s ease-out both; }
@@ -645,14 +623,6 @@ main { padding-top: var(--header-h); }
   from { transform: none; }
   to { transform: translateY(-0.3em); }
 }
-@keyframes ghost-in {
-  from { opacity: 0; }
-  to { opacity: 0.22; }
-}
-@keyframes ghost-drift {
-  from { translate: 0 0; rotate: 0deg; }
-  to { translate: 0.6em -0.9em; rotate: 8deg; }
-}
 @keyframes link-draw {
   from { transform: scale(0, 1); }
   to { transform: none; }
@@ -695,7 +665,7 @@ main { padding-top: var(--header-h); }
 
 /* Nach dem Intro: Die Kette steht bereits (die Intro-Module sind hineingeflogen),
    nur das sanfte Schweben läuft weiter. */
-html.is-intro .chain .module, html.is-intro .chain .link, html.is-intro .scene__ghosts, html.is-intro .scene__grid { opacity: 0; }
+html.is-intro .chain .module, html.is-intro .chain .link, html.is-intro .scene__grid { opacity: 0; }
 html.is-intro .scene { transform: none; }
 html.intro-played .scene { transition: transform 1.2s cubic-bezier(0.65, 0, 0.35, 1); }
 html.is-intro .chain .module, html.is-intro .scene { animation: none; }
@@ -706,11 +676,11 @@ html.is-intro .chain .module__arc, html.is-intro .chain .module__track,
 html.intro-played .chain .module__arc, html.intro-played .chain .module__track,
 html.intro-played .chain .link, html.intro-played .chain .link__pulse,
 html.intro-played .chain .module__ring, html.intro-played .chain .module__count { animation: none; }
-html.intro-played .scene__ghosts, html.intro-played .scene__grid { transition: opacity 0.8s ease; }
+html.intro-played .scene__grid { transition: opacity 0.8s ease; }
 
 /* ---------- Problem ---------- */
 
-.problem__text { font-size: clamp(1.25rem, 2.6vw, 1.625rem); line-height: 1.5; letter-spacing: -0.01em; margin: 0; }
+.problem__text { font-size: clamp(1.375rem, 2.8vw, 1.875rem); line-height: 1.45; letter-spacing: -0.015em; margin: 0; max-width: 44rem; }
 
 /* ---------- Karten (Leistungen) ---------- */
 
@@ -727,7 +697,10 @@ html.intro-played .scene__ghosts, html.intro-played .scene__grid { transition: o
   border-radius: var(--radius);
 }
 .card p { color: var(--text-muted); margin: 0; }
-.card__index { display: block; font-family: var(--mono); font-size: 0.8125rem; color: var(--accent-text); margin-bottom: 2.5rem; }
+.card__icon { position: relative; display: block; width: 3rem; height: 3rem; margin-bottom: 1.5rem; border-radius: 50%; box-shadow: 0.15rem 0.35rem 0.8rem -0.2rem rgba(20, 30, 40, 0.3); }
+.card__icon .module__icon { width: 100%; height: 100%; display: block; }
+.card { transition: transform 0.25s ease, box-shadow 0.25s ease; }
+.card:hover { transform: translateY(-3px); box-shadow: 0 0.9rem 2rem -1rem rgba(20, 30, 40, 0.22); }
 .card__title { font-size: 1.25rem; margin-bottom: 0.75rem; }
 
 .cards--links .card { transition: border-color 0.15s ease; }
@@ -762,9 +735,9 @@ html.intro-played .scene__ghosts, html.intro-played .scene__grid { transition: o
 .plan__period { color: var(--dark-muted); }
 
 .plan__features { margin: 0 0 2rem; flex: 1; }
-.plan__features div { padding: 0.8rem 0; border-top: 1px solid var(--dark-border); }
-.plan__features dt { font-family: var(--mono); font-size: 0.75rem; color: var(--dark-muted); letter-spacing: 0.02em; margin-bottom: 0.15rem; }
-.plan__features dd { margin: 0; }
+.plan__features div { padding: 0.7rem 0; border-top: 1px solid var(--dark-border); }
+.plan__features dt { font-size: 0.8125rem; color: var(--dark-muted); margin-bottom: 0.1rem; }
+.plan__features dd { margin: 0; font-weight: 500; }
 .plan .button { width: 100%; }
 .section--dark .button--outline { color: var(--dark-text); }
 .section--dark .button--outline:hover { color: var(--accent-ink); }
@@ -801,6 +774,8 @@ html.intro-played .scene__ghosts, html.intro-played .scene__grid { transition: o
 }
 .about__text p { font-size: 1.1875rem; line-height: 1.6; margin: 0; }
 .about__photo { width: 100%; max-width: 20rem; aspect-ratio: 4 / 5; object-fit: cover; border-radius: var(--radius); }
+.about--text { display: block; }
+.about--text .about__text { max-width: 46rem; }
 .about__photo--placeholder {
   display: grid;
   place-items: center;
@@ -890,4 +865,12 @@ html.intro-played .scene__ghosts, html.intro-played .scene__grid { transition: o
   .site-header, .menu-toggle, .skip-link { display: none; }
   main { padding-top: 0; }
   .section--dark, .cta-box { background: none; color: inherit; }
+}
+
+/* Preiskarten auf dem Smartphone kompakter */
+@media (max-width: 40em) {
+  .plan { padding: 1.5rem 1.25rem; }
+  .plan__price { margin-bottom: 1.25rem; }
+  .plan__features { margin-bottom: 1.5rem; }
+  .plan__features div { padding: 0.55rem 0; }
 }

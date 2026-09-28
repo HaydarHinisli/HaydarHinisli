@@ -26,7 +26,7 @@
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <link rel="preload" href="/assets/fonts/inter-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/assets/fonts/inter-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="/assets/css/style.css?v=dbf509073f">
+  <link rel="stylesheet" href="/assets/css/style.css?v=4e02605af9">
   <link rel="stylesheet" href="/assets/css/intro.css?v=1094888a4f">
   <script src="/assets/js/intro-gate.js?v=42f00f3b9e"></script>
   <script src="/assets/js/intro.js?v=aac091464c" defer></script>
@@ -77,14 +77,6 @@
         <div class="hero__visual">
           <div class="scene" aria-hidden="true">
           <div class="scene__grid"></div>
-          <div class="scene__ghosts">
-            <span class="ghost ghost--1"><svg class="module__icon" viewBox="0 0 64 64" focusable="false"><circle cx="32" cy="32" r="32" fill="#E47911"/><g transform="translate(14 14) scale(1.5)" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4.5h2.2l2.3 10.5h10l2.2-7.5H6.4"/><circle cx="9" cy="19" r="1.3"/><circle cx="16.5" cy="19" r="1.3"/></g></svg></span>
-            <span class="ghost ghost--2"><svg class="module__icon" viewBox="0 0 64 64" focusable="false"><circle cx="32" cy="32" r="32" fill="#475569"/><g transform="translate(14 14) scale(1.5)" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3.5h7l4.5 4.5v12.5H7z"/><path d="M14 3.5V8h4.5M10 13h5.5M10 16.5h5.5"/></g></svg></span>
-            <span class="ghost ghost--3"><svg class="module__icon" viewBox="0 0 64 64" focusable="false"><circle cx="32" cy="32" r="32" fill="#0F766E"/><g class="module__glyph-shadow" transform="translate(1.1 1.8)" opacity="0.2"><path d="M30.41 21.29Q32.62 31.38 42.71 33.59Q32.62 35.8 30.41 45.89Q28.2 35.8 18.11 33.59Q28.2 31.38 30.41 21.29ZM41.92 17.32Q42.78 21.22 46.68 22.08Q42.78 22.94 41.92 26.84Q41.06 22.94 37.16 22.08Q41.06 21.22 41.92 17.32ZM42.91 39.14Q43.41 41.42 45.69 41.92Q43.41 42.42 42.91 44.7Q42.41 42.42 40.13 41.92Q42.41 41.42 42.91 39.14Z" fill="#000"/></g><path d="M30.41 21.29Q32.62 31.38 42.71 33.59Q32.62 35.8 30.41 45.89Q28.2 35.8 18.11 33.59Q28.2 31.38 30.41 21.29ZM41.92 17.32Q42.78 21.22 46.68 22.08Q42.78 22.94 41.92 26.84Q41.06 22.94 37.16 22.08Q41.06 21.22 41.92 17.32ZM42.91 39.14Q43.41 41.42 45.69 41.92Q43.41 42.42 42.91 44.7Q42.41 42.42 40.13 41.92Q42.41 41.42 42.91 39.14Z" fill="#fff"/></svg></span>
-            <span class="ghost ghost--4"><svg class="module__icon" viewBox="0 0 64 64" focusable="false"><circle cx="32" cy="32" r="32" fill="#7C3AED"/><g transform="translate(14 14) scale(1.5)" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 5.5h15v10h-9l-4.5 3.5v-3.5h-1.5z"/><path d="M8.5 10.5h7"/></g></svg></span>
-            <span class="ghost ghost--5"><svg class="module__icon" viewBox="0 0 64 64" focusable="false"><circle cx="32" cy="32" r="32" fill="#B45309"/><g transform="translate(14 14) scale(1.5)" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 1.5h-15L6 16.5z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></g></svg></span>
-            <span class="ghost ghost--6"><svg class="module__icon" viewBox="0 0 64 64" focusable="false"><circle cx="32" cy="32" r="32" fill="#334155"/><g transform="translate(14 14) scale(1.5)" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16l-6.2 7.2V18L10.2 20v-7.8L4 5z"/></g></svg></span>
-          </div>
           <div class="chain">
             <div class="module module--1">
               <div class="module__body">
@@ -158,7 +150,7 @@
     </section>
 
     <section class="section problem" aria-labelledby="problem-title">
-      <div class="container container--narrow" data-reveal>
+      <div class="container" data-reveal>
         <h2 class="eyebrow" id="problem-title">Das Problem</h2>
         <p class="problem__text">Bestellungen übertragen, Rechnungen erstellen, Bestand prüfen, Anfragen sortieren. Jeden Tag dieselben Handgriffe, und jeder kostet Zeit und birgt Fehler. Automatisierungen lösen das, aber nur, solange sie gepflegt werden.</p>
       </div>
@@ -169,17 +161,17 @@
         <h2 class="section__title" id="services-title">Leistungen</h2>
         <ul class="cards">
           <li class="card" data-reveal>
-            <span class="card__index" aria-hidden="true">01</span>
+            <span class="card__icon" aria-hidden="true"><svg class="module__icon" viewBox="0 0 64 64" focusable="false"><circle cx="32" cy="32" r="32" fill="#1FA463"/><g class="module__glyph-shadow" transform="translate(1.1 1.8)" opacity="0.2"><path d="M30.41 21.29Q32.62 31.38 42.71 33.59Q32.62 35.8 30.41 45.89Q28.2 35.8 18.11 33.59Q28.2 31.38 30.41 21.29ZM41.92 17.32Q42.78 21.22 46.68 22.08Q42.78 22.94 41.92 26.84Q41.06 22.94 37.16 22.08Q41.06 21.22 41.92 17.32ZM42.91 39.14Q43.41 41.42 45.69 41.92Q43.41 42.42 42.91 44.7Q42.41 42.42 40.13 41.92Q42.41 41.42 42.91 39.14Z" fill="#000"/></g><path d="M30.41 21.29Q32.62 31.38 42.71 33.59Q32.62 35.8 30.41 45.89Q28.2 35.8 18.11 33.59Q28.2 31.38 30.41 21.29ZM41.92 17.32Q42.78 21.22 46.68 22.08Q42.78 22.94 41.92 26.84Q41.06 22.94 37.16 22.08Q41.06 21.22 41.92 17.32ZM42.91 39.14Q43.41 41.42 45.69 41.92Q43.41 42.42 42.91 44.7Q42.41 42.42 40.13 41.92Q42.41 41.42 42.91 39.14Z" fill="#fff"/></svg><span class="module__shine"></span></span>
             <h3 class="card__title">Neue Automatisierungen</h3>
             <p>Ich verbinde Shop, Marktplatz, Tabellen, E-Mail und KI-Dienste zu Abläufen, die ohne Handarbeit funktionieren.</p>
           </li>
           <li class="card" data-reveal>
-            <span class="card__index" aria-hidden="true">02</span>
+            <span class="card__icon" aria-hidden="true"><svg class="module__icon" viewBox="0 0 64 64" focusable="false"><circle cx="32" cy="32" r="32" fill="#1FA463"/><g transform="translate(14 14) scale(1.5)" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 0 0-5.3 5.3L4.5 16.5a1.8 1.8 0 0 0 2.5 2.5l4.9-4.9a4 4 0 0 0 5.3-5.3l-2.4 2.4-2.3-.6-.6-2.3 2.8-2z"/></g></svg><span class="module__shine"></span></span>
             <h3 class="card__title">Reparatur und Stabilisierung</h3>
             <p>Bestehende Make-Szenarien, die unzuverlässig laufen, prüfe ich, repariere sie und sichere sie gegen Fehler ab.</p>
           </li>
           <li class="card" data-reveal>
-            <span class="card__index" aria-hidden="true">03</span>
+            <span class="card__icon" aria-hidden="true"><svg class="module__icon" viewBox="0 0 64 64" focusable="false"><circle cx="32" cy="32" r="32" fill="#1FA463"/><g transform="translate(14 14) scale(1.5)" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l2-5 4 10 2-5h6"/></g></svg><span class="module__shine"></span></span>
             <h3 class="card__title">Laufende Betreuung</h3>
             <p>Ich überwache deine Automatisierungen und behebe Fehler, bevor sie dich Umsatz kosten.</p>
           </li>
@@ -259,8 +251,7 @@
     </section>
 
     <section class="section section--alt" id="ueber-mich" aria-labelledby="about-title">
-      <div class="container about" data-reveal>
-        <div class="about__photo about__photo--placeholder" role="img" aria-label="Porträt von Haydar Hinisli"><span>Porträtfoto folgt</span></div>
+      <div class="container about about--text" data-reveal>
         <div class="about__text">
           <h2 class="section__title" id="about-title">Über mich</h2>
           <p>Ich bin Haydar Hinisli und seit 2021 selbst Online-Händler mit eigener Marke auf Amazon. Die Abläufe, die ich automatisiere, kenne ich aus eigener Erfahrung. Mein Unternehmen 4ELEMENTS e.K. sitzt in Berlin.</p>

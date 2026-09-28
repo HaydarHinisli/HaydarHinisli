@@ -121,6 +121,7 @@ const ICONS = {
   chat: '<path d="M4.5 5.5h15v10h-9l-4.5 3.5v-3.5h-1.5z"/><path d="M8.5 10.5h7"/>',
   store: '<path d="M4 9.5l1.5-5h13L20 9.5"/><path d="M4 9.5h16v1.5a2.7 2.7 0 0 1-5.3 0 2.7 2.7 0 0 1-5.4 0A2.7 2.7 0 0 1 4 11z"/><path d="M5.5 13.5V20h13v-6.5"/>',
   pulse: '<path d="M3 12h4l2-5 4 10 2-5h6"/>',
+  wrench: '<path d="M14.7 6.3a4 4 0 0 0-5.3 5.3L4.5 16.5a1.8 1.8 0 0 0 2.5 2.5l4.9-4.9a4 4 0 0 0 5.3-5.3l-2.4 2.4-2.3-.6-.6-2.3 2.8-2z"/>',
   user: '<circle cx="12" cy="8.5" r="3.5"/><path d="M5 20c.8-3.6 3.6-5.5 7-5.5s6.2 1.9 7 5.5"/>',
   box: '<path d="M4 7.5L12 4l8 3.5v9L12 20l-8-3.5z"/><path d="M4 7.5l8 3.5 8-3.5M12 11v9"/>',
   done: '<path d="M6 12.5l4 4 8-9"/>',
@@ -202,17 +203,11 @@ const heroModules = (lang) => {
 
 // Kopfbereich: Workflow-Kette aus den vier "hero"-Modulen. Dekorativ (aria-hidden); für Screenreader gibt es die Liste darunter.
 function heroScene(modules, label) {
-  const ghosts = [
-    ['cart', '#E47911'], ['doc', '#475569'], ['spark', '#0F766E'], ['chat', '#7C3AED'], ['bell', '#B45309'], ['filter', '#334155'],
-  ];
   const chain = modules
     .map((m, i) => moduleHTML(m, `module--${i + 1}`) + (i < modules.length - 1 ? `\n            <div class="link link--${i + 1}">${linkDots(m.color, modules[i + 1].color, i + 1)}<span class="link__pulse"></span></div>` : ''))
     .join('\n            ');
   return `<div class="scene" aria-hidden="true">
           <div class="scene__grid"></div>
-          <div class="scene__ghosts">
-            ${ghosts.map(([icon, color], i) => `<span class="ghost ghost--${i + 1}">${moduleIcon(icon, color)}</span>`).join('\n            ')}
-          </div>
           <div class="chain">
             ${chain}
           </div>
@@ -338,7 +333,7 @@ function homePage(lang) {
   const a = tx.anchors;
   const photo = site.portrait
     ? image(site.portrait, tx.about.photoAlt, 'about__photo')
-    : `<div class="about__photo about__photo--placeholder" role="img" aria-label="${esc(tx.about.photoAlt)}"><span>${esc(tx.about.photoPlaceholder)}</span></div>`;
+    : '';   // ohne Foto: nur Text (kein Platzhalter)
 
   const body = `
     <section class="hero">
@@ -355,7 +350,7 @@ function homePage(lang) {
     </section>
 
     <section class="section problem" aria-labelledby="problem-title">
-      <div class="container container--narrow" data-reveal>
+      <div class="container" data-reveal>
         <h2 class="eyebrow" id="problem-title">${esc(tx.problem.label)}</h2>
         <p class="problem__text">${esc(tx.problem.text)}</p>
       </div>
@@ -368,7 +363,7 @@ function homePage(lang) {
 ${tx.services.cards
   .map(
     (c, i) => `          <li class="card" data-reveal>
-            <span class="card__index" aria-hidden="true">${String(i + 1).padStart(2, '0')}</span>
+            <span class="card__icon" aria-hidden="true">${moduleIcon(c.icon || ['spark', 'wrench', 'pulse'][i], c.color || '#1FA463')}<span class="module__shine"></span></span>
             <h3 class="card__title">${esc(c.title)}</h3>
             <p>${esc(c.text)}</p>
           </li>`
@@ -421,9 +416,8 @@ ${tx.process.steps
     </section>
 
     <section class="section section--alt" id="${a.about}" aria-labelledby="about-title">
-      <div class="container about" data-reveal>
-        ${photo}
-        <div class="about__text">
+      <div class="container about${site.portrait ? '' : ' about--text'}" data-reveal>
+        ${photo}<div class="about__text">
           <h2 class="section__title" id="about-title">${esc(tx.about.headline)}</h2>
           <p>${esc(tx.about.text)}</p>
         </div>
