@@ -232,7 +232,7 @@ export function run(o) {
     renderer.dispose();
   }
   // Erst starten, wenn die Schrift für die Beschriftungen bereit ist
-  const fonts = document.fonts ? Promise.all([document.fonts.load('600 58px Inter'), document.fonts.load('400 42px Inter')]).catch(() => {}) : Promise.resolve();
+  const fonts = document.fonts ? Promise.all([document.fonts.load('600 58px Geist'), document.fonts.load('400 42px Geist')]).catch(() => {}) : Promise.resolve();
   return fonts.then(() => {
     units.forEach((u) => {
       u.idle.material.map = texOf(u.m, { state: 'idle' });
@@ -356,21 +356,21 @@ function moduleCanvas(m, st, GLYPHS) {
     g.beginPath(); g.arc(x, y, 42, 0, 7); g.fillStyle = ACCENT; g.fill(); g.restore();
     sphereFill(g, x, y, 42, ACCENT);
     g.beginPath(); g.arc(x, y, 42, 0, 7); g.lineWidth = 8; g.strokeStyle = '#fff'; g.stroke();
-    g.fillStyle = '#0b1f16'; g.font = '600 48px Inter, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('1', x, y + 2);
+    g.fillStyle = '#0b1f16'; g.font = '600 48px Geist, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('1', x, y + 2);
   }
   if (bare) return c;
   // Beschriftung auf heller Fläche: die Kette läuft dahinter durch
   g.textBaseline = 'alphabetic';
-  g.font = '400 42px Inter, sans-serif'; const aw = g.measureText(m.action).width;
-  g.font = '600 58px Inter, sans-serif';
+  g.font = '400 42px Geist, sans-serif'; const aw = g.measureText(m.action).width;
+  g.font = '600 58px Geist, sans-serif';
   const nameW = g.measureText(m.app).width, bw = 54, total = nameW + 14 + bw, x0 = cx - total / 2;
   const pw = Math.min(620, Math.max(total, aw) + 40);
   g.save(); g.shadowColor = 'rgba(20,30,40,0.12)'; g.shadowBlur = 22; g.shadowOffsetY = 6; g.fillStyle = '#ffffff';
   g.beginPath(); roundRect(g, cx - pw / 2, 440, pw, 140, 22); g.fill(); g.restore();
   g.fillStyle = idle ? '#9aa1a9' : '#1c1f23'; g.textAlign = 'left'; g.fillText(m.app, x0, 500);
   g.fillStyle = idle ? '#eef0f2' : '#e5e7ea'; g.beginPath(); roundRect(g, x0 + nameW + 14, 452, bw, 58, 10); g.fill();
-  g.fillStyle = idle ? '#b4bac1' : '#525961'; g.font = '600 38px Inter, sans-serif'; g.textAlign = 'center'; g.fillText(String(m.nr), x0 + nameW + 14 + bw / 2, 494);
-  g.font = '400 42px Inter, sans-serif'; g.fillText(m.action, cx, 562);
+  g.fillStyle = idle ? '#b4bac1' : '#525961'; g.font = '600 38px Geist, sans-serif'; g.textAlign = 'center'; g.fillText(String(m.nr), x0 + nameW + 14 + bw / 2, 494);
+  g.font = '400 42px Geist, sans-serif'; g.fillText(m.action, cx, 562);
   return c;
 }
 function roundRect(g, x, y, w, h, r) {

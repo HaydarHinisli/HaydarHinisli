@@ -34,9 +34,26 @@
     "packageSubject": "Anfrage Betreuung"
   },
   "hero": {
-    "headline": "Automatisierungen, die laufen.",
-    "subline": "Ich automatisiere wiederkehrende Abläufe für Online-Händler und sorge dafür, dass sie zuverlässig weiterlaufen.",
-    "button": "Anfrage stellen"
+    "headline": "Automatisierungen, die *einfach laufen.*",
+    "subline": "Ich verbinde Shop, Tabellen, KI und E-Mail zu Abläufen, die ohne Handarbeit funktionieren – und halte sie am Laufen.",
+    "button": "Projekt anfragen",
+    "badge": "Make · Shopify · KI",
+    "badgeText": "Automatisierung für Online-Händler",
+    "secondary": "Preise ansehen",
+    "windowTitle": "Shopify-Bestellungen → Gmail",
+    "windowStatus": "läuft · alle 15 Min.",
+    "toolsLabel": "Verbindet die Werkzeuge, die du schon nutzt",
+    "tools": [
+      "Shopify",
+      "Amazon",
+      "Make",
+      "Google Sheets",
+      "OpenAI",
+      "Gmail",
+      "Slack",
+      "WooCommerce",
+      "Notion"
+    ]
   },
   "intro": {
     "_hinweis": "Intro der Startseite und Workflow im Kopfbereich. Genau 9 Module in fester Rolle: 1 Auslöser, 2 zweites Modul, 3 Router, 4–5 oberer Zweig, 6–7 mittlerer Zweig, 8–9 unterer Zweig. Module mit \"hero\": true erscheinen danach im Kopfbereich (genau 4). Symbole: bag, sheet, router, globe, braces, spark, mail, iterator, hash, check, filter, doc, cart, bell, chat, store, user, box, pulse.",
@@ -78,7 +95,7 @@
     "text": "Bestellungen übertragen, Rechnungen erstellen, Bestand prüfen, Anfragen sortieren. Jeden Tag dieselben Handgriffe, und jeder kostet Zeit und birgt Fehler. Automatisierungen lösen das, aber nur, solange sie gepflegt werden."
   },
   "services": {
-    "headline": "Leistungen",
+    "headline": "Weniger Handarbeit. *Mehr Ruhe.*",
     "cards": [
       {
         "title": "Neue Automatisierungen",
@@ -92,10 +109,23 @@
         "title": "Laufende Betreuung",
         "text": "Ich überwache deine Automatisierungen und behebe Fehler, bevor sie dich Umsatz kosten."
       }
-    ]
+    ],
+    "lead": "Von der ersten Automatisierung bis zur laufenden Betreuung – alles aus einer Hand.",
+    "log": [
+      "Bestellung #10482 → Google Sheets",
+      "Rechnung erstellt · OpenAI",
+      "Bestätigung an Kundin gesendet",
+      "Bestand geprüft · 3 Artikel knapp",
+      "Bestellung #10483 → Google Sheets"
+    ],
+    "stat": {
+      "label": "Antwortzeit",
+      "value": "≤ 1 Tag",
+      "text": "Auf jede Anfrage antworte ich innerhalb eines Werktags."
+    }
   },
   "support": {
-    "headline": "Betreuung für laufende Automatisierungen.",
+    "headline": "Ein fester Preis. *Keine Überraschungen.*",
     "subline": "Monatlich kündbar. Kosten für Make und andere Tools trägst du selbst.",
     "labels": {
       "scenarios": "Szenarien",
@@ -136,10 +166,11 @@
         "highlight": false
       }
     ],
-    "note": "Größere Neuentwicklungen biete ich separat an. Voraussetzung ist ein Zugang zu deiner Make-Organisation."
+    "note": "Größere Neuentwicklungen biete ich separat an. Voraussetzung ist ein Zugang zu deiner Make-Organisation.",
+    "badge": "Beliebt"
   },
   "process": {
-    "headline": "So arbeite ich",
+    "headline": "Vom Gespräch zum *laufenden Ablauf.*",
     "steps": [
       {
         "title": "Gespräch",
@@ -166,7 +197,7 @@
     "photoPlaceholder": "Porträtfoto folgt"
   },
   "contact": {
-    "headline": "Kontakt",
+    "headline": "Lass uns deinen ersten Ablauf *automatisieren.*",
     "text": "Beschreib mir kurz, welche Tools du nutzt und was automatisiert werden soll. Du bekommst innerhalb eines Werktags eine Antwort.",
     "button": "E-Mail schreiben"
   },

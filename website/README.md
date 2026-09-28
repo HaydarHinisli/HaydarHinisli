@@ -3,7 +3,7 @@
 Statische, zweisprachige Website (DE unter `/`, EN unter `/en/`) für 4ELEMENTS e.K. Keine Abhängigkeiten, keine Datenbank, keine externen Dienste.
 
 - `content/`: alle Texte (`de.json`, `en.json`), Firmendaten (`site.json`), Anwendungsfälle, Datenschutztext
-- `assets/`: CSS, JS, lokale Schriften (Inter 400/600, JetBrains Mono 400, SIL OFL), Bilder
+- `assets/`: CSS, JS, lokale Schriften (Geist 400/500/600, Geist Mono 400, Instrument Serif kursiv; alle SIL OFL), Bilder
 - `static/`: Dateien für das Web-Wurzelverzeichnis (`.htaccess`, Favicons)
 - `src/intro3d.js`: 3D-Intro (Three.js); gebündelt nach `assets/js/intro3d.js` mit `npm run build:intro3d` (einmalig `npm install`)
 - `build.mjs`: erzeugt `dist/` (HTML-Seiten, `sitemap.xml` mit hreflang, `robots.txt`, 404-Seite)

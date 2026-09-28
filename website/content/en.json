@@ -35,9 +35,26 @@
     "packageSubject": "Support inquiry"
   },
   "hero": {
-    "headline": "Automations that keep running.",
-    "subline": "I automate recurring workflows for online retailers and make sure they keep running reliably.",
-    "button": "Send an inquiry"
+    "headline": "Automations that *just keep running.*",
+    "subline": "I connect your shop, spreadsheets, AI and email into workflows that run without manual work – and keep them running.",
+    "button": "Start a project",
+    "badge": "Make · Shopify · AI",
+    "badgeText": "Automation for online retailers",
+    "secondary": "See pricing",
+    "windowTitle": "Shopify orders → Gmail",
+    "windowStatus": "running · every 15 min",
+    "toolsLabel": "Connects the tools you already use",
+    "tools": [
+      "Shopify",
+      "Amazon",
+      "Make",
+      "Google Sheets",
+      "OpenAI",
+      "Gmail",
+      "Slack",
+      "WooCommerce",
+      "Notion"
+    ]
   },
   "intro": {
     "_hinweis": "Homepage intro and hero workflow. Exactly 9 modules in fixed roles; the 4 with \"hero\": true also appear in the hero. Icons: bag, sheet, router, globe, braces, spark, mail, iterator, hash, check, filter, doc, cart, bell, chat, store, user, box, pulse.",
@@ -79,7 +96,7 @@
     "text": "Transferring orders, creating invoices, checking stock, sorting requests. The same manual steps every day, and each one costs time and invites mistakes. Automations solve this, but only as long as they are maintained."
   },
   "services": {
-    "headline": "Services",
+    "headline": "Less manual work. *More calm.*",
     "cards": [
       {
         "title": "New automations",
@@ -93,10 +110,23 @@
         "title": "Ongoing support",
         "text": "I monitor your automations and fix errors before they cost you revenue."
       }
-    ]
+    ],
+    "lead": "From your first automation to ongoing care – all from one source.",
+    "log": [
+      "Order #10482 → Google Sheets",
+      "Invoice created · OpenAI",
+      "Confirmation sent to customer",
+      "Stock checked · 3 items low",
+      "Order #10483 → Google Sheets"
+    ],
+    "stat": {
+      "label": "Response time",
+      "value": "≤ 1 day",
+      "text": "I reply to every enquiry within one business day."
+    }
   },
   "support": {
-    "headline": "Support for running automations.",
+    "headline": "One fixed price. *No surprises.*",
     "subline": "Cancel monthly. Costs for Make and other tools are covered by you.",
     "labels": {
       "scenarios": "Scenarios",
@@ -137,10 +167,11 @@
         "highlight": false
       }
     ],
-    "note": "Larger new developments are offered separately. Access to your Make organisation is required."
+    "note": "Larger new developments are offered separately. Access to your Make organisation is required.",
+    "badge": "Popular"
   },
   "process": {
-    "headline": "How I work",
+    "headline": "From first call to a *running workflow.*",
     "steps": [
       {
         "title": "Conversation",
@@ -167,7 +198,7 @@
     "photoPlaceholder": "Portrait photo coming soon"
   },
   "contact": {
-    "headline": "Contact",
+    "headline": "Let's automate your *first workflow.*",
     "text": "Briefly tell me which tools you use and what should be automated. You will receive a reply within one business day.",
     "button": "Write an email"
   },

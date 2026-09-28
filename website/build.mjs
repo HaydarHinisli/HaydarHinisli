@@ -227,6 +227,11 @@ function introBlock(lang) {
   <script type="application/json" id="intro-data">${JSON.stringify({ three: intro3dUrl, glyphs: GLYPHS, modules: heroModules(lang) }).replace(/</g, '\\u003c')}</script>`;
 }
 
+// Akzentwörter: *so* in den Texten wird kursiv in der Serifenschrift gesetzt
+const emph = (s = '') => esc(s).replace(/\*(.+?)\*/g, '<em>$1</em>');
+// Liniensymbol (24er-Raster) ohne Hintergrund, z. B. für die Leistungskacheln
+const iconSVG = (name) => `<svg viewBox="0 0 24 24" focusable="false" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${ICONS[name]}</svg>`;
+
 const paragraphs = (arr) => (Array.isArray(arr) ? arr : [arr]).map((p) => `<p>${esc(p)}</p>`).join('\n');
 
 // ---------- Layout ----------
@@ -270,8 +275,8 @@ function layout({ lang, page, alternates, title, description, body, noindex = fa
   <meta name="theme-color" content="#ffffff">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-  <link rel="preload" href="/assets/fonts/inter-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="preload" href="/assets/fonts/inter-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/assets/fonts/geist-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/assets/fonts/geist-sans-latin-500-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="${cssUrl}">${intro ? `\n  <link rel="stylesheet" href="${introCssUrl}">\n  <script src="${introGateUrl}"></script>\n  <script src="${introJsUrl}" defer></script>` : ''}
   <noscript><link rel="stylesheet" href="/assets/css/nojs.css"></noscript>
   <script src="${jsUrl}" defer></script>${jsonLd}
@@ -281,7 +286,7 @@ function layout({ lang, page, alternates, title, description, body, noindex = fa
   <header class="site-header">
     <div class="container site-header__inner">
       <a class="logo" href="${home}">
-        <span class="logo__name">4ELEMENTS</span>
+        <span class="logo__mark" aria-hidden="true"></span><span class="logo__name">4ELEMENTS</span>
         <span class="logo__tagline">${esc(tx.ui.logoTagline)}</span>
       </a>
       <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="site-nav"
@@ -335,53 +340,83 @@ function homePage(lang) {
     ? image(site.portrait, tx.about.photoAlt, 'about__photo')
     : '';   // ohne Foto: nur Text (kein Platzhalter)
 
+  const kicker = (label) => `<p class="kicker">${esc(label)}</p>`;
+  const tools = tx.hero.tools || [];
+  const toolList = (hidden) => `<ul class="marquee__list"${hidden ? ' aria-hidden="true"' : ''}>${tools.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>`;
+  const bars = Array.from({ length: 30 }, (_, i) => `<i${i === 19 ? ' class="is-fixed"' : ''}></i>`).join('');
+
   const body = `
     <section class="hero">
       <div class="container hero__inner">
         <div class="hero__text">
-          <h1 class="hero__title">${esc(tx.hero.headline)}</h1>
+          <a class="pill" href="#${a.services}"><b>${esc(tx.hero.badge)}</b> ${esc(tx.hero.badgeText)} <span aria-hidden="true">→</span></a>
+          <h1 class="hero__title" data-split>${emph(tx.hero.headline)}</h1>
           <p class="hero__subline">${esc(tx.hero.subline)}</p>
-          <a class="button" href="#${a.contact}">${esc(tx.hero.button)}</a>
+          <div class="hero__ctas">
+            <a class="button" href="#${a.contact}">${esc(tx.hero.button)} <span class="button__arrow" aria-hidden="true">→</span></a>
+            <a class="button button--ghost" href="#${a.support}">${esc(tx.hero.secondary)}</a>
+          </div>
         </div>
-        <div class="hero__visual">
+        <div class="hero__visual window">
+          <div class="window__bar" aria-hidden="true"><i></i><i></i><i></i><span>${esc(tx.hero.windowTitle)}</span><b>${esc(tx.hero.windowStatus)}</b></div>
           ${heroScene(heroModules(lang), tx.ui.flowLabel)}
         </div>
+      </div>
+      <div class="container marquee" data-reveal>
+        <p class="marquee__label">${esc(tx.hero.toolsLabel)}</p>
+        <div class="marquee__track">${toolList(false)}${toolList(true)}</div>
       </div>
     </section>
 
     <section class="section problem" aria-labelledby="problem-title">
-      <div class="container" data-reveal>
-        <h2 class="eyebrow" id="problem-title">${esc(tx.problem.label)}</h2>
-        <p class="problem__text">${esc(tx.problem.text)}</p>
+      <div class="container">
+        <h2 class="kicker" id="problem-title">${esc(tx.problem.label)}</h2>
+        <p class="problem__text" data-words>${esc(tx.problem.text)}</p>
       </div>
     </section>
 
-    <section class="section section--alt" id="${a.services}" aria-labelledby="services-title">
+    <section class="section" id="${a.services}" aria-labelledby="services-title">
       <div class="container">
-        <h2 class="section__title" id="services-title">${esc(tx.services.headline)}</h2>
-        <ul class="cards">
-${tx.services.cards
-  .map(
-    (c, i) => `          <li class="card" data-reveal>
-            <span class="card__icon" aria-hidden="true">${moduleIcon(c.icon || ['spark', 'wrench', 'pulse'][i], c.color || '#1FA463')}<span class="module__shine"></span></span>
-            <h3 class="card__title">${esc(c.title)}</h3>
-            <p>${esc(c.text)}</p>
-          </li>`
-  )
-  .join('\n')}
+        ${kicker(tx.nav.services)}
+        <h2 class="section__title" id="services-title" data-reveal>${emph(tx.services.headline)}</h2>
+        <p class="section__lead" data-reveal>${esc(tx.services.lead || '')}</p>
+        <ul class="bento">
+          <li class="tile tile--wide" data-reveal>
+            <span class="tile__icon" aria-hidden="true">${iconSVG('spark')}</span>
+            <h3 class="tile__title">${esc(tx.services.cards[0].title)}</h3>
+            <p>${esc(tx.services.cards[0].text)}</p>
+            <div class="log" aria-hidden="true" data-log="${esc(JSON.stringify(tx.services.log || []))}"></div>
+          </li>
+          <li class="tile tile--stat" data-reveal>
+            <h3 class="tile__title">${esc(tx.services.stat.label)}</h3>
+            <p class="stat">${esc(tx.services.stat.value)}</p>
+            <p>${esc(tx.services.stat.text)}</p>
+          </li>
+          <li class="tile" data-reveal>
+            <span class="tile__icon" aria-hidden="true">${iconSVG('wrench')}</span>
+            <h3 class="tile__title">${esc(tx.services.cards[1].title)}</h3>
+            <p>${esc(tx.services.cards[1].text)}</p>
+          </li>
+          <li class="tile tile--wide" data-reveal>
+            <span class="tile__icon" aria-hidden="true">${iconSVG('pulse')}</span>
+            <h3 class="tile__title">${esc(tx.services.cards[2].title)}</h3>
+            <p>${esc(tx.services.cards[2].text)}</p>
+            <div class="uptime" aria-hidden="true">${bars}</div>
+          </li>
         </ul>
       </div>
     </section>
 
-    <section class="section section--dark" id="${a.support}" aria-labelledby="support-title">
+    <section class="section section--alt" id="${a.support}" aria-labelledby="support-title">
       <div class="container">
-        <h2 class="section__title" id="support-title">${esc(tx.support.headline)}</h2>
-        <p class="section__lead">${esc(tx.support.subline)}</p>
+        ${kicker(tx.nav.support)}
+        <h2 class="section__title" id="support-title" data-reveal>${emph(tx.support.headline)}</h2>
+        <p class="section__lead" data-reveal>${esc(tx.support.subline)}</p>
         <ul class="plans">
 ${tx.support.plans
   .map(
     (p) => `          <li class="plan${p.highlight ? ' plan--highlight' : ''}" data-reveal>
-            <h3 class="plan__name">${esc(p.name)}</h3>
+            <h3 class="plan__name">${esc(p.name)}${p.highlight && tx.support.badge ? ` <span class="plan__badge">${esc(tx.support.badge)}</span>` : ''}</h3>
             <p class="plan__price"><span class="plan__amount">${esc(p.price)}</span> <span class="plan__period">${esc(p.period)}</span></p>
             <dl class="plan__features">
               <div><dt>${esc(tx.support.labels.scenarios)}</dt><dd>${esc(p.scenarios)}</dd></div>
@@ -389,7 +424,7 @@ ${tx.support.plans
               <div><dt>${esc(tx.support.labels.changes)}</dt><dd>${esc(p.changes)}</dd></div>
               <div><dt>${esc(tx.support.labels.report)}</dt><dd>${esc(p.report)}</dd></div>
             </dl>
-            <a class="button${p.highlight ? '' : ' button--outline'}" href="${esc(mailto(`${tx.mail.packageSubject} ${p.name}`))}">${esc(tx.support.button)}<span class="visually-hidden">: ${esc(p.name)}</span></a>
+            <a class="button${p.highlight ? '' : ' button--ghost'}" href="${esc(mailto(`${tx.mail.packageSubject} ${p.name}`))}">${esc(tx.support.button)}<span class="visually-hidden">: ${esc(p.name)}</span></a>
           </li>`
   )
   .join('\n')}
@@ -400,8 +435,9 @@ ${tx.support.plans
 
     <section class="section" id="${a.process}" aria-labelledby="process-title">
       <div class="container">
-        <h2 class="section__title" id="process-title">${esc(tx.process.headline)}</h2>
-        <ol class="steps">
+        ${kicker(tx.nav.process)}
+        <h2 class="section__title" id="process-title" data-reveal>${emph(tx.process.headline)}</h2>
+        <ol class="steps" data-progress>
 ${tx.process.steps
   .map(
     (s, i) => `          <li class="step" data-reveal>
@@ -418,18 +454,21 @@ ${tx.process.steps
     <section class="section section--alt" id="${a.about}" aria-labelledby="about-title">
       <div class="container about${site.portrait ? '' : ' about--text'}" data-reveal>
         ${photo}<div class="about__text">
-          <h2 class="section__title" id="about-title">${esc(tx.about.headline)}</h2>
+          <h2 class="section__title" id="about-title">${emph(tx.about.headline)}</h2>
           <p>${esc(tx.about.text)}</p>
         </div>
       </div>
     </section>
 
     <section class="section contact" id="${a.contact}" aria-labelledby="contact-title">
-      <div class="container container--narrow" data-reveal>
-        <h2 class="section__title" id="contact-title">${esc(tx.contact.headline)}</h2>
-        <p class="contact__text">${esc(tx.contact.text)}</p>
-        <a class="button button--large" href="${esc(mailto(tx.mail.subject))}">${esc(tx.contact.button)}</a>
-        <p class="contact__address"><a href="${esc(mailto(tx.mail.subject))}">${esc(site.email)}</a></p>
+      <div class="container">
+        <div class="contact__card" data-reveal>
+          ${kicker(tx.nav.contact)}
+          <h2 class="section__title" id="contact-title">${emph(tx.contact.headline)}</h2>
+          <p class="contact__text">${esc(tx.contact.text)}</p>
+          <a class="button button--large" href="${esc(mailto(tx.mail.subject))}">${esc(tx.contact.button)} <span class="button__arrow" aria-hidden="true">→</span></a>
+          <p class="contact__address"><a href="${esc(mailto(tx.mail.subject))}">${esc(site.email)}</a></p>
+        </div>
       </div>
     </section>`;
 
