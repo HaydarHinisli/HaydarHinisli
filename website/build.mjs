@@ -299,7 +299,8 @@ function layout({ lang, page, alternates, title, description, body, noindex = fa
   <header class="site-header">
     <div class="container site-header__inner">
       <a class="logo" href="${home}">
-        <span class="logo__mark" aria-hidden="true"></span><span class="logo__name">4ELEMENTS</span>
+        <svg class="logo__mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><defs><linearGradient id="lg4" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7af5c2"/><stop offset="1" stop-color="#1fa463"/></linearGradient></defs><rect x="3" y="3" width="11" height="11" rx="3.5" fill="url(#lg4)"/><rect x="18" y="3" width="11" height="11" rx="3.5" fill="currentColor" opacity=".9"/><rect x="3" y="18" width="11" height="11" rx="3.5" fill="currentColor" opacity=".9"/><rect x="18" y="18" width="11" height="11" rx="5.5" fill="currentColor" opacity=".35"/></svg>
+        <span class="logo__name"><span class="logo__four">4</span>ELEMENTS</span>
         <span class="logo__tagline">${esc(tx.ui.logoTagline)}</span>
       </a>
       <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="site-nav"
@@ -322,6 +323,7 @@ function layout({ lang, page, alternates, title, description, body, noindex = fa
               : `<li><a href="${alternates[l]}" hreflang="${l}" lang="${l}">${l.toUpperCase()}</a></li>`
           ).join('<li aria-hidden="true" class="lang-switch__sep">|</li>')}
         </ul>
+        <a class="button button--small nav-cta" href="${navHref(a.contact)}">${esc(tx.hero.button)} <span class="button__arrow" aria-hidden="true">→</span></a>
       </nav>
     </div>
   </header>
