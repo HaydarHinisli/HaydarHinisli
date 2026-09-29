@@ -62,6 +62,7 @@ python3 -m lernloop catalog refresh          # Seitenkatalog aus den Sitemaps au
 python3 -m lernloop plan                     # Themen und Lernziele
 python3 -m lernloop learn --topic T01        # eine Lernsitzung (nächstes offenes Lernziel)
 python3 -m lernloop learn --resume           # unterbrochene Sitzung fortsetzen
+python3 -m lernloop learn --alle-themen      # alle offenen Lernziele nacheinander (max. 10 pro Lauf)
 python3 -m lernloop report coverage          # Abdeckung im Themenkatalog
 python3 -m lernloop review list              # Entwürfe, Befunde, unbewertete Übungen
 python3 -m lernloop claim ERK-000001         # Erkenntnis mit Belegen und Verlauf

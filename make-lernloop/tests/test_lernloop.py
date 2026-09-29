@@ -386,6 +386,39 @@ class NarrowingFindingTests(unittest.TestCase):
         self.assertIn("Ausnahme", old["offener_befund"])
 
 
+class BatchLearnTests(unittest.TestCase):
+    def test_batch_runs_open_goals_and_stops_when_paused(self):
+        from lernloop import cli
+        cfg, conn, _ = make_env()
+        web = FakeWeb()
+        calls = {"n": 0}
+
+        def responder(step, prompt, schema):
+            if step == "plan":
+                calls["n"] += 1
+                if calls["n"] == 3:
+                    raise UsageLimitReached("usage limit reached")
+            return good_responder(step, prompt, schema)
+
+        args = cli.build_parser().parse_args(["learn", "--alle-themen", "--topic", "T01", "--max-sitzungen", "5"])
+        with mock.patch.object(cli, "make_client", return_value=FakeClient(responder)), \
+                mock.patch.object(cli, "_fetcher_factory", return_value=fetcher_factory(cfg, web)), \
+                mock.patch("builtins.print"):
+            self.assertEqual(cli.cmd_learn(args, cfg), 0)
+        rows = conn.execute("SELECT id, state, goal_id FROM session ORDER BY id").fetchall()
+        self.assertEqual([r["goal_id"] for r in rows], ["T01-Z1", "T01-Z2", "T01-Z3"])
+        self.assertEqual([r["state"] for r in rows][:2], [TERMINAL, TERMINAL])
+        self.assertNotEqual(rows[2]["state"], TERMINAL)  # dritte pausiert → Lauf endet
+        # Zweiter Lauf setzt die pausierte Sitzung zuerst fort
+        args2 = cli.build_parser().parse_args(["learn", "--alle-themen", "--topic", "T01", "--max-sitzungen", "1"])
+        with mock.patch.object(cli, "make_client", return_value=FakeClient(good_responder)), \
+                mock.patch.object(cli, "_fetcher_factory", return_value=fetcher_factory(cfg, web)), \
+                mock.patch("builtins.print"):
+            cli.cmd_learn(args2, cfg)
+        self.assertEqual(conn.execute("SELECT state FROM session WHERE id=?", (rows[2]["id"],)).fetchone()[0],
+                         TERMINAL)
+
+
 class McpServerTests(unittest.TestCase):
     def test_protocol_roundtrip_and_tools(self):
         import io

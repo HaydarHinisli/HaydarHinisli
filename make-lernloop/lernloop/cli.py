@@ -164,9 +164,70 @@ def cmd_catalog(args, cfg):
             print(f"Katalog gesamt: {catalog.count(conn)}")
 
 
+def _write_report(cfg, conn, sid):
+    rep = report.session_report(conn, sid)
+    out = cfg.safe_path("reports", f"{sid}.html")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(report.render_html(rep), encoding="utf-8")
+    return rep
+
+
+def cmd_learn_batch(args, cfg, conn, client):
+    """Mehrere Sitzungen nacheinander: alle offenen Lernziele (optional nur eines Themas),
+    bis nichts mehr offen ist, das Sitzungsmaximum erreicht ist oder ein Limit greift."""
+    done, tried = [], set()
+    with SessionLock(cfg.lock_path, "learn --alle-themen"):
+        pending = unfinished_sessions(conn)
+        queue = [("resume", pending[-1]["id"])] if pending else []
+        while len(done) < args.max_sitzungen:
+            if queue:
+                _, sid = queue.pop(0)
+                label = "fortgesetzt"
+            else:
+                q = "SELECT * FROM goal WHERE status='offen'"
+                params: list = []
+                if args.topic:
+                    q += " AND topic_id=?"
+                    params.append(args.topic)
+                goals = [g for g in conn.execute(q + " ORDER BY topic_id, ord", params) if g["id"] not in tried]
+                if not goals:
+                    print("\nKeine offenen Lernziele mehr" + (f" in {args.topic}." if args.topic else "."))
+                    break
+                goal = goals[0]
+                tried.add(goal["id"])
+                sess = LearningSession(cfg, conn, client, _fetcher_factory(cfg))
+                sid = sess.create(goal["topic_id"], goal["id"])
+                label = "neu"
+            sess = LearningSession(cfg, conn, client, _fetcher_factory(cfg))
+            sess.load(sid)
+            row = conn.execute("SELECT goal_id FROM session WHERE id=?", (sid,)).fetchone()
+            print(f"\n=== Sitzung {sid} ({label}) – {row['goal_id']} ===")
+            state = sess.run()
+            rep = _write_report(cfg, conn, sid)
+            done.append((sid, row["goal_id"], rep["lernziel_status"], rep["abschlussgrund"] or "pausiert"))
+            print(f"→ {row['goal_id']}: {rep['lernziel_status']} ({rep['abschlussgrund'] or rep['pausiert']})")
+            if state != TERMINAL:
+                print("\nPausiert – der Lauf endet hier. Später einfach denselben Befehl erneut starten.")
+                break
+    print("\nÜbersicht dieses Laufs:")
+    for sid, gid, status, reason in done:
+        print(f"  {sid}  {gid}: {status} ({reason})")
+    print("Details: python3 -m lernloop report session <SITZUNG>   Stand: python3 -m lernloop report coverage")
+    return 0
+
+
 def cmd_learn(args, cfg):
     conn = _open(cfg)
     client = make_client(cfg)
+    if args.all_topics:
+        try:
+            return cmd_learn_batch(args, cfg, conn, client)
+        except LockHeld as exc:
+            print(exc)
+            return 1
+        except (ValueError, FetchRefused) as exc:
+            print(f"Fehler: {exc}")
+            return 1
     try:
         with SessionLock(cfg.lock_path, "learn") as lock:
             if lock.stale_previous:
@@ -482,6 +543,10 @@ def build_parser() -> argparse.ArgumentParser:
     l.add_argument("--goal")
     l.add_argument("--resume", nargs="?", const="", help="unterbrochene Sitzung fortsetzen (ID optional)")
     l.add_argument("--discard", metavar="SITZUNG", help="unfertige Sitzung verwerfen")
+    l.add_argument("--alle-themen", dest="all_topics", action="store_true",
+                   help="alle offenen Lernziele nacheinander lernen (mit --topic nur eines Themas)")
+    l.add_argument("--max-sitzungen", type=int, default=10,
+                   help="höchstens so viele Sitzungen pro Lauf (Standard 10)")
 
     a = sub.add_parser("ask", help="Frage beantworten (mit Belegen)")
     a.add_argument("question")
