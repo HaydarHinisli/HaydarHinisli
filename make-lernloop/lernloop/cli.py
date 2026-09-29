@@ -388,6 +388,47 @@ def cmd_mcp(args, cfg):
     return 0
 
 
+WORKSPACE_CLAUDE_MD = """# Make-Arbeitsordner
+
+Hier arbeitet {name} mit Make.com: Szenarien planen, bauen, Fehler finden, Fragen klären.
+
+## Wissen
+- Bei JEDER Frage oder Aufgabe zu Make zuerst das Werkzeug `make_wissen_suchen` (Server
+  „make-wissen“) nutzen – mit englischen Make-Begriffen (Modulnamen, Funktionen), ggf. mehrmals.
+- Antworten auf die gefundenen Erkenntnisse stützen und deren IDs nennen (z. B. ERK-000201).
+  Mit `make_erkenntnis` lassen sich Zitat und Quelle zeigen.
+- Status ernst nehmen: „dokumentiert“ = wörtlich in der offiziellen Doku; offener Befund oder
+  „widersprüchlich“ = nur mit Vorbehalt. Nichts davon ist praktisch in Make getestet.
+- Ist etwas nicht im Speicher, das offen sagen und eigenes Wissen als ungeprüft kennzeichnen.
+- Bei wichtigen oder unsicheren Punkten einen Mini-Test vorschlagen: kleines Testszenario mit
+  Beispieldaten, „Run once“, worauf im Ergebnis zu achten ist. Keine echten Kundendaten.
+
+## Dateien in diesem Ordner
+- `blueprints/`: exportierte Szenarien (Make: Szenario → … → Export Blueprint). Bei Fragen zu
+  einem Szenario die passende Datei lesen und konkret darauf eingehen.
+- `notizen/`: eigene Notizen, Kundenanforderungen, Testergebnisse.
+
+## Sprache und Stil
+- Deutsch, einfach erklärt. Schritt für Schritt, wenn es ums Bauen in Make geht.
+- Den Lernloop-Ordner (`~/HaydarHinisli/make-lernloop`) hier nicht verändern.
+"""
+
+
+def cmd_workspace(args, cfg):
+    target = Path(args.path).expanduser().resolve()
+    target.mkdir(parents=True, exist_ok=True)
+    for sub in ("blueprints", "notizen"):
+        (target / sub).mkdir(exist_ok=True)
+    md = target / "CLAUDE.md"
+    if md.exists():
+        print(f"{md} existiert schon – nicht überschrieben.")
+    else:
+        md.write_text(WORKSPACE_CLAUDE_MD.format(name=args.name), encoding="utf-8")
+        print(f"Angelegt: {md}")
+    print(f"Arbeitsordner: {target}\nStarten mit:  cd {target} && claude")
+    return 0
+
+
 def cmd_mcp_install(args, cfg):
     import subprocess
     script = PKG.parent / "mcp_server.py"
@@ -479,6 +520,9 @@ def build_parser() -> argparse.ArgumentParser:
     mi = sub.add_parser("mcp-install", help="Wissensspeicher als 'make-wissen' in Claude Code eintragen")
     mi.add_argument("--scope", choices=["user", "local", "project"], default="user",
                     help="user = in allen Claude-Code-Fenstern verfügbar (Standard)")
+    ws = sub.add_parser("arbeitsordner", help="Ordner für die tägliche Make-Arbeit mit Claude anlegen")
+    ws.add_argument("--path", default="~/make-arbeit")
+    ws.add_argument("--name", default="der Nutzer")
     sub.add_parser("export", help="Wissensbestand als JSON Lines exportieren")
     sub.add_parser("backup", help="Sicherung der Datenbank anlegen")
     rs = sub.add_parser("restore", help="Sicherung wiederherstellen")
@@ -489,7 +533,7 @@ def build_parser() -> argparse.ArgumentParser:
 COMMANDS = {"init": cmd_init, "doctor": cmd_doctor, "plan": cmd_plan, "catalog": cmd_catalog, "learn": cmd_learn,
             "ask": cmd_ask, "review": cmd_review, "task": cmd_task, "report": cmd_report, "claim": cmd_claim,
             "export": cmd_export, "backup": cmd_backup, "restore": cmd_restore, "mcp": cmd_mcp,
-            "mcp-install": cmd_mcp_install}
+            "mcp-install": cmd_mcp_install, "arbeitsordner": cmd_workspace}
 
 
 def main(argv=None) -> int:
