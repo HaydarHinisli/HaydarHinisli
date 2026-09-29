@@ -1463,3 +1463,5 @@ html.theme-futur .site-nav a.nav-cta, html.theme-futur .site-nav a.nav-cta:hover
 /* Kopfbereich reicht unter die schwebende Leiste */
 html.theme-futur main { padding-top: 0; }
 html.theme-futur .hero { padding-top: clamp(6.5rem, 10vw, 8rem); }
+/* Wortmarke: „4“ in derselben Schrift wie ELEMENTS (nur farbig abgesetzt) */
+.logo__four { font-family: var(--font); font-style: normal; font-weight: 600; font-size: 1em; vertical-align: 0; margin-right: 0; }
