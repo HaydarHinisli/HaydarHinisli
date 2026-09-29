@@ -106,6 +106,38 @@
     }
   }
 
+  // Thema „futur“: Lichtschein folgt der Maus, Abschnittsbeschriftungen „entschlüsseln“ sich beim Erscheinen
+  if (!reduce && d.classList.contains('theme-futur')) {
+    var glowEl = document.querySelector('.cursor-glow');
+    if (glowEl && window.matchMedia('(hover: hover) and (pointer: fine)').matches) {
+      var gx = 0, gy = 0, gq = false;
+      window.addEventListener('pointermove', function (e) {
+        gx = e.clientX; gy = e.clientY;
+        if (!gq) { gq = true; requestAnimationFrame(function () { glowEl.style.setProperty('--cx', gx + 'px'); glowEl.style.setProperty('--cy', gy + 'px'); gq = false; }); }
+      }, { passive: true });
+    }
+    if ('IntersectionObserver' in window) {
+      var CH = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/<>_#';
+      var scramble = function (el) {
+        var final = el.textContent, start = null, dur = 700;
+        var step = function (ts) {
+          if (!start) start = ts;
+          var p = Math.min(1, (ts - start) / dur), out = '';
+          for (var i = 0; i < final.length; i++) {
+            out += final[i] === ' ' || i < p * final.length ? final[i] : CH[Math.floor(Math.random() * CH.length)];
+          }
+          el.textContent = out;
+          if (p < 1) requestAnimationFrame(step); else el.textContent = final;
+        };
+        requestAnimationFrame(step);
+      };
+      var ko = new IntersectionObserver(function (entries) {
+        entries.forEach(function (en) { if (en.isIntersecting) { ko.unobserve(en.target); scramble(en.target); } });
+      }, { rootMargin: '0px 0px -10% 0px' });
+      document.querySelectorAll('.kicker').forEach(function (k) { ko.observe(k); });
+    }
+  }
+
   // Live-Protokoll in der Leistungs-Kachel: neue Zeilen laufen ein, solange die Kachel sichtbar ist
   var log = document.querySelector('[data-log]');
   if (log) {

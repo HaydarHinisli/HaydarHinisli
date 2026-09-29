@@ -24,5 +24,11 @@
   "portrait": "",
 
   "_introVariant": "Intro der Startseite: \"3d\" (Fahrt entlang der Workflow-Kette, ca. 5 s) oder \"aus\". Vorschau: /?intro=3d",
-  "introVariant": "3d"
+  "introVariant": "3d",
+
+  "_theme": "Gestaltung der Website: \"futur\" (dunkel, futuristisch) oder \"hell\" (warmes Off-White).",
+  "theme": "futur",
+
+  "_heroBackground": "Lebendiger Hintergrund im Kopfbereich (Module finden sich laufend zu Workflows): true = an, false = aus.",
+  "heroBackground": false
 }

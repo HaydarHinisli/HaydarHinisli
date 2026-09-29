@@ -11,6 +11,12 @@ import {
 } from 'three';
 
 const ACCENT = '#3ddc97';
+// Dunkles Thema der Website („futur“): Intro fährt ebenfalls im Dunkeln
+const DARK = typeof document !== 'undefined' && document.documentElement.classList.contains('theme-futur');
+const BG = DARK ? 0x05070a : 0xffffff;
+const P = DARK
+  ? { plate: 'rgba(14,19,26,0.92)', name: '#eef2f5', nameIdle: '#5d6773', badge: '#1c232b', badgeIdle: '#141a20', nr: '#a9b3bd', nrIdle: '#4f5a66', dot: '#1b2a24', floor: '#05070a', idleMix: '#1a2027' }
+  : { plate: '#ffffff', name: '#1c1f23', nameIdle: '#9aa1a9', badge: '#e5e7ea', badgeIdle: '#eef0f2', nr: '#525961', nrIdle: '#b4bac1', dot: '#d3d8dd', floor: '#fff', idleMix: '#e6e9ec' };
 const GAP = 6.5;               // Abstand der Module (Welteinheiten, Fahrtrichtung x)
 const EYE = 1.35;              // Augenhöhe über der Kette
 const FLOOR = -0.04;           // Boden knapp unter der Kette
@@ -30,21 +36,21 @@ export function run(o) {
   const renderer = new WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.setSize(W, H);
-  renderer.setClearColor(0xffffff);
+  renderer.setClearColor(BG);
   renderer.outputColorSpace = SRGBColorSpace;
   const aniso = renderer.capabilities.getMaxAnisotropy();
   const canvas = renderer.domElement;
   canvas.className = 'intro__canvas';
   container.appendChild(canvas);
   const scene = new Scene();
-  scene.fog = new Fog(0xffffff, 5, 9.5);
+  scene.fog = new Fog(BG, 5, 9.5);
 
   // ---------- Boden: dezentes Punktraster, zeigt Tempo und Tiefe ----------
   const dc = document.createElement('canvas'); dc.width = dc.height = 64;
   const dg = dc.getContext('2d');
-  dg.fillStyle = '#fff'; dg.fillRect(0, 0, 64, 64); dg.fillStyle = '#d3d8dd';
+  dg.fillStyle = P.floor; dg.fillRect(0, 0, 64, 64); dg.fillStyle = DARK ? '#1f5a44' : P.dot;
   dg.beginPath(); dg.arc(32, 32, 3, 0, 7); dg.fill();
-  const ftex = new CanvasTexture(dc); ftex.wrapS = ftex.wrapT = RepeatWrapping; ftex.repeat.set(120, 120); ftex.anisotropy = aniso;
+  const ftex = new CanvasTexture(dc); ftex.wrapS = ftex.wrapT = RepeatWrapping; ftex.repeat.set(120, 120); ftex.anisotropy = aniso; ftex.colorSpace = SRGBColorSpace;
   const floorMat = new MeshBasicMaterial({ map: ftex, transparent: true });
   const floor = new Mesh(new PlaneGeometry(200, 200), floorMat);
   floor.rotation.x = -Math.PI / 2; floor.position.set(10, FLOOR - 0.001, 0); scene.add(floor);
@@ -318,14 +324,14 @@ function moduleCanvas(m, st, GLYPHS) {
   const c = document.createElement('canvas'); c.width = 640; c.height = 640;
   const g = c.getContext('2d'); const cx = 320, cy = 250, R = 150;
   const idle = st.state === 'idle', k3 = idle ? 0.45 : 1;
-  const col = idle ? mix(m.color, '#e6e9ec', 0.72) : m.color;
+  const col = idle ? mix(m.color, P.idleMix, 0.72) : m.color;
   const bare = !!st.bare;          // wie im Kopfbereich: kein Schein, kein Lichtrand, keine Beschriftung
   if (!idle && !bare) {            // Aufleuchten: kräftiger Farbschein
     const gl = g.createRadialGradient(cx, cy, R * 0.6, cx, cy, R * 1.9); gl.addColorStop(0, m.color + 'aa'); gl.addColorStop(1, m.color + '00');
     g.fillStyle = gl; g.fillRect(0, 0, 640, 640);
   }
   floorShadow(g, cx + 22, cy + R + 16, R * 1.05, R * 0.2, idle ? 0.1 : 0.22);
-  const conn = idle ? mix(m.color, '#e6e9ec', 0.8) : mix(m.color, '#1c1f23', 0.3);
+  const conn = idle ? mix(m.color, P.idleMix, 0.8) : mix(m.color, '#1c1f23', 0.3);
   for (const [x, a0, a1, ccw] of [[cx - R - 18, Math.PI / 2, -Math.PI / 2, true], [cx + R + 18, -Math.PI / 2, Math.PI / 2, false]]) {
     const cg = g.createLinearGradient(x, cy - 48, x + 10, cy + 48);
     cg.addColorStop(0, mix(conn, '#ffffff', 0.3 * k3)); cg.addColorStop(1, mix(conn, '#000000', 0.25 * k3));
@@ -365,11 +371,11 @@ function moduleCanvas(m, st, GLYPHS) {
   g.font = '600 58px Geist, sans-serif';
   const nameW = g.measureText(m.app).width, bw = 54, total = nameW + 14 + bw, x0 = cx - total / 2;
   const pw = Math.min(620, Math.max(total, aw) + 40);
-  g.save(); g.shadowColor = 'rgba(20,30,40,0.12)'; g.shadowBlur = 22; g.shadowOffsetY = 6; g.fillStyle = '#ffffff';
+  g.save(); g.shadowColor = DARK ? 'rgba(0,0,0,0.5)' : 'rgba(20,30,40,0.12)'; g.shadowBlur = 22; g.shadowOffsetY = 6; g.fillStyle = P.plate;
   g.beginPath(); roundRect(g, cx - pw / 2, 440, pw, 140, 22); g.fill(); g.restore();
-  g.fillStyle = idle ? '#9aa1a9' : '#1c1f23'; g.textAlign = 'left'; g.fillText(m.app, x0, 500);
-  g.fillStyle = idle ? '#eef0f2' : '#e5e7ea'; g.beginPath(); roundRect(g, x0 + nameW + 14, 452, bw, 58, 10); g.fill();
-  g.fillStyle = idle ? '#b4bac1' : '#525961'; g.font = '600 38px Geist, sans-serif'; g.textAlign = 'center'; g.fillText(String(m.nr), x0 + nameW + 14 + bw / 2, 494);
+  g.fillStyle = idle ? P.nameIdle : P.name; g.textAlign = 'left'; g.fillText(m.app, x0, 500);
+  g.fillStyle = idle ? P.badgeIdle : P.badge; g.beginPath(); roundRect(g, x0 + nameW + 14, 452, bw, 58, 10); g.fill();
+  g.fillStyle = idle ? P.nrIdle : P.nr; g.font = '600 38px Geist, sans-serif'; g.textAlign = 'center'; g.fillText(String(m.nr), x0 + nameW + 14 + bw / 2, 494);
   g.font = '400 42px Geist, sans-serif'; g.fillText(m.action, cx, 562);
   return c;
 }

@@ -264,7 +264,7 @@ function layout({ lang, page, alternates, title, description, body, noindex = fa
   ).join('\n  ');
 
   return `<!doctype html>
-<html lang="${lang}"${intro ? ` data-intro="${esc(site.introVariant || '3d')}"` : ''}>
+<html lang="${lang}" class="theme-${esc(site.theme || 'hell')}"${intro ? ` data-intro="${esc(site.introVariant || '3d')}"` : ''}>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -285,17 +285,17 @@ function layout({ lang, page, alternates, title, description, body, noindex = fa
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="theme-color" content="#ffffff">
+  <meta name="theme-color" content="${site.theme === 'futur' ? '#05070a' : '#fbfaf8'}">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <link rel="preload" href="/assets/fonts/geist-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/assets/fonts/geist-sans-latin-500-normal.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="${cssUrl}">${intro ? `\n  <link rel="stylesheet" href="${introCssUrl}">\n  <script src="${introGateUrl}"></script>\n  <script src="${introJsUrl}" defer></script>\n  <script src="${flowUrl}" defer></script>` : ''}
+  <link rel="stylesheet" href="${cssUrl}">${intro ? `\n  <link rel="stylesheet" href="${introCssUrl}">\n  <script src="${introGateUrl}"></script>\n  <script src="${introJsUrl}" defer></script>${site.heroBackground ? `\n  <script src="${flowUrl}" defer></script>` : ''}` : ''}
   <noscript><link rel="stylesheet" href="/assets/css/nojs.css"></noscript>
   <script src="${jsUrl}" defer></script>${jsonLd}
 </head>
 <body>${intro ? '\n  ' + introBlock(lang) : ''}
-  <a class="skip-link" href="#main">${esc(tx.ui.skipLink)}</a>
+  ${site.theme === 'futur' ? '<div class="cursor-glow" aria-hidden="true"></div>\n  ' : ''}<a class="skip-link" href="#main">${esc(tx.ui.skipLink)}</a>
   <header class="site-header">
     <div class="container site-header__inner">
       <a class="logo" href="${home}">
@@ -360,8 +360,9 @@ function homePage(lang) {
 
   const body = `
     <section class="hero">
-      <div class="flow" data-flow aria-hidden="true"></div>
-      <script type="application/json" id="flow-data">${JSON.stringify({ modules: flowModules, icons: ICONS, glyphs: GLYPHS }).replace(/</g, '\\u003c')}</script>
+      ${site.heroBackground ? `<div class="flow" data-flow aria-hidden="true"></div>
+      <script type="application/json" id="flow-data">${JSON.stringify({ modules: flowModules, icons: ICONS, glyphs: GLYPHS }).replace(/</g, '\\u003c')}</script>` : ''}
+      <div class="hero__fx" aria-hidden="true"><span class="aurora aurora--1"></span><span class="aurora aurora--2"></span><span class="hero__floor"></span></div>
       <div class="container hero__inner">
         <div class="hero__text">
           <a class="pill" href="#${a.services}"><b>${esc(tx.hero.badge)}</b> <span class="pill__text">${esc(tx.hero.badgeText)}</span> <span aria-hidden="true">→</span></a>
