@@ -18,3 +18,66 @@ goals = [
   "Wie wirken sich Iteration und Aggregation auf den Verbrauch (Operationen bzw. Credits) aus?",
   "Welche Anleitungen zu Iteration und Aggregation sind veraltet oder widersprüchlich?",
 ]
+
+# --- Erweiterung nach den Arbeitsschwerpunkten des Nutzers (29.09.2026) ---
+# Hinweis: Das zieht den Ausbau (Brief Phase 4) vor den A/B-Vergleich (Phase 3) vor – auf Wunsch
+# des Auftraggebers, weil der praktische Nutzen im Arbeits-Chat im Vordergrund steht.
+# Beispiele in den Lernzielen („z. B.“) sind Suchhilfen, keine belegten Fakten.
+
+[[topic]]
+id = "T02"
+title = "Webhooks und Trigger"
+description = "Wie Szenarien gestartet werden: Webhooks, sofortige und zeitgesteuerte Trigger, Zeitplanung."
+prerequisites = ["T01"]
+preferred_hosts = ["help.make.com", "apps.make.com"]
+goals = [
+  "Welche Arten von Triggern gibt es in Make (z. B. sofortige und zeitgesteuerte), und wie unterscheiden sie sich?",
+  "Wie richtet man einen Custom Webhook ein, und wie wird die Datenstruktur der eingehenden Daten festgelegt?",
+  "Wie antwortet ein Szenario auf einen Webhook-Aufruf (Webhook response), und was passiert ohne konfigurierte Antwort?",
+  "Was passiert mit eingehenden Webhook-Daten, wenn das Szenario ausgeschaltet ist oder gerade läuft (Warteschlange, Grenzen)?",
+  "Wie funktioniert die Zeitplanung eines Szenarios, und wie wirkt sie sich auf Operations bzw. Credits aus?",
+  "Wie legt ein Trigger fest, ab welchen Daten er startet, und wie wird doppelte Verarbeitung vermieden?",
+]
+
+[[topic]]
+id = "T03"
+title = "Router und Filter"
+description = "Abläufe verzweigen und Daten nach Bedingungen weiterleiten."
+prerequisites = ["T01"]
+preferred_hosts = ["help.make.com", "apps.make.com"]
+goals = [
+  "Wie funktioniert der Router: Reihenfolge der Routen, Ausführung, Fallback-Route?",
+  "Wie legt man Filter zwischen Modulen an, welche Operatoren gibt es, und wie werden mehrere Bedingungen kombiniert?",
+  "Verbrauchen Router und Filter Operations bzw. Credits?",
+  "Was passiert mit einem Bundle, das einen Filter nicht passiert?",
+  "Wann nimmt man einen Filter und wann eine Funktion im Mapping (z. B. if, switch)?",
+]
+
+[[topic]]
+id = "T04"
+title = "Fehlerbehandlung"
+description = "Fehlerarten, Error Handler, unvollständige Ausführungen und Wiederholungen."
+prerequisites = ["T01"]
+preferred_hosts = ["help.make.com", "apps.make.com"]
+goals = [
+  "Welche Fehlerarten gibt es in Make, und was bedeuten sie?",
+  "Welche Error Handler gibt es, und was bewirkt jeder davon?",
+  "Was passiert standardmäßig, wenn ein Modul einen Fehler wirft (Abbruch, Deaktivierung, Benachrichtigung)?",
+  "Wie funktionieren unvollständige Ausführungen (incomplete executions) und automatische Wiederholungen?",
+  "Wie verhindert man doppelte Verarbeitung, wenn ein Szenario nach einem Fehler erneut läuft?",
+]
+
+[[topic]]
+id = "T05"
+title = "Google Sheets und E-Mail"
+description = "Tabellen lesen und schreiben, E-Mails senden und auslesen."
+prerequisites = ["T01"]
+preferred_hosts = ["apps.make.com", "help.make.com"]
+goals = [
+  "Welche Module bietet Google Sheets in Make, und welche Voraussetzungen gelten (Verbindung, Kopfzeile)?",
+  "Wie sucht man Zeilen in Google Sheets, und wie verhält sich das Modul bei keinem oder mehreren Treffern?",
+  "Wie aktualisiert man gezielt eine bestimmte Zeile, und worauf muss man dabei achten?",
+  "Welche Trigger gibt es für Google Sheets, und was muss man bei ihnen beachten?",
+  "Wie versendet man E-Mails mit Make (Gmail bzw. E-Mail-App), inklusive Anhängen und HTML?",
+  "Wie liest man E-Mails mit Make aus und verarbeitet Anhänge?",
+]

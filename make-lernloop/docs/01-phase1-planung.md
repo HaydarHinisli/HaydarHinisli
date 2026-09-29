@@ -496,6 +496,14 @@ Backup-API (konsistent auch während Nutzung); Wiederherstellung mit Prüfsummen
 `README.md`); Schritt 7 (verschlüsselte Prüfsammlung) folgt mit Phase 3. Schritt 9 (Pilotdurchlauf)
 startet auf dem Laptop des Auftraggebers.
 
+### Themenausbau (29.09.2026, auf Wunsch des Auftraggebers)
+
+Nach dem ersten Themenbereich wurden vier weitere nach den Arbeitsschwerpunkten angelegt:
+T02 Webhooks und Trigger, T03 Router und Filter, T04 Fehlerbehandlung, T05 Google Sheets und E-Mail.
+Das zieht den Ausbau (Phase 4) bewusst vor den A/B-Vergleich (Phase 3), weil der praktische Nutzen
+im Arbeits-Chat im Vordergrund steht. Der Vergleich bleibt offen und braucht weiterhin fachlich
+bestätigte Prüfaufgaben (E1) – etwa über eigene Tests in Make.
+
 ### Nutzungsschicht (nach Phase 2)
 
 Damit das erarbeitete Wissen später auch beim Arbeiten mit Claude an Make-Szenarien verfügbar ist:
