@@ -1171,3 +1171,25 @@ html.intro-played .hero__subline, html.intro-played .hero__ctas, html.intro-play
 @media (min-width: 56em) {
   .hero__title { font-size: clamp(3.2rem, 5.6vw, 4.9rem); }
 }
+
+/* Lebendiger Hintergrund: Module finden sich laufend zu neuen Workflows (assets/js/flow.js).
+   Zur Mitte hin ausgeblendet, damit Überschrift und Text frei bleiben. */
+.flow {
+  position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  -webkit-mask-image: radial-gradient(ellipse 36% 30% at 50% 30%, transparent 0%, transparent 62%, #000 100%);
+  mask-image: radial-gradient(ellipse 36% 30% at 50% 30%, transparent 0%, transparent 62%, #000 100%);
+}
+.flow__canvas { display: block; width: 100%; height: 100%; }
+@media (max-width: 43.99em) {
+  /* Smartphone: Hintergrund-Module nur an den Rändern, Text bleibt frei */
+  .flow {
+    -webkit-mask-image: linear-gradient(90deg, #000 0, transparent 22%, transparent 78%, #000 100%);
+    mask-image: linear-gradient(90deg, #000 0, transparent 22%, transparent 78%, #000 100%);
+  }
+  .pill { font-size: 0.75rem; }
+  .pill b { white-space: nowrap; }
+}
+@media (max-width: 29.99em) {
+  .pill__text { display: none; }
+  .pill { padding-right: 0.6rem; }
+}

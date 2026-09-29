@@ -25,6 +25,7 @@ function readJson(path) {
 
 const site = readJson(join(CONTENT, 'site.json'));
 const t = Object.fromEntries(LANGS.map((l) => [l, readJson(join(CONTENT, `${l}.json`))]));
+const flowModules = readJson(join(CONTENT, 'flow-modules.json')).modules;
 
 const useCaseDir = join(CONTENT, 'anwendungsfaelle');
 const useCases = readdirSync(useCaseDir)
@@ -67,6 +68,7 @@ const jsUrl = `/assets/js/main.js?v=${assetHash('assets/js/main.js')}`;
 const introGateUrl = `/assets/js/intro-gate.js?v=${assetHash('assets/js/intro-gate.js')}`;
 const introJsUrl = `/assets/js/intro.js?v=${assetHash('assets/js/intro.js')}`;
 const introCssUrl = `/assets/css/intro.css?v=${assetHash('assets/css/intro.css')}`;
+const flowUrl = `/assets/js/flow.js?v=${assetHash('assets/js/flow.js')}`;
 const intro3dUrl = `/assets/js/intro3d.js?v=${assetHash('assets/js/intro3d.js')}`;
 
 // Liest Breite/Höhe aus einer WebP-Datei (für width/height-Attribute gegen Layout-Verschiebungen).
@@ -122,6 +124,17 @@ const ICONS = {
   store: '<path d="M4 9.5l1.5-5h13L20 9.5"/><path d="M4 9.5h16v1.5a2.7 2.7 0 0 1-5.3 0 2.7 2.7 0 0 1-5.4 0A2.7 2.7 0 0 1 4 11z"/><path d="M5.5 13.5V20h13v-6.5"/>',
   pulse: '<path d="M3 12h4l2-5 4 10 2-5h6"/>',
   wrench: '<path d="M14.7 6.3a4 4 0 0 0-5.3 5.3L4.5 16.5a1.8 1.8 0 0 0 2.5 2.5l4.9-4.9a4 4 0 0 0 5.3-5.3l-2.4 2.4-2.3-.6-.6-2.3 2.8-2z"/>',
+  tag: '<path d="M4 12.5V5h7.5L20 13.5 13.5 20z"/><circle cx="8.5" cy="9" r="1.3"/>',
+  database: '<path d="M5 6.5c0-1.7 3.1-3 7-3s7 1.3 7 3-3.1 3-7 3-7-1.3-7-3zM5 6.5v11c0 1.7 3.1 3 7 3s7-1.3 7-3v-11M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3"/>',
+  card: '<rect x="3.5" y="6" width="17" height="12" rx="2"/><path d="M3.5 10h17M7 14.5h4"/>',
+  folder: '<path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v7.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/>',
+  calendar: '<rect x="4" y="5.5" width="16" height="14" rx="2"/><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4"/>',
+  list: '<path d="M9 7h11M9 12h11M9 17h11"/><circle cx="5" cy="7" r="1"/><circle cx="5" cy="12" r="1"/><circle cx="5" cy="17" r="1"/>',
+  truck: '<path d="M3.5 7h10.5v9H3.5zM14 10h3.5l3 3v3H14"/><circle cx="7.5" cy="17.5" r="1.7"/><circle cx="17" cy="17.5" r="1.7"/>',
+  image: '<rect x="4" y="4.5" width="16" height="15" rx="3"/><circle cx="12" cy="12" r="3.6"/><circle cx="16.6" cy="7.9" r=".6"/>',
+  chart: '<path d="M5 19.5V11M10 19.5V6M15 19.5v-6M20 19.5V9"/>',
+  link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
+  clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 1.8"/>',
   user: '<circle cx="12" cy="8.5" r="3.5"/><path d="M5 20c.8-3.6 3.6-5.5 7-5.5s6.2 1.9 7 5.5"/>',
   box: '<path d="M4 7.5L12 4l8 3.5v9L12 20l-8-3.5z"/><path d="M4 7.5l8 3.5 8-3.5M12 11v9"/>',
   done: '<path d="M6 12.5l4 4 8-9"/>',
@@ -277,7 +290,7 @@ function layout({ lang, page, alternates, title, description, body, noindex = fa
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <link rel="preload" href="/assets/fonts/geist-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/assets/fonts/geist-sans-latin-500-normal.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="${cssUrl}">${intro ? `\n  <link rel="stylesheet" href="${introCssUrl}">\n  <script src="${introGateUrl}"></script>\n  <script src="${introJsUrl}" defer></script>` : ''}
+  <link rel="stylesheet" href="${cssUrl}">${intro ? `\n  <link rel="stylesheet" href="${introCssUrl}">\n  <script src="${introGateUrl}"></script>\n  <script src="${introJsUrl}" defer></script>\n  <script src="${flowUrl}" defer></script>` : ''}
   <noscript><link rel="stylesheet" href="/assets/css/nojs.css"></noscript>
   <script src="${jsUrl}" defer></script>${jsonLd}
 </head>
@@ -347,9 +360,11 @@ function homePage(lang) {
 
   const body = `
     <section class="hero">
+      <div class="flow" data-flow aria-hidden="true"></div>
+      <script type="application/json" id="flow-data">${JSON.stringify({ modules: flowModules, icons: ICONS, glyphs: GLYPHS }).replace(/</g, '\\u003c')}</script>
       <div class="container hero__inner">
         <div class="hero__text">
-          <a class="pill" href="#${a.services}"><b>${esc(tx.hero.badge)}</b> ${esc(tx.hero.badgeText)} <span aria-hidden="true">→</span></a>
+          <a class="pill" href="#${a.services}"><b>${esc(tx.hero.badge)}</b> <span class="pill__text">${esc(tx.hero.badgeText)}</span> <span aria-hidden="true">→</span></a>
           <h1 class="hero__title" data-split>${emph(tx.hero.headline)}</h1>
           <p class="hero__subline">${esc(tx.hero.subline)}</p>
           <div class="hero__ctas">
