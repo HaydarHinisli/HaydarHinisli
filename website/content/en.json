@@ -5,7 +5,7 @@
   "locale": "en_GB",
   "meta": {
     "title": "4ELEMENTS – Automation for online retailers | Make, Shopify, Amazon",
-    "description": "I automate recurring workflows for online retailers with Make – Shopify, Amazon, spreadsheets, email – and look after running automations. 4ELEMENTS e.K., Berlin."
+    "description": "We automate recurring workflows for online retailers with Make – Shopify, Amazon, spreadsheets, email – and look after running automations. 4ELEMENTS e.K., Berlin."
   },
   "ui": {
     "skipLink": "Skip to content",
@@ -21,14 +21,14 @@
   "nav": {
     "services": "Services",
     "support": "Support",
-    "process": "How I work",
+    "process": "How we work",
     "contact": "Contact",
     "useCases": "Use cases"
   },
   "anchors": {
     "services": "services",
     "support": "support",
-    "process": "how-i-work",
+    "process": "how-we-work",
     "about": "about",
     "contact": "contact"
   },
@@ -38,7 +38,7 @@
   },
   "hero": {
     "headline": "Automations that *just keep running.*",
-    "subline": "I connect your shop, spreadsheets, AI and email into workflows that run without manual work – and keep them running.",
+    "subline": "We connect your shop, spreadsheets, AI and email into workflows that run without manual work – and keep them running.",
     "button": "Start a project",
     "badge": "Make · Shopify · AI",
     "badgeText": "Automation for online retailers",
@@ -102,15 +102,15 @@
     "cards": [
       {
         "title": "New automations",
-        "text": "I connect your shop, marketplace, spreadsheets, email and AI services into workflows that run without manual work."
+        "text": "We connect your shop, marketplace, spreadsheets, email and AI services into workflows that run without manual work."
       },
       {
         "title": "Repair and stabilisation",
-        "text": "Existing Make scenarios that run unreliably – I review them, repair them and protect them against errors."
+        "text": "Existing Make scenarios that run unreliably – we review them, repair them and protect them against errors."
       },
       {
         "title": "Ongoing support",
-        "text": "I monitor your automations and fix errors before they cost you revenue."
+        "text": "We monitor your automations and fix errors before they cost you revenue."
       }
     ],
     "lead": "From your first automation to ongoing care – all from one source.",
@@ -124,7 +124,7 @@
     "stat": {
       "label": "Response time",
       "value": "≤ 1 day",
-      "text": "I reply to every enquiry within one business day."
+      "text": "We reply to every enquiry within one business day."
     }
   },
   "support": {
@@ -177,7 +177,7 @@
     "steps": [
       {
         "title": "Conversation",
-        "text": "You describe your workflow, I check what can be automated."
+        "text": "You describe your workflow, we check what can be automated."
       },
       {
         "title": "Acceptance criteria",
@@ -189,19 +189,19 @@
       },
       {
         "title": "Support",
-        "text": "If you like, I make sure on an ongoing basis that everything keeps running."
+        "text": "If you like, we make sure on an ongoing basis that everything keeps running."
       }
     ]
   },
   "about": {
-    "headline": "About me",
-    "text": "I'm Haydar Hinisli and have been an online retailer myself since 2021, with my own brand on Amazon. I know the workflows I automate from my own experience. My company 4ELEMENTS e.K. is based in Berlin.",
+    "headline": "About us",
+    "text": "4ELEMENTS is an automation studio based in Berlin, founded by Haydar Hinisli, who has run an Amazon brand as an online retailer since 2021. That is why we know the workflows we automate from day-to-day business, not from theory.",
     "photoAlt": "Portrait of Haydar Hinisli",
     "photoPlaceholder": "Portrait photo coming soon"
   },
   "contact": {
     "headline": "Let's automate your *first workflow.*",
-    "text": "Briefly tell me which tools you use and what should be automated. You will receive a reply within one business day.",
+    "text": "Briefly tell us which tools you use and what should be automated. You will receive a reply within one business day.",
     "button": "Write an email"
   },
   "footer": {
@@ -211,7 +211,7 @@
   },
   "useCases": {
     "overviewTitle": "Use cases",
-    "overviewIntro": "Concrete workflows I automate for online retailers.",
+    "overviewIntro": "Concrete workflows we automate for online retailers.",
     "overviewMetaTitle": "Use cases – Automation for online retailers | 4ELEMENTS",
     "overviewMetaDescription": "Examples of automations with Make: Shopify, Amazon, Google Sheets, email and more.",
     "readMore": "View use case",
@@ -221,7 +221,7 @@
     "screenshotHeading": "The Make scenario",
     "screenshotPlaceholder": "Screenshot of the Make scenario coming soon",
     "ctaHeading": "Does this fit your shop?",
-    "ctaText": "Briefly tell me which tools you use and what should be automated. You will receive a reply within one business day.",
+    "ctaText": "Briefly tell us which tools you use and what should be automated. You will receive a reply within one business day.",
     "ctaButton": "Send an inquiry",
     "backToOverview": "All use cases"
   },

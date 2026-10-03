@@ -4,7 +4,7 @@
   "locale": "de_DE",
   "meta": {
     "title": "4ELEMENTS – Automatisierung für Online-Händler | Make, Shopify, Amazon",
-    "description": "Ich automatisiere wiederkehrende Abläufe für Online-Händler mit Make – Shopify, Amazon, Tabellen, E-Mail – und betreue laufende Automatisierungen. 4ELEMENTS e.K., Berlin."
+    "description": "Wir automatisieren wiederkehrende Abläufe für Online-Händler mit Make – Shopify, Amazon, Tabellen, E-Mail – und betreuen laufende Automatisierungen. 4ELEMENTS e.K., Berlin."
   },
   "ui": {
     "skipLink": "Zum Inhalt springen",
@@ -20,15 +20,15 @@
   "nav": {
     "services": "Leistungen",
     "support": "Betreuung",
-    "process": "So arbeite ich",
+    "process": "So arbeiten wir",
     "contact": "Kontakt",
     "useCases": "Anwendungsfälle"
   },
   "anchors": {
     "services": "leistungen",
     "support": "betreuung",
-    "process": "so-arbeite-ich",
-    "about": "ueber-mich",
+    "process": "so-arbeiten-wir",
+    "about": "ueber-uns",
     "contact": "kontakt"
   },
   "mail": {
@@ -37,7 +37,7 @@
   },
   "hero": {
     "headline": "Automatisierungen, die *einfach laufen.*",
-    "subline": "Ich verbinde Shop, Tabellen, KI und E-Mail zu Abläufen, die ohne Handarbeit funktionieren – und halte sie am Laufen.",
+    "subline": "Wir verbinden Shop, Tabellen, KI und E-Mail zu Abläufen, die ohne Handarbeit funktionieren – und halten sie am Laufen.",
     "button": "Projekt anfragen",
     "badge": "Make · Shopify · KI",
     "badgeText": "Automatisierung für Online-Händler",
@@ -101,15 +101,15 @@
     "cards": [
       {
         "title": "Neue Automatisierungen",
-        "text": "Ich verbinde Shop, Marktplatz, Tabellen, E-Mail und KI-Dienste zu Abläufen, die ohne Handarbeit funktionieren."
+        "text": "Wir verbinden Shop, Marktplatz, Tabellen, E-Mail und KI-Dienste zu Abläufen, die ohne Handarbeit funktionieren."
       },
       {
         "title": "Reparatur und Stabilisierung",
-        "text": "Bestehende Make-Szenarien, die unzuverlässig laufen, prüfe ich, repariere sie und sichere sie gegen Fehler ab."
+        "text": "Bestehende Make-Szenarien, die unzuverlässig laufen, prüfen wir, reparieren sie und sichern sie gegen Fehler ab."
       },
       {
         "title": "Laufende Betreuung",
-        "text": "Ich überwache deine Automatisierungen und behebe Fehler, bevor sie dich Umsatz kosten."
+        "text": "Wir überwachen deine Automatisierungen und beheben Fehler, bevor sie dich Umsatz kosten."
       }
     ],
     "lead": "Von der ersten Automatisierung bis zur laufenden Betreuung – alles aus einer Hand.",
@@ -123,7 +123,7 @@
     "stat": {
       "label": "Antwortzeit",
       "value": "≤ 1 Tag",
-      "text": "Auf jede Anfrage antworte ich innerhalb eines Werktags."
+      "text": "Auf jede Anfrage antworten wir innerhalb eines Werktags."
     }
   },
   "support": {
@@ -168,7 +168,7 @@
         "highlight": false
       }
     ],
-    "note": "Größere Neuentwicklungen biete ich separat an. Voraussetzung ist ein Zugang zu deiner Make-Organisation.",
+    "note": "Größere Neuentwicklungen bieten wir separat an. Voraussetzung ist ein Zugang zu deiner Make-Organisation.",
     "badge": "Beliebt"
   },
   "process": {
@@ -176,7 +176,7 @@
     "steps": [
       {
         "title": "Gespräch",
-        "text": "Du beschreibst deinen Ablauf, ich prüfe, was sich automatisieren lässt."
+        "text": "Du beschreibst deinen Ablauf, wir prüfen, was sich automatisieren lässt."
       },
       {
         "title": "Abnahmekriterien",
@@ -188,19 +188,19 @@
       },
       {
         "title": "Betreuung",
-        "text": "Auf Wunsch kümmere ich mich dauerhaft darum, dass alles läuft."
+        "text": "Auf Wunsch kümmern wir uns dauerhaft darum, dass alles läuft."
       }
     ]
   },
   "about": {
-    "headline": "Über mich",
-    "text": "Ich bin Haydar Hinisli und seit 2021 selbst Online-Händler mit eigener Marke auf Amazon. Die Abläufe, die ich automatisiere, kenne ich aus eigener Erfahrung. Mein Unternehmen 4ELEMENTS e.K. sitzt in Berlin.",
+    "headline": "Über uns",
+    "text": "4ELEMENTS ist ein Automatisierungs-Studio aus Berlin. Gegründet von Haydar Hinisli, seit 2021 selbst Online-Händler mit eigener Marke auf Amazon. Die Abläufe, die wir automatisieren, kennen wir deshalb nicht aus der Theorie, sondern aus dem eigenen Tagesgeschäft.",
     "photoAlt": "Porträt von Haydar Hinisli",
     "photoPlaceholder": "Porträtfoto folgt"
   },
   "contact": {
     "headline": "Lass uns deinen ersten Ablauf *automatisieren.*",
-    "text": "Beschreib mir kurz, welche Tools du nutzt und was automatisiert werden soll. Du bekommst innerhalb eines Werktags eine Antwort.",
+    "text": "Beschreib uns kurz, welche Tools du nutzt und was automatisiert werden soll. Du bekommst innerhalb eines Werktags eine Antwort.",
     "button": "E-Mail schreiben"
   },
   "footer": {
@@ -210,7 +210,7 @@
   },
   "useCases": {
     "overviewTitle": "Anwendungsfälle",
-    "overviewIntro": "Konkrete Abläufe, die ich für Online-Händler automatisiere.",
+    "overviewIntro": "Konkrete Abläufe, die wir für Online-Händler automatisieren.",
     "overviewMetaTitle": "Anwendungsfälle – Automatisierung für Online-Händler | 4ELEMENTS",
     "overviewMetaDescription": "Beispiele für Automatisierungen mit Make: Shopify, Amazon, Google Sheets, E-Mail und mehr.",
     "readMore": "Zum Anwendungsfall",
@@ -220,7 +220,7 @@
     "screenshotHeading": "Das Make-Szenario",
     "screenshotPlaceholder": "Screenshot des Make-Szenarios folgt",
     "ctaHeading": "Passt das zu deinem Shop?",
-    "ctaText": "Beschreib mir kurz, welche Tools du nutzt und was automatisiert werden soll. Du bekommst innerhalb eines Werktags eine Antwort.",
+    "ctaText": "Beschreib uns kurz, welche Tools du nutzt und was automatisiert werden soll. Du bekommst innerhalb eines Werktags eine Antwort.",
     "ctaButton": "Anfrage stellen",
     "backToOverview": "Alle Anwendungsfälle"
   },
