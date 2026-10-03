@@ -101,19 +101,55 @@
     "headline": "Less manual work. *More calm.*",
     "cards": [
       {
+        "key": "build",
+        "icon": "link",
         "title": "New automations",
         "text": "We connect your shop, marketplace, spreadsheets, email and AI services into workflows that run without manual work."
       },
       {
-        "title": "Repair and stabilisation",
-        "text": "Existing Make scenarios that run unreliably – we review them, repair them and protect them against errors."
+        "key": "check",
+        "icon": "search",
+        "title": "Automation check",
+        "text": "To get started: we review your workflows and show you what can be automated and how much time that saves. Fixed price, credited when you place an order.",
+        "cta": "Request a check",
+        "mailSubject": "Enquiry automation check"
       },
       {
-        "title": "Ongoing support",
+        "key": "amazon",
+        "icon": "box",
+        "title": "Amazon automations",
+        "text": "From our own experience as Amazon sellers: reports, stock and reviews under control, without clicking through Seller Central every day.",
+        "tags": [
+          "Sales reports",
+          "Low-stock alerts",
+          "Review alerts"
+        ]
+      },
+      {
+        "key": "ai",
+        "icon": "spark",
+        "title": "AI for content and customer service",
+        "text": "Create product texts and translate them for more marketplaces, draft replies to customer enquiries, analyse reviews.",
+        "tags": [
+          "Product texts",
+          "Translations",
+          "Reply drafts"
+        ]
+      },
+      {
+        "key": "repair",
+        "icon": "wrench",
+        "title": "Repair and optimisation",
+        "text": "We review, repair and secure unreliable Make scenarios – and rebuild them to use fewer operations, which lowers your costs."
+      },
+      {
+        "key": "care",
+        "icon": "pulse",
+        "title": "Ongoing care",
         "text": "We monitor your automations and fix errors before they cost you revenue."
       }
     ],
-    "lead": "From your first automation to ongoing care – all from one source.",
+    "lead": "From the first check to ongoing care – all from one source.",
     "log": [
       "Order #10482 → Google Sheets",
       "Invoice created · OpenAI",

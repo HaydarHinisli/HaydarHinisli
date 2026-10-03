@@ -136,6 +136,7 @@ const ICONS = {
   chart: '<path d="M5 19.5V11M10 19.5V6M15 19.5v-6M20 19.5V9"/>',
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
   clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 1.8"/>',
+  search: '<circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5 5"/>',
   user: '<circle cx="12" cy="8.5" r="3.5"/><path d="M5 20c.8-3.6 3.6-5.5 7-5.5s6.2 1.9 7 5.5"/>',
   box: '<path d="M4 7.5L12 4l8 3.5v9L12 20l-8-3.5z"/><path d="M4 7.5l8 3.5 8-3.5M12 11v9"/>',
   done: '<path d="M6 12.5l4 4 8-9"/>',
@@ -407,27 +408,28 @@ function homePage(lang) {
         <h2 class="section__title" id="services-title" data-reveal>${emph(tx.services.headline)}</h2>
         <p class="section__lead" data-reveal>${esc(tx.services.lead || '')}</p>
         <ul class="bento">
-          <li class="tile tile--wide" data-reveal>
-            <span class="tile__icon" aria-hidden="true">${iconSVG('spark')}</span>
-            <h3 class="tile__title">${esc(tx.services.cards[0].title)}</h3>
-            <p>${esc(tx.services.cards[0].text)}</p>
-            <div class="log" aria-hidden="true" data-log="${esc(JSON.stringify(tx.services.log || []))}"></div>
-          </li>
+${tx.services.cards
+  .map((c, i) => {
+    // Kachelraster (3 Spalten): 1. Reihe breit + schmal, 2. Reihe drei schmale, 3. Reihe breit + Antwortzeit
+    const wide = c.key === 'build' || c.key === 'care';
+    const extra =
+      c.key === 'build' ? `<div class="log" aria-hidden="true" data-log="${esc(JSON.stringify(tx.services.log || []))}"></div>`
+      : c.key === 'care' ? `<div class="uptime" aria-hidden="true">${bars}</div>`
+      : c.tags ? `<ul class="tile__tags">${c.tags.map((g) => `<li>${esc(g)}</li>`).join('')}</ul>`
+      : c.cta ? `<a class="tile__cta" href="${esc(mailto(c.mailSubject || tx.mail.subject))}">${esc(c.cta)} <span aria-hidden="true">→</span></a>`
+      : '';
+    return `          <li class="tile${wide ? ' tile--wide' : ''}${c.key === 'check' ? ' tile--accent' : ''}" data-reveal>
+            <span class="tile__icon" aria-hidden="true">${iconSVG(c.icon || 'spark')}</span>
+            <h3 class="tile__title">${esc(c.title)}</h3>
+            <p>${esc(c.text)}</p>
+            ${extra}
+          </li>`;
+  })
+  .join('\n')}
           <li class="tile tile--stat" data-reveal>
             <h3 class="tile__title">${esc(tx.services.stat.label)}</h3>
             <p class="stat">${esc(tx.services.stat.value)}</p>
             <p>${esc(tx.services.stat.text)}</p>
-          </li>
-          <li class="tile" data-reveal>
-            <span class="tile__icon" aria-hidden="true">${iconSVG('wrench')}</span>
-            <h3 class="tile__title">${esc(tx.services.cards[1].title)}</h3>
-            <p>${esc(tx.services.cards[1].text)}</p>
-          </li>
-          <li class="tile tile--wide" data-reveal>
-            <span class="tile__icon" aria-hidden="true">${iconSVG('pulse')}</span>
-            <h3 class="tile__title">${esc(tx.services.cards[2].title)}</h3>
-            <p>${esc(tx.services.cards[2].text)}</p>
-            <div class="uptime" aria-hidden="true">${bars}</div>
           </li>
         </ul>
       </div>

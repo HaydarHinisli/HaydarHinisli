@@ -1521,3 +1521,15 @@ html.theme-hell main > .section:first-child, html.theme-futur main > .section:fi
 @media (max-width: 55.99em) {
   .logo { order: 0; } .theme-toggle { order: 1; margin-left: auto; margin-right: 0.35rem; } .menu-toggle { order: 2; }
 }
+
+/* Leistungs-Kacheln: Schlagworte und Anfrage-Link */
+.tile { display: flex; flex-direction: column; }
+.tile > p { flex: 0 0 auto; }
+.tile__tags { list-style: none; display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: auto; padding-top: 1.5rem; }
+.tile__tags li { padding: 0.3rem 0.7rem; border: 1px solid var(--border); border-radius: 999px; font-size: 0.8125rem; color: var(--text-muted); background: var(--bg-alt); }
+.tile__cta { margin-top: auto; padding-top: 1.5rem; font-weight: 500; text-decoration: none; color: var(--accent-text); }
+.tile__cta span { display: inline-block; transition: transform 0.25s var(--ease-out); }
+.tile__cta:hover span { transform: translateX(3px); }
+.tile--accent { border-color: rgba(61, 220, 151, 0.45); }
+html.theme-futur .tile__tags li { background: rgba(255, 255, 255, 0.04); border-color: var(--border); color: #aab3bd; }
+html.theme-futur .tile--accent { background: linear-gradient(180deg, rgba(61, 220, 151, 0.1), rgba(255, 255, 255, 0.015)); border-color: rgba(94, 240, 176, 0.35); }

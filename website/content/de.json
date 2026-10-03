@@ -100,19 +100,55 @@
     "headline": "Weniger Handarbeit. *Mehr Ruhe.*",
     "cards": [
       {
+        "key": "build",
+        "icon": "link",
         "title": "Neue Automatisierungen",
         "text": "Wir verbinden Shop, Marktplatz, Tabellen, E-Mail und KI-Dienste zu Abläufen, die ohne Handarbeit funktionieren."
       },
       {
-        "title": "Reparatur und Stabilisierung",
-        "text": "Bestehende Make-Szenarien, die unzuverlässig laufen, prüfen wir, reparieren sie und sichern sie gegen Fehler ab."
+        "key": "check",
+        "icon": "search",
+        "title": "Automatisierungs-Check",
+        "text": "Zum Einstieg: Wir sehen uns deine Abläufe an und zeigen dir, was sich automatisieren lässt und wie viel Zeit das spart. Zum Festpreis, bei Auftrag angerechnet.",
+        "cta": "Check anfragen",
+        "mailSubject": "Anfrage Automatisierungs-Check"
       },
       {
+        "key": "amazon",
+        "icon": "box",
+        "title": "Amazon-Automatisierungen",
+        "text": "Aus eigener Erfahrung als Amazon-Händler: Berichte, Bestand und Bewertungen im Blick, ohne täglich in Seller Central zu klicken.",
+        "tags": [
+          "Verkaufsberichte",
+          "Bestandswarnung",
+          "Bewertungs-Alarm"
+        ]
+      },
+      {
+        "key": "ai",
+        "icon": "spark",
+        "title": "KI für Texte und Kundenservice",
+        "text": "Produkttexte erstellen und für weitere Marktplätze übersetzen, Antwortentwürfe für Kundenanfragen, Bewertungen auswerten.",
+        "tags": [
+          "Produkttexte",
+          "Übersetzungen",
+          "Antwortentwürfe"
+        ]
+      },
+      {
+        "key": "repair",
+        "icon": "wrench",
+        "title": "Reparatur und Optimierung",
+        "text": "Unzuverlässige Make-Szenarien prüfen, reparieren und absichern – und so umbauen, dass sie weniger Operationen und damit weniger Kosten verbrauchen."
+      },
+      {
+        "key": "care",
+        "icon": "pulse",
         "title": "Laufende Betreuung",
         "text": "Wir überwachen deine Automatisierungen und beheben Fehler, bevor sie dich Umsatz kosten."
       }
     ],
-    "lead": "Von der ersten Automatisierung bis zur laufenden Betreuung – alles aus einer Hand.",
+    "lead": "Vom ersten Check bis zur laufenden Betreuung – alles aus einer Hand.",
     "log": [
       "Bestellung #10482 → Google Sheets",
       "Rechnung erstellt · OpenAI",
