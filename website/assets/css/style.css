@@ -1467,3 +1467,57 @@ html.theme-futur .hero { padding-top: clamp(6.5rem, 10vw, 8rem); }
 .logo__four { font-family: var(--font); font-style: normal; font-weight: 600; font-size: 1em; vertical-align: 0; margin-right: 0; }
 .logo__four, html.theme-futur .logo__four { background: none; -webkit-background-clip: initial; background-clip: initial; color: inherit; padding-right: 0; }
 .logo__four { letter-spacing: inherit; }
+
+/* ---------- Hell/Dunkel-Schalter ---------- */
+.theme-toggle {
+  position: relative; display: inline-grid; place-items: center; flex: none;
+  width: 2.4rem; height: 2.4rem; padding: 0; border-radius: 12px; cursor: pointer;
+  border: 1px solid var(--border-strong); background: transparent; color: var(--text);
+  transition: background-color 0.2s ease, border-color 0.2s ease, transform 0.3s var(--ease-out);
+}
+.theme-toggle:hover { background: rgba(127, 127, 127, 0.1); }
+.theme-toggle:active { transform: scale(0.94); }
+.theme-toggle svg { grid-area: 1 / 1; width: 1.1rem; height: 1.1rem; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; transition: transform 0.45s var(--ease-out), opacity 0.3s ease; }
+.theme-toggle__moon { fill: currentColor !important; stroke: none !important; }
+html.theme-futur .theme-toggle__moon, html:not(.theme-futur) .theme-toggle__sun { opacity: 0; transform: rotate(-90deg) scale(0.5); }
+html.theme-futur .theme-toggle__sun { color: #f5d06b; }
+/* Weicher Übergang beim Umschalten */
+html.theme-switching *, html.theme-switching *::before, html.theme-switching *::after {
+  transition: background-color 0.4s ease, color 0.4s ease, border-color 0.4s ease, box-shadow 0.4s ease, fill 0.4s ease !important;
+}
+@media (max-width: 55.99em) {
+  .theme-toggle { margin-left: auto; margin-right: 0.5rem; }
+}
+
+/* Helles Thema: dieselbe schwebende Leiste, als helles Glas */
+html.theme-hell .site-header { top: 0.75rem; height: auto; background: transparent !important; border: 0 !important; backdrop-filter: none !important; }
+html.theme-hell .site-header__inner {
+  height: 3.6rem; max-width: 70rem; padding: 0 0.5rem 0 1.25rem;
+  border: 1px solid var(--border); border-radius: 18px;
+  background: rgba(255, 255, 255, 0.65); backdrop-filter: blur(18px) saturate(160%); -webkit-backdrop-filter: blur(18px) saturate(160%);
+  box-shadow: 0 20px 40px -30px rgba(17, 18, 20, 0.35);
+}
+html.theme-hell.is-scrolled .site-header__inner { background: rgba(255, 255, 255, 0.9); border-color: var(--border-strong); }
+html.theme-hell .logo__mark { color: #1c1f23; }
+html.theme-hell .site-nav { gap: 1.25rem; }
+html.theme-hell .site-nav__list { gap: 0.25rem; }
+html.theme-hell .site-nav__list a { display: block; padding: 0.45rem 0.8rem; border-radius: 10px; font-size: 0.875rem; }
+html.theme-hell .site-nav__list a::after { display: none; }
+html.theme-hell .site-nav__list a:hover { background: rgba(17, 18, 20, 0.05); }
+html.theme-hell .lang-switch { padding-left: 1rem; border-left: 1px solid var(--border); }
+html.theme-hell .site-nav a.nav-cta, html.theme-hell .site-nav a.nav-cta:hover { color: #fbfaf8; }
+html.theme-hell main { padding-top: 0; }
+html.theme-hell .hero { padding-top: clamp(6.5rem, 10vw, 8rem); }
+@media (min-width: 56em) { html.theme-hell .nav-cta { display: inline-flex; } }
+@media (max-width: 55.99em) {
+  html.theme-hell .site-header { left: 0.75rem; right: 0.75rem; }
+  html.theme-hell .site-header__inner { padding: 0 0.4rem 0 1rem; }
+  html.theme-hell .site-nav { inset: 4.9rem 0.75rem auto 0.75rem; border: 1px solid var(--border); border-radius: 18px; }
+  html.theme-hell .lang-switch { border-left: 0; padding-left: 0; }
+}
+/* Unterseiten haben keinen Kopfbereich: Abstand unter der schwebenden Leiste */
+html.theme-hell main > .section:first-child, html.theme-futur main > .section:first-child { padding-top: calc(var(--section-y) + 4rem); }
+.theme-toggle { margin-left: 0.5rem; }
+@media (max-width: 55.99em) {
+  .logo { order: 0; } .theme-toggle { order: 1; margin-left: auto; margin-right: 0.35rem; } .menu-toggle { order: 2; }
+}

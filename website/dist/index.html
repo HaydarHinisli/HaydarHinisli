@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="de" class="theme-futur" data-intro="3d">
+<html lang="de" class="theme-futur" data-theme-default="futur" data-theme-auto="true" data-intro="3d">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -21,17 +21,19 @@
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="theme-color" content="#05070a">
+  <meta name="theme-color" content="#05070a" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#fbfaf8" media="(prefers-color-scheme: light)">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <link rel="preload" href="/assets/fonts/geist-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/assets/fonts/geist-sans-latin-500-normal.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="/assets/css/style.css?v=0ba456a462">
+  <script src="/assets/js/theme.js?v=af7a5c5c9e"></script>
+  <link rel="stylesheet" href="/assets/css/style.css?v=f63fa2d686">
   <link rel="stylesheet" href="/assets/css/intro.css?v=1094888a4f">
   <script src="/assets/js/intro-gate.js?v=42f00f3b9e"></script>
   <script src="/assets/js/intro.js?v=aac091464c" defer></script>
   <noscript><link rel="stylesheet" href="/assets/css/nojs.css"></noscript>
-  <script src="/assets/js/main.js?v=ff614e64f0" defer></script>
+  <script src="/assets/js/main.js?v=a56b1a6880" defer></script>
   <script type="application/ld+json">{"@context":"https://schema.org","@type":"ProfessionalService","name":"4ELEMENTS e.K.","url":"https://4elements-digital.de/","email":"haydar@4elements-digital.de","image":"https://4elements-digital.de/assets/img/og-image.png","description":"Ich automatisiere wiederkehrende Abläufe für Online-Händler mit Make – Shopify, Amazon, Tabellen, E-Mail – und betreue laufende Automatisierungen. 4ELEMENTS e.K., Berlin.","founder":{"@type":"Person","name":"Haydar Hinisli"},"address":{"@type":"PostalAddress","streetAddress":"Thaliaweg 17D","postalCode":"12249","addressLocality":"Berlin","addressCountry":"DE"},"areaServed":["DE","AT","CH"],"priceRange":"99 € – 499 €"}</script>
 </head>
 <body>
@@ -65,6 +67,10 @@
         </ul>
         <a class="button button--small nav-cta" href="#kontakt">Projekt anfragen <span class="button__arrow" aria-hidden="true">→</span></a>
       </nav>
+      <button class="theme-toggle" type="button" data-label-light="Helle Ansicht" data-label-dark="Dunkle Ansicht" aria-label="Helle Ansicht" title="Helle Ansicht">
+          <svg class="theme-toggle__sun" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6"/></svg>
+          <svg class="theme-toggle__moon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>
+        </button>
     </div>
   </header>
 

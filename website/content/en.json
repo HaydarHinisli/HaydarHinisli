@@ -14,7 +14,9 @@
     "menuClose": "Close menu",
     "navLabel": "Main navigation",
     "langSwitchLabel": "Choose language",
-    "flowLabel": "Example of an automation workflow"
+    "flowLabel": "Example of an automation workflow",
+    "themeToLight": "Light view",
+    "themeToDark": "Dark view"
   },
   "nav": {
     "services": "Services",

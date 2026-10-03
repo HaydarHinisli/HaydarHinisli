@@ -55,3 +55,8 @@ Bei einem Tippfehler in einer JSON-Datei nennt `npm run build` die Datei und die
 ## Wichtig
 
 - Keine Schriften, Skripte, Videos oder Bilder von fremden Servern einbinden, sonst werden Cookie-Banner und eine angepasste Datenschutzerklärung nötig. Die `.htaccess` blockiert solche Einbindungen zusätzlich.
+
+## 5. Hell und dunkel
+
+- Oben in der Kopfzeile können Besucher zwischen heller und dunkler Ansicht umschalten. Die Wahl wird nur im Browser des Besuchers gespeichert (localStorage `4e-theme`), keine Cookies, keine personenbezogenen Daten.
+- Ohne eigene Wahl richtet sich die Seite nach der Hell/Dunkel-Einstellung des Geräts (`content/site.json` → `"themeAuto": true`). Mit `false` gilt immer der Standard aus `"theme"` (`"futur"` = dunkel, `"hell"` = hell).

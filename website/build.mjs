@@ -68,6 +68,7 @@ const jsUrl = `/assets/js/main.js?v=${assetHash('assets/js/main.js')}`;
 const introGateUrl = `/assets/js/intro-gate.js?v=${assetHash('assets/js/intro-gate.js')}`;
 const introJsUrl = `/assets/js/intro.js?v=${assetHash('assets/js/intro.js')}`;
 const introCssUrl = `/assets/css/intro.css?v=${assetHash('assets/css/intro.css')}`;
+const themeUrl = `/assets/js/theme.js?v=${assetHash('assets/js/theme.js')}`;
 const flowUrl = `/assets/js/flow.js?v=${assetHash('assets/js/flow.js')}`;
 const intro3dUrl = `/assets/js/intro3d.js?v=${assetHash('assets/js/intro3d.js')}`;
 
@@ -264,7 +265,7 @@ function layout({ lang, page, alternates, title, description, body, noindex = fa
   ).join('\n  ');
 
   return `<!doctype html>
-<html lang="${lang}" class="theme-${esc(site.theme || 'hell')}"${intro ? ` data-intro="${esc(site.introVariant || '3d')}"` : ''}>
+<html lang="${lang}" class="theme-${esc(site.theme || 'hell')}" data-theme-default="${esc(site.theme || 'hell')}" data-theme-auto="${site.themeAuto ? 'true' : 'false'}"${intro ? ` data-intro="${esc(site.introVariant || '3d')}"` : ''}>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -285,17 +286,20 @@ function layout({ lang, page, alternates, title, description, body, noindex = fa
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="theme-color" content="${site.theme === 'futur' ? '#05070a' : '#fbfaf8'}">
+  <meta name="theme-color" content="#05070a" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#fbfaf8" media="(prefers-color-scheme: light)">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <link rel="preload" href="/assets/fonts/geist-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/assets/fonts/geist-sans-latin-500-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <script src="${themeUrl}"></script>
   <link rel="stylesheet" href="${cssUrl}">${intro ? `\n  <link rel="stylesheet" href="${introCssUrl}">\n  <script src="${introGateUrl}"></script>\n  <script src="${introJsUrl}" defer></script>${site.heroBackground ? `\n  <script src="${flowUrl}" defer></script>` : ''}` : ''}
   <noscript><link rel="stylesheet" href="/assets/css/nojs.css"></noscript>
   <script src="${jsUrl}" defer></script>${jsonLd}
 </head>
 <body>${intro ? '\n  ' + introBlock(lang) : ''}
-  ${site.theme === 'futur' ? '<div class="cursor-glow" aria-hidden="true"></div>\n  ' : ''}<a class="skip-link" href="#main">${esc(tx.ui.skipLink)}</a>
+  <div class="cursor-glow" aria-hidden="true"></div>
+  <a class="skip-link" href="#main">${esc(tx.ui.skipLink)}</a>
   <header class="site-header">
     <div class="container site-header__inner">
       <a class="logo" href="${home}">
@@ -325,6 +329,10 @@ function layout({ lang, page, alternates, title, description, body, noindex = fa
         </ul>
         <a class="button button--small nav-cta" href="${navHref(a.contact)}">${esc(tx.hero.button)} <span class="button__arrow" aria-hidden="true">→</span></a>
       </nav>
+      <button class="theme-toggle" type="button" data-label-light="${esc(tx.ui.themeToLight)}" data-label-dark="${esc(tx.ui.themeToDark)}" aria-label="${esc(tx.ui.themeToLight)}" title="${esc(tx.ui.themeToLight)}">
+          <svg class="theme-toggle__sun" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6"/></svg>
+          <svg class="theme-toggle__moon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>
+        </button>
     </div>
   </header>
 

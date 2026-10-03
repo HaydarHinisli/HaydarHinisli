@@ -26,8 +26,11 @@
   "_introVariant": "Intro der Startseite: \"3d\" (Fahrt entlang der Workflow-Kette, ca. 5 s) oder \"aus\". Vorschau: /?intro=3d",
   "introVariant": "3d",
 
-  "_theme": "Gestaltung der Website: \"futur\" (dunkel, futuristisch) oder \"hell\" (warmes Off-White).",
+  "_theme": "Standard-Gestaltung: \"futur\" (dunkel) oder \"hell\". Besucher können oben in der Kopfzeile umschalten; ihre Wahl wird nur auf ihrem Gerät gespeichert.",
   "theme": "futur",
+
+  "_themeAuto": "true = ohne eigene Wahl richtet sich die Seite nach der Hell/Dunkel-Einstellung des Geräts; false = immer der Standard oben.",
+  "themeAuto": true,
 
   "_heroBackground": "Lebendiger Hintergrund im Kopfbereich (Module finden sich laufend zu Workflows): true = an, false = aus.",
   "heroBackground": false

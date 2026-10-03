@@ -106,8 +106,28 @@
     }
   }
 
-  // Thema „futur“: Lichtschein folgt der Maus, Abschnittsbeschriftungen „entschlüsseln“ sich beim Erscheinen
-  if (!reduce && d.classList.contains('theme-futur')) {
+  // Hell/Dunkel umschalten (Wahl nur auf diesem Gerät gespeichert, siehe assets/js/theme.js)
+  var toggleBtn = document.querySelector('.theme-toggle');
+  if (toggleBtn) {
+    var label = function () {
+      var dark = d.classList.contains('theme-futur');
+      var t = toggleBtn.getAttribute(dark ? 'data-label-light' : 'data-label-dark');
+      toggleBtn.setAttribute('aria-label', t); toggleBtn.title = t;
+    };
+    label();
+    toggleBtn.addEventListener('click', function () {
+      var next = d.classList.contains('theme-futur') ? 'hell' : 'futur';
+      d.classList.add('theme-switching');
+      d.classList.remove('theme-hell', 'theme-futur');
+      d.classList.add('theme-' + next);
+      try { localStorage.setItem('4e-theme', next); } catch (e) { /* ohne Speicher gilt die Wahl nur bis zum Neuladen */ }
+      label();
+      setTimeout(function () { d.classList.remove('theme-switching'); }, 450);
+    });
+  }
+
+  // Lichtschein folgt der Maus (nur im dunklen Thema sichtbar), Abschnittsbeschriftungen „entschlüsseln“ sich beim Erscheinen
+  if (!reduce) {
     var glowEl = document.querySelector('.cursor-glow');
     if (glowEl && window.matchMedia('(hover: hover) and (pointer: fine)').matches) {
       var gx = 0, gy = 0, gq = false;

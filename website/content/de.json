@@ -13,7 +13,9 @@
     "menuClose": "Menü schließen",
     "navLabel": "Hauptnavigation",
     "langSwitchLabel": "Sprache wählen",
-    "flowLabel": "Beispiel eines Automatisierungsablaufs"
+    "flowLabel": "Beispiel eines Automatisierungsablaufs",
+    "themeToLight": "Helle Ansicht",
+    "themeToDark": "Dunkle Ansicht"
   },
   "nav": {
     "services": "Leistungen",
