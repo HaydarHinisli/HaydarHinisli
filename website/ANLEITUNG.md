@@ -17,7 +17,7 @@ Nur den Text **zwischen den Anführungszeichen** ändern. Anführungszeichen im 
 
 - **Module** (Intro und Kopfbereich): `de.json`/`en.json` unter `intro.modules` – Name (`app`), Aktion (`action`), Symbol (`icon`), Farbe (`color`). Genau 4 Module mit `"hero": true`, Reihenfolge = Ablauf der Kette. `"trigger": true` zeigt die Uhr am ersten Modul.
 - **Intro**: 3D-Fahrt entlang der Kette, ca. 5 s, danach gleiten die Module an ihren Platz im Kopfbereich. Abschalten: `content/site.json` → `"introVariant": "aus"` (Standard `"3d"`).
-- **Wann es läuft**: nur beim ersten Besuch – nicht beim Neuladen, nicht über „Zurück“, nicht wenn man von einer Unterseite kommt und nicht erneut innerhalb von 30 Tagen auf demselben Gerät. Ohne Grafikbeschleunigung und bei „Bewegung reduzieren“ entfällt es, die Seite erscheint sofort.
+- **Wann es läuft**: wenn man von außen auf die Startseite kommt – nicht beim Neuladen, nicht über „Zurück“ und nicht, wenn man von einer Unterseite kommt. Es wird bewusst nichts gespeichert (kein Merker), damit keine Einwilligung nötig ist. Ohne Grafikbeschleunigung und bei „Bewegung reduzieren“ entfällt es, die Seite erscheint sofort.
 - **Vorschau** (läuft bei jedem Aufruf): `/?intro=3d`
 - **Programmcode**: `src/intro3d.js`. Nur wer diesen Code ändert, muss einmalig `npm install` und danach `npm run build:intro3d` ausführen. Texte, Farben und Symbole brauchen diesen Schritt nicht.
 - **Symbole**: `bag`, `sheet`, `spark` und `mail` sind flächige, plastische Symbole (Kopfbereich und Intro); alle übrigen Namen sind Liniensymbole und erscheinen im Intro ohne Symbol.
