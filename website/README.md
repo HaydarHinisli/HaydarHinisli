@@ -17,7 +17,7 @@ Fertig gebaut, getestet (alle Seiten DE/EN, hell und dunkel, Desktop und Smartph
 
 ## Vor dem Livegang noch nötig (Inhalte vom Inhaber)
 
-- Datenschutzerklärung: Platzhalter in `content/rechtliches/` ersetzen (Generator oder anwaltlich geprüft)
+- Datenschutzerklärung: verfasst (`content/rechtliches/`), vor dem Livegang einmal prüfen lassen bzw. mit den eigenen Angaben abgleichen (z. B. IONOS-Auftragsverarbeitungsvertrag abschließen)
 - Umsatzsteuer-ID in `content/site.json` (leer = Abschnitt im Impressum ausgeblendet)
 - Englische Texte in `content/en.json` gegenlesen (Entwurfsübersetzung)
 - Optional: Porträtfoto, Telefonnummer (`content/site.json`), Anwendungsfall-Seite befüllen und `"published": true`
