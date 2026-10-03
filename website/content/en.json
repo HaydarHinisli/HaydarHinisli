@@ -146,7 +146,22 @@
         "key": "care",
         "icon": "pulse",
         "title": "Ongoing care",
-        "text": "We monitor your automations and fix errors before they cost you revenue."
+        "text": "We monitor your automations and fix errors before they cost you revenue.",
+        "calendar": {
+          "label": "Example month",
+          "weekdays": [
+            "Mo",
+            "Tu",
+            "We",
+            "Th",
+            "Fr",
+            "Sa",
+            "Su"
+          ],
+          "ok": "running smoothly",
+          "fixed": "error detected and fixed",
+          "summary": "Example month: 29 days without errors, on one day an error was detected and fixed."
+        }
       }
     ],
     "lead": "From the first check to ongoing care – all from one source.",

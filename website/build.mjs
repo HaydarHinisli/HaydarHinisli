@@ -367,7 +367,19 @@ function homePage(lang) {
   const kicker = (label) => `<p class="kicker">${esc(label)}</p>`;
   const tools = tx.hero.tools || [];
   const toolList = (hidden) => `<ul class="marquee__list"${hidden ? ' aria-hidden="true"' : ''}>${tools.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>`;
-  const bars = Array.from({ length: 30 }, (_, i) => `<i${i === 19 ? ' class="is-fixed"' : ''}></i>`).join('');
+  // Betreuungs-Kalender: Beispielmonat mit 30 Tagen, beginnt mittwochs, an Tag 20 wurde ein Fehler behoben
+  const calendar = (cal) => {
+    const days = [
+      ...cal.weekdays.map((w) => `<b>${esc(w)}</b>`),
+      '<span></span>'.repeat(2),
+      ...Array.from({ length: 30 }, (_, i) => `<span class="cal__d${i === 19 ? ' is-fixed' : ''}">${i + 1}</span>`),
+    ].join('');
+    return `<div class="cal" role="img" aria-label="${esc(cal.summary)}">
+              <p class="cal__month">${esc(cal.label)}</p>
+              <div class="cal__grid">${days}</div>
+              <p class="cal__legend"><span><i></i>${esc(cal.ok)}</span><span><i class="is-fixed"></i>${esc(cal.fixed)}</span></p>
+            </div>`;
+  };
 
   const body = `
     <section class="hero">
@@ -414,11 +426,11 @@ ${tx.services.cards
     const wide = c.key === 'build' || c.key === 'care';
     const extra =
       c.key === 'build' ? `<div class="log" aria-hidden="true" data-log="${esc(JSON.stringify(tx.services.log || []))}"></div>`
-      : c.key === 'care' ? `<div class="uptime" aria-hidden="true">${bars}</div>`
+      : c.calendar ? calendar(c.calendar)
       : c.tags ? `<ul class="tile__tags">${c.tags.map((g) => `<li>${esc(g)}</li>`).join('')}</ul>`
       : c.cta ? `<a class="tile__cta" href="${esc(mailto(c.mailSubject || tx.mail.subject))}">${esc(c.cta)} <span aria-hidden="true">→</span></a>`
       : '';
-    return `          <li class="tile${wide ? ' tile--wide' : ''}${c.key === 'check' ? ' tile--accent' : ''}" data-reveal>
+    return `          <li class="tile${wide ? ' tile--wide' : ''}${c.key === 'check' ? ' tile--accent' : ''}${c.calendar ? ' tile--cal' : ''}" data-reveal>
             <span class="tile__icon" aria-hidden="true">${iconSVG(c.icon || 'spark')}</span>
             <h3 class="tile__title">${esc(c.title)}</h3>
             <p>${esc(c.text)}</p>

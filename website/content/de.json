@@ -145,7 +145,22 @@
         "key": "care",
         "icon": "pulse",
         "title": "Laufende Betreuung",
-        "text": "Wir überwachen deine Automatisierungen und beheben Fehler, bevor sie dich Umsatz kosten."
+        "text": "Wir überwachen deine Automatisierungen und beheben Fehler, bevor sie dich Umsatz kosten.",
+        "calendar": {
+          "label": "Beispielmonat",
+          "weekdays": [
+            "Mo",
+            "Di",
+            "Mi",
+            "Do",
+            "Fr",
+            "Sa",
+            "So"
+          ],
+          "ok": "läuft fehlerfrei",
+          "fixed": "Fehler erkannt und behoben",
+          "summary": "Beispielmonat: 29 Tage fehlerfrei, an einem Tag wurde ein Fehler erkannt und behoben."
+        }
       }
     ],
     "lead": "Vom ersten Check bis zur laufenden Betreuung – alles aus einer Hand.",
