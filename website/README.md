@@ -11,10 +11,13 @@ Statische, zweisprachige Website (DE unter `/`, EN unter `/en/`) für 4ELEMENTS 
 
 Pflege und Veröffentlichung: siehe [ANLEITUNG.md](ANLEITUNG.md).
 
-## Offene Punkte
+## Stand
 
-- Ansprache: umgesetzt mit „du“ (Stand Briefing)
-- Englische Texte: Entwurfsübersetzung als Platzhalter in `content/en.json`
-- Umsatzsteuer-ID, Telefon, Porträtfoto: Felder in `content/site.json` (leer = ausgeblendet bzw. Platzhalter)
-- Datenschutzerklärung: Platzhalter in `content/rechtliches/`
-- Beispiel-Anwendungsfall: Platzhaltertexte, `"published": false`
+Fertig gebaut, getestet (alle Seiten DE/EN, hell und dunkel, Desktop und Smartphone, mit den Sicherheitsregeln der `.htaccess`), Lighthouse 96–100.
+
+## Vor dem Livegang noch nötig (Inhalte vom Inhaber)
+
+- Datenschutzerklärung: Platzhalter in `content/rechtliches/` ersetzen (Generator oder anwaltlich geprüft)
+- Umsatzsteuer-ID in `content/site.json` (leer = Abschnitt im Impressum ausgeblendet)
+- Englische Texte in `content/en.json` gegenlesen (Entwurfsübersetzung)
+- Optional: Porträtfoto, Telefonnummer (`content/site.json`), Anwendungsfall-Seite befüllen und `"published": true`
