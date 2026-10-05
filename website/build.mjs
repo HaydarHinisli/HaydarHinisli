@@ -383,7 +383,7 @@ function homePage(lang) {
 
   const body = `
     <section class="hero">
-      ${site.heroBackground ? `<div class="flow" data-flow aria-hidden="true"></div>
+      ${site.heroBackground ? `<div class="flow-bg" data-flow aria-hidden="true"></div>
       <script type="application/json" id="flow-data">${JSON.stringify({ modules: flowModules, icons: ICONS, glyphs: GLYPHS }).replace(/</g, '\\u003c')}</script>` : ''}
       <div class="hero__fx" aria-hidden="true"><span class="aurora aurora--1"></span><span class="aurora aurora--2"></span><span class="hero__floor"></span></div>
       <div class="container hero__inner">

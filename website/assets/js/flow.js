@@ -24,7 +24,7 @@
   var clock = typeof window.__flowClock === 'function' ? window.__flowClock : function () { return performance.now() / 1000; };
 
   var canvas = document.createElement('canvas');
-  canvas.className = 'flow__canvas';
+  canvas.className = 'flow-bg__canvas';
   canvas.setAttribute('aria-hidden', 'true');
   host.appendChild(canvas);
   var g = canvas.getContext('2d');
