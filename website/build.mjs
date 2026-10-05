@@ -691,8 +691,10 @@ function page(alternates, render, { indexable = true } = {}) {
 page(routes.home, homePage);
 page(routes.imprint, imprintPage);
 page(routes.privacy, privacyPage);
-if (useCases.length) page(routes.useCases, useCaseOverviewPage, { indexable: publishedUseCases.length > 0 });
-for (const uc of useCases) {
+// Entwürfe (published: false) werden nur mit PREVIEW_DRAFTS=1 gebaut und landen sonst nicht im Upload-Paket
+const builtUseCases = process.env.PREVIEW_DRAFTS === '1' ? useCases : publishedUseCases;
+if (builtUseCases.length) page(routes.useCases, useCaseOverviewPage, { indexable: publishedUseCases.length > 0 });
+for (const uc of builtUseCases) {
   page({ de: ucPath(uc, 'de'), en: ucPath(uc, 'en') }, (l) => useCasePage(uc, l), { indexable: uc.published });
 }
 out('/404.html', notFoundPage());

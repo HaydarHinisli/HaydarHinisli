@@ -1,9 +1,7 @@
 {
-  "_hinweis": "Fallstudie aus der eigenen Amazon-Marke. Keine erfundenen Zahlen: Ergebnisse nur so, wie vom Inhaber bestätigt. Screenshot ergänzen, sobald vorhanden (Kundendaten unkenntlich machen).",
-
-  "published": true,
+  "_hinweis": "NICHT VERÖFFENTLICHEN als Fallstudie: Diese Automatisierung wurde nicht gebaut (Abgleich mit dem Bau-Chat). Höchstens später als klar gekennzeichnetes Lösungsbeispiel umschreiben.",
+  "published": false,
   "order": 1,
-
   "de": {
     "slug": "amazon-lagerbestand-warnung",
     "metaTitle": "Amazon-Lagerbestand automatisch überwachen – Warnung per E-Mail | 4ELEMENTS",
@@ -14,7 +12,12 @@
       "Wir verkaufen selbst seit 2021 mit einer eigenen Marke auf Amazon. Den Lagerbestand hatten wir lange nicht systematisch im Blick: Im Tagesgeschäft ging das Nachsehen schlicht unter, und oft fiel erst auf, dass ein Produkt knapp war, als es schon fast ausverkauft war.",
       "Das ist bei Amazon doppelt ärgerlich: Ein leeres Lager kostet nicht nur Verkäufe, sondern kann auch die Platzierung des Produkts schwächen. Und Nachschub braucht Zeit."
     ],
-    "flowSteps": ["Bestand in Google Sheets", "Make prüft regelmäßig", "Mindestmenge unterschritten?", "Warnung per E-Mail"],
+    "flowSteps": [
+      "Bestand in Google Sheets",
+      "Make prüft regelmäßig",
+      "Mindestmenge unterschritten?",
+      "Warnung per E-Mail"
+    ],
     "solution": [
       "Die Bestandszahlen liegen in einer Google-Tabelle. Ein Make-Szenario liest sie in festen Abständen aus und vergleicht jeden Artikel mit einer Mindestmenge, die wir pro Produkt festgelegt haben.",
       "Fällt ein Artikel darunter, kommt automatisch eine E-Mail mit Produkt und aktuellem Bestand. Ist alles im grünen Bereich, passiert nichts – es gibt also keine überflüssigen Nachrichten."
@@ -27,7 +30,6 @@
     "screenshot": "",
     "screenshotAlt": "Make-Szenario: Lagerbestand aus Google Sheets prüfen und bei Unterschreitung per E-Mail warnen"
   },
-
   "en": {
     "slug": "amazon-low-stock-alert",
     "metaTitle": "Monitor Amazon inventory automatically – low-stock email alert | 4ELEMENTS",
@@ -38,7 +40,12 @@
       "We have been selling our own brand on Amazon since 2021. For a long time we had no systematic view of our inventory: checking simply got lost in day-to-day business, and we often only noticed a product was running low when it was almost sold out.",
       "On Amazon that hurts twice: an empty warehouse not only costs sales, it can also weaken the product's ranking. And restocking takes time."
     ],
-    "flowSteps": ["Stock in Google Sheets", "Make checks regularly", "Below minimum?", "Email alert"],
+    "flowSteps": [
+      "Stock in Google Sheets",
+      "Make checks regularly",
+      "Below minimum?",
+      "Email alert"
+    ],
     "solution": [
       "The stock levels live in a Google spreadsheet. A Make scenario reads them at fixed intervals and compares each item with a minimum quantity we set per product.",
       "If an item falls below it, an email with the product and current stock is sent automatically. If everything is fine, nothing happens – so there are no unnecessary messages."

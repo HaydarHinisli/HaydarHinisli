@@ -35,7 +35,8 @@ Nur den Text **zwischen den Anführungszeichen** ändern. Anführungszeichen im 
    - `result`: die Ergebnis-Punkte
    - `screenshot`: Dateiname des Make-Screenshots (siehe 3.), `screenshotAlt`: Bildbeschreibung
 3. `order` bestimmt die Reihenfolge in der Übersicht.
-4. Wenn alles passt, `"published": true` setzen. Erst dann erscheint die Seite in der Navigation („Anwendungsfälle“), auf der Übersichtsseite und in der Sitemap. Vorher ist sie nur über die direkte Adresse erreichbar und für Google gesperrt.
+4. Wenn alles passt, `"published": true` setzen. Erst dann wird die Seite gebaut und erscheint in der Navigation („Anwendungsfälle“), auf der Übersichtsseite und in der Sitemap. Entwürfe kommen nicht ins Upload-Paket; zur Vorschau `PREVIEW_DRAFTS=1 npm start`.
+5. Nur echte, laufende Projekte als Fallstudie veröffentlichen, keine erfundenen Zahlen. Geplantes klar als Lösungsbeispiel kennzeichnen.
 
 ## 3. Bilder
 
