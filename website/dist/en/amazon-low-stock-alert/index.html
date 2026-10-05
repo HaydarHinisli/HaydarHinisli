@@ -3,20 +3,20 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Legal notice | 4ELEMENTS e.K.</title>
-  <meta name="description" content="Legal notice (Impressum) of 4ELEMENTS e.K., Berlin.">
+  <title>Monitor Amazon inventory automatically – low-stock email alert | 4ELEMENTS</title>
+  <meta name="description" content="Automatic low-stock alerts for Amazon sellers: Make checks your inventory and sends an email before a product runs low. From our own store.">
   
-  <link rel="canonical" href="https://4elements-digital.de/en/legal-notice/">
-  <link rel="alternate" hreflang="de" href="https://4elements-digital.de/impressum/">
-  <link rel="alternate" hreflang="en" href="https://4elements-digital.de/en/legal-notice/">
-  <link rel="alternate" hreflang="x-default" href="https://4elements-digital.de/impressum/">
+  <link rel="canonical" href="https://4elements-digital.de/en/amazon-low-stock-alert/">
+  <link rel="alternate" hreflang="de" href="https://4elements-digital.de/amazon-lagerbestand-warnung/">
+  <link rel="alternate" hreflang="en" href="https://4elements-digital.de/en/amazon-low-stock-alert/">
+  <link rel="alternate" hreflang="x-default" href="https://4elements-digital.de/amazon-lagerbestand-warnung/">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="4ELEMENTS">
   <meta property="og:locale" content="en_GB">
   <meta property="og:locale:alternate" content="de_DE">
-  <meta property="og:url" content="https://4elements-digital.de/en/legal-notice/">
-  <meta property="og:title" content="Legal notice | 4ELEMENTS e.K.">
-  <meta property="og:description" content="Legal notice (Impressum) of 4ELEMENTS e.K., Berlin.">
+  <meta property="og:url" content="https://4elements-digital.de/en/amazon-low-stock-alert/">
+  <meta property="og:title" content="Monitor Amazon inventory automatically – low-stock email alert | 4ELEMENTS">
+  <meta property="og:description" content="Automatic low-stock alerts for Amazon sellers: Make checks your inventory and sends an email before a product runs low. From our own store.">
   <meta property="og:image" content="https://4elements-digital.de/assets/img/og-image.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
@@ -56,7 +56,7 @@
           <li><a href="/en/#contact">Contact</a></li>
         </ul>
         <ul class="lang-switch" aria-label="Choose language">
-          <li><a href="/impressum/" hreflang="de" lang="de">DE</a></li><li aria-hidden="true" class="lang-switch__sep">|</li><li><a href="/en/legal-notice/" hreflang="en" lang="en" aria-current="true">EN</a></li>
+          <li><a href="/amazon-lagerbestand-warnung/" hreflang="de" lang="de">DE</a></li><li aria-hidden="true" class="lang-switch__sep">|</li><li><a href="/en/amazon-low-stock-alert/" hreflang="en" lang="en" aria-current="true">EN</a></li>
         </ul>
         <a class="button button--small nav-cta" href="/en/#contact">Start a project <span class="button__arrow" aria-hidden="true">→</span></a>
       </nav>
@@ -69,19 +69,41 @@
 
   <main id="main" tabindex="-1">
 
-    <article class="section legal">
+    <article class="section usecase">
       <div class="container container--narrow">
-        <h1 class="page-title">Legal notice</h1>
-        <h2>Information pursuant to § 5 DDG (German Digital Services Act)</h2>
-        <p>4ELEMENTS e.K.<br>Owner: Haydar Hinisli<br>Thaliaweg 17D<br>12249 Berlin</p>
-        <h2>Contact</h2>
-        <p>Email: <a href="mailto:haydar@4elements-digital.de">haydar@4elements-digital.de</a></p>
+        <p class="usecase__back"><a href="/en/use-cases/">← All use cases</a></p>
+        <h1 class="page-title">Monitor Amazon inventory automatically: an email alert before stock runs low</h1>
+
+        <h2>The problem</h2>
+        <p>We have been selling our own brand on Amazon since 2021. For a long time we had no systematic view of our inventory: checking simply got lost in day-to-day business, and we often only noticed a product was running low when it was almost sold out.</p>
+<p>On Amazon that hurts twice: an empty warehouse not only costs sales, it can also weaken the product's ranking. And restocking takes time.</p>
+
+        <h2>The solution</h2>
+        <figure class="flow flow--responsive">
+  <ol class="flow__list" aria-label="The solution">
+    <li class="flow__step"><span class="flow__node" aria-hidden="true">01</span><span class="flow__label">Stock in Google Sheets</span></li>
+    <li class="flow__step"><span class="flow__node" aria-hidden="true">02</span><span class="flow__label">Make checks regularly</span></li>
+    <li class="flow__step"><span class="flow__node" aria-hidden="true">03</span><span class="flow__label">Below minimum?</span></li>
+    <li class="flow__step"><span class="flow__node" aria-hidden="true">04</span><span class="flow__label">Email alert</span></li>
+  </ol>
+</figure>
+        <p>The stock levels live in a Google spreadsheet. A Make scenario reads them at fixed intervals and compares each item with a minimum quantity we set per product.</p>
+<p>If an item falls below it, an email with the product and current stock is sent automatically. If everything is fine, nothing happens – so there are no unnecessary messages.</p>
+
+        <h2>The result</h2>
+        <ul class="checklist">
+          <li>No more manual checking – monitoring runs on its own</li>
+          <li>Low-stock items are spotted early, with time to reorder</li>
+          <li>Less stress: we no longer have to keep it in mind</li>
+        </ul>
+
         
-        <h2>Commercial register</h2>
-        <p>Register court: Amtsgericht Charlottenburg<br>Registration number: HRA 61099</p>
-        
-        <h2>Responsible for content</h2>
-        <p>Haydar Hinisli<br>Thaliaweg 17D<br>12249 Berlin</p>
+
+        <div class="cta-box">
+          <h2>Does this fit your shop?</h2>
+          <p>Briefly tell us which tools you use and what should be automated. You will receive a reply within one business day.</p>
+          <a class="button" href="mailto:haydar@4elements-digital.de?subject=Automation%20inquiry%3A%20Monitor%20Amazon%20inventory%20automatically%3A%20an%20email%20alert%20before%20stock%20runs%20low">Send an inquiry</a>
+        </div>
       </div>
     </article>
   </main>
@@ -89,7 +111,7 @@
   <footer class="site-footer">
     <div class="container site-footer__inner">
       <ul class="site-footer__links">
-        <li><a href="/en/legal-notice/" aria-current="page">Legal notice</a></li>
+        <li><a href="/en/legal-notice/">Legal notice</a></li>
         <li><a href="/en/privacy/">Privacy</a></li>
         <li>© 2026 4ELEMENTS e.K.</li>
       </ul>

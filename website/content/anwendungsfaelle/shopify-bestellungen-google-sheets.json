@@ -2,7 +2,7 @@
   "_hinweis": "BEISPIELSEITE mit Platzhaltertexten. Die finalen Texte liefert der Auftraggeber. Erst wenn 'published' auf true steht, erscheint die Seite in Navigation, Übersicht und Sitemap.",
 
   "published": false,
-  "order": 1,
+  "order": 2,
 
   "de": {
     "slug": "shopify-bestellungen-google-sheets",

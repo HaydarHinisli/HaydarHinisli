@@ -42,4 +42,32 @@
     <xhtml:link rel="alternate" hreflang="en" href="https://4elements-digital.de/en/privacy/"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://4elements-digital.de/datenschutz/"/>
   </url>
+  <url>
+    <loc>https://4elements-digital.de/anwendungsfaelle/</loc>
+    <lastmod>2026-10-05</lastmod>
+    <xhtml:link rel="alternate" hreflang="de" href="https://4elements-digital.de/anwendungsfaelle/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://4elements-digital.de/en/use-cases/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://4elements-digital.de/anwendungsfaelle/"/>
+  </url>
+  <url>
+    <loc>https://4elements-digital.de/en/use-cases/</loc>
+    <lastmod>2026-10-05</lastmod>
+    <xhtml:link rel="alternate" hreflang="de" href="https://4elements-digital.de/anwendungsfaelle/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://4elements-digital.de/en/use-cases/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://4elements-digital.de/anwendungsfaelle/"/>
+  </url>
+  <url>
+    <loc>https://4elements-digital.de/amazon-lagerbestand-warnung/</loc>
+    <lastmod>2026-10-05</lastmod>
+    <xhtml:link rel="alternate" hreflang="de" href="https://4elements-digital.de/amazon-lagerbestand-warnung/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://4elements-digital.de/en/amazon-low-stock-alert/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://4elements-digital.de/amazon-lagerbestand-warnung/"/>
+  </url>
+  <url>
+    <loc>https://4elements-digital.de/en/amazon-low-stock-alert/</loc>
+    <lastmod>2026-10-05</lastmod>
+    <xhtml:link rel="alternate" hreflang="de" href="https://4elements-digital.de/amazon-lagerbestand-warnung/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://4elements-digital.de/en/amazon-low-stock-alert/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://4elements-digital.de/amazon-lagerbestand-warnung/"/>
+  </url>
 </urlset>

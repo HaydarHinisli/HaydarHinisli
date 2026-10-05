@@ -615,9 +615,10 @@ ${list
 function useCasePage(uc, lang) {
   const tx = t[lang].useCases;
   const c = uc[lang];
+  // Ohne Screenshot: auf veröffentlichten Seiten Abschnitt weglassen, in Entwürfen Platzhalter zeigen
   const screenshot = c.screenshot
     ? image(c.screenshot, c.screenshotAlt, 'usecase__screenshot')
-    : `<div class="usecase__screenshot usecase__screenshot--placeholder" role="img" aria-label="${esc(c.screenshotAlt)}"><span>${esc(tx.screenshotPlaceholder)}</span></div>`;
+    : uc.published ? '' : `<div class="usecase__screenshot usecase__screenshot--placeholder" role="img" aria-label="${esc(c.screenshotAlt)}"><span>${esc(tx.screenshotPlaceholder)}</span></div>`;
   const body = `
     <article class="section usecase">
       <div class="container container--narrow">
@@ -636,8 +637,8 @@ function useCasePage(uc, lang) {
           ${c.result.map((r) => `<li>${esc(r)}</li>`).join('\n          ')}
         </ul>
 
-        <h2>${esc(tx.screenshotHeading)}</h2>
-        <figure class="usecase__figure">${screenshot}</figure>
+        ${screenshot ? `<h2>${esc(tx.screenshotHeading)}</h2>
+        <figure class="usecase__figure">${screenshot}</figure>` : ''}
 
         <div class="cta-box">
           <h2>${esc(tx.ctaHeading)}</h2>

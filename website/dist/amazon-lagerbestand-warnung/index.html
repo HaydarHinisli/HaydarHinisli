@@ -3,20 +3,20 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Shopify-Bestellungen automatisch in Google Sheets übertragen | 4ELEMENTS</title>
-  <meta name="description" content="Neue Shopify-Bestellungen landen automatisch in Google Sheets – ohne Kopieren, ohne Tippfehler. Umgesetzt mit Make.">
-  <meta name="robots" content="noindex, nofollow">
-  <link rel="canonical" href="https://4elements-digital.de/shopify-bestellungen-google-sheets/">
-  <link rel="alternate" hreflang="de" href="https://4elements-digital.de/shopify-bestellungen-google-sheets/">
-  <link rel="alternate" hreflang="en" href="https://4elements-digital.de/en/shopify-orders-google-sheets/">
-  <link rel="alternate" hreflang="x-default" href="https://4elements-digital.de/shopify-bestellungen-google-sheets/">
+  <title>Amazon-Lagerbestand automatisch überwachen – Warnung per E-Mail | 4ELEMENTS</title>
+  <meta name="description" content="Automatische Bestandswarnung für Amazon-Händler: Make prüft den Lagerbestand und schickt eine E-Mail, bevor ein Produkt knapp wird. Aus unserem eigenen Shop.">
+  
+  <link rel="canonical" href="https://4elements-digital.de/amazon-lagerbestand-warnung/">
+  <link rel="alternate" hreflang="de" href="https://4elements-digital.de/amazon-lagerbestand-warnung/">
+  <link rel="alternate" hreflang="en" href="https://4elements-digital.de/en/amazon-low-stock-alert/">
+  <link rel="alternate" hreflang="x-default" href="https://4elements-digital.de/amazon-lagerbestand-warnung/">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="4ELEMENTS">
   <meta property="og:locale" content="de_DE">
   <meta property="og:locale:alternate" content="en_GB">
-  <meta property="og:url" content="https://4elements-digital.de/shopify-bestellungen-google-sheets/">
-  <meta property="og:title" content="Shopify-Bestellungen automatisch in Google Sheets übertragen | 4ELEMENTS">
-  <meta property="og:description" content="Neue Shopify-Bestellungen landen automatisch in Google Sheets – ohne Kopieren, ohne Tippfehler. Umgesetzt mit Make.">
+  <meta property="og:url" content="https://4elements-digital.de/amazon-lagerbestand-warnung/">
+  <meta property="og:title" content="Amazon-Lagerbestand automatisch überwachen – Warnung per E-Mail | 4ELEMENTS">
+  <meta property="og:description" content="Automatische Bestandswarnung für Amazon-Händler: Make prüft den Lagerbestand und schickt eine E-Mail, bevor ein Produkt knapp wird. Aus unserem eigenen Shop.">
   <meta property="og:image" content="https://4elements-digital.de/assets/img/og-image.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
@@ -56,7 +56,7 @@
           <li><a href="/#kontakt">Kontakt</a></li>
         </ul>
         <ul class="lang-switch" aria-label="Sprache wählen">
-          <li><a href="/shopify-bestellungen-google-sheets/" hreflang="de" lang="de" aria-current="true">DE</a></li><li aria-hidden="true" class="lang-switch__sep">|</li><li><a href="/en/shopify-orders-google-sheets/" hreflang="en" lang="en">EN</a></li>
+          <li><a href="/amazon-lagerbestand-warnung/" hreflang="de" lang="de" aria-current="true">DE</a></li><li aria-hidden="true" class="lang-switch__sep">|</li><li><a href="/en/amazon-low-stock-alert/" hreflang="en" lang="en">EN</a></li>
         </ul>
         <a class="button button--small nav-cta" href="/#kontakt">Projekt anfragen <span class="button__arrow" aria-hidden="true">→</span></a>
       </nav>
@@ -72,36 +72,37 @@
     <article class="section usecase">
       <div class="container container--narrow">
         <p class="usecase__back"><a href="/anwendungsfaelle/">← Alle Anwendungsfälle</a></p>
-        <h1 class="page-title">Shopify-Bestellungen automatisch in Google Sheets übertragen</h1>
+        <h1 class="page-title">Amazon-Lagerbestand automatisch überwachen: Warnung per E-Mail, bevor es knapp wird</h1>
 
         <h2>Das Problem</h2>
-        <p>Platzhalter: Viele Händler kopieren neue Bestellungen täglich von Hand aus Shopify in eine Tabelle. Das kostet Zeit, und bei jedem Kopiervorgang können Fehler passieren.</p>
+        <p>Wir verkaufen selbst seit 2021 mit einer eigenen Marke auf Amazon. Den Lagerbestand hatten wir lange nicht systematisch im Blick: Im Tagesgeschäft ging das Nachsehen schlicht unter, und oft fiel erst auf, dass ein Produkt knapp war, als es schon fast ausverkauft war.</p>
+<p>Das ist bei Amazon doppelt ärgerlich: Ein leeres Lager kostet nicht nur Verkäufe, sondern kann auch die Platzierung des Produkts schwächen. Und Nachschub braucht Zeit.</p>
 
         <h2>Die Lösung</h2>
         <figure class="flow flow--responsive">
   <ol class="flow__list" aria-label="Die Lösung">
-    <li class="flow__step"><span class="flow__node" aria-hidden="true">01</span><span class="flow__label">Shopify-Bestellung</span></li>
-    <li class="flow__step"><span class="flow__node" aria-hidden="true">02</span><span class="flow__label">Make</span></li>
-    <li class="flow__step"><span class="flow__node" aria-hidden="true">03</span><span class="flow__label">Google Sheets</span></li>
-    <li class="flow__step"><span class="flow__node" aria-hidden="true">04</span><span class="flow__label">Benachrichtigung</span></li>
+    <li class="flow__step"><span class="flow__node" aria-hidden="true">01</span><span class="flow__label">Bestand in Google Sheets</span></li>
+    <li class="flow__step"><span class="flow__node" aria-hidden="true">02</span><span class="flow__label">Make prüft regelmäßig</span></li>
+    <li class="flow__step"><span class="flow__node" aria-hidden="true">03</span><span class="flow__label">Mindestmenge unterschritten?</span></li>
+    <li class="flow__step"><span class="flow__node" aria-hidden="true">04</span><span class="flow__label">Warnung per E-Mail</span></li>
   </ol>
 </figure>
-        <p>Platzhalter: Ein Make-Szenario reagiert auf jede neue Bestellung, überträgt die relevanten Felder in eine Google-Tabelle und meldet sich, falls etwas nicht stimmt.</p>
+        <p>Die Bestandszahlen liegen in einer Google-Tabelle. Ein Make-Szenario liest sie in festen Abständen aus und vergleicht jeden Artikel mit einer Mindestmenge, die wir pro Produkt festgelegt haben.</p>
+<p>Fällt ein Artikel darunter, kommt automatisch eine E-Mail mit Produkt und aktuellem Bestand. Ist alles im grünen Bereich, passiert nichts – es gibt also keine überflüssigen Nachrichten.</p>
 
         <h2>Das Ergebnis</h2>
         <ul class="checklist">
-          <li>Platzhalter: keine manuelle Übertragung mehr</li>
-          <li>Platzhalter: vollständige, einheitliche Daten</li>
-          <li>Platzhalter: Fehler werden sofort gemeldet</li>
+          <li>Kein manuelles Nachsehen mehr – die Kontrolle läuft von selbst</li>
+          <li>Knappe Artikel fallen früh auf, mit Zeit zum Nachbestellen</li>
+          <li>Weniger Stress: Wir müssen nicht mehr daran denken</li>
         </ul>
 
-        <h2>Das Make-Szenario</h2>
-        <figure class="usecase__figure"><div class="usecase__screenshot usecase__screenshot--placeholder" role="img" aria-label="Make-Szenario: Shopify-Bestellung wird in Google Sheets eingetragen"><span>Screenshot des Make-Szenarios folgt</span></div></figure>
+        
 
         <div class="cta-box">
           <h2>Passt das zu deinem Shop?</h2>
           <p>Beschreib uns kurz, welche Tools du nutzt und was automatisiert werden soll. Du bekommst innerhalb eines Werktags eine Antwort.</p>
-          <a class="button" href="mailto:haydar@4elements-digital.de?subject=Anfrage%20Automatisierung%3A%20Shopify-Bestellungen%20automatisch%20in%20Google%20Sheets%20%C3%BCbertragen">Anfrage stellen</a>
+          <a class="button" href="mailto:haydar@4elements-digital.de?subject=Anfrage%20Automatisierung%3A%20Amazon-Lagerbestand%20automatisch%20%C3%BCberwachen%3A%20Warnung%20per%20E-Mail%2C%20bevor%20es%20knapp%20wird">Anfrage stellen</a>
         </div>
       </div>
     </article>

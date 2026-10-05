@@ -1555,3 +1555,12 @@ html.theme-hell main > .section:first-child, html.theme-futur main > .section:fi
 .tile--accent { border-color: rgba(61, 220, 151, 0.45); }
 html.theme-futur .tile__tags li { background: rgba(255, 255, 255, 0.04); border-color: var(--border); color: #aab3bd; }
 html.theme-futur .tile--accent { background: linear-gradient(180deg, rgba(61, 220, 151, 0.1), rgba(255, 255, 255, 0.015)); border-color: rgba(94, 240, 176, 0.35); }
+
+/* Mittlere Bildschirmbreiten: Navigation einzeilig halten, Anfrage-Knopf erst ab 72em (Kontakt bleibt im Menü) */
+.site-nav__list a, .nav-cta { white-space: nowrap; }
+@media (min-width: 56em) and (max-width: 71.99em) {
+  html.theme-futur .nav-cta, html.theme-hell .nav-cta { display: none; }
+  html.theme-futur .site-nav, html.theme-hell .site-nav { gap: 0.75rem; }
+  html.theme-futur .site-nav__list a, html.theme-hell .site-nav__list a { padding-inline: 0.55rem; }
+  html.theme-futur .lang-switch, html.theme-hell .lang-switch { padding-left: 0.75rem; }
+}
